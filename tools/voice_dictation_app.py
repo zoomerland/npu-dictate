@@ -1,10 +1,13 @@
+import ctypes
 import json
+import os
 import queue
 import threading
 import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
+from ctypes import wintypes
 
 import numpy as np
 import onnx_asr
@@ -148,6 +151,96 @@ def result_to_text(result):
     return str(result)
 
 
+class ForegroundWindowTracker:
+    def __init__(self):
+        self.enabled = os.name == "nt"
+        self.last_target_hwnd = None
+        if not self.enabled:
+            return
+
+        self.user32 = ctypes.WinDLL("user32", use_last_error=True)
+        self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.user32.GetForegroundWindow.restype = wintypes.HWND
+        self.user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        self.user32.GetAncestor.restype = wintypes.HWND
+        self.user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        self.user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        self.user32.IsWindow.argtypes = [wintypes.HWND]
+        self.user32.IsWindow.restype = wintypes.BOOL
+        self.user32.IsIconic.argtypes = [wintypes.HWND]
+        self.user32.IsIconic.restype = wintypes.BOOL
+        self.user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        self.user32.ShowWindow.restype = wintypes.BOOL
+        self.user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+        self.user32.AttachThreadInput.restype = wintypes.BOOL
+        self.user32.BringWindowToTop.argtypes = [wintypes.HWND]
+        self.user32.BringWindowToTop.restype = wintypes.BOOL
+        self.user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+        self.user32.SetForegroundWindow.restype = wintypes.BOOL
+        self.user32.SetFocus.argtypes = [wintypes.HWND]
+        self.user32.SetFocus.restype = wintypes.HWND
+        self.kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+        self.current_pid = os.getpid()
+        self.GA_ROOT = 2
+        self.SW_RESTORE = 9
+
+    def foreground_hwnd(self):
+        if not self.enabled:
+            return None
+        hwnd = self.user32.GetForegroundWindow()
+        if not hwnd:
+            return None
+        return self.user32.GetAncestor(hwnd, self.GA_ROOT) or hwnd
+
+    def hwnd_pid(self, hwnd):
+        pid = ctypes.c_ulong()
+        self.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        return pid.value
+
+    def is_usable_target(self, hwnd):
+        if not self.enabled or not hwnd:
+            return False
+        if not self.user32.IsWindow(hwnd):
+            return False
+        return self.hwnd_pid(hwnd) != self.current_pid
+
+    def observe_foreground(self):
+        hwnd = self.foreground_hwnd()
+        if self.is_usable_target(hwnd):
+            self.last_target_hwnd = hwnd
+
+    def restore_last_target(self):
+        hwnd = self.last_target_hwnd
+        if not self.is_usable_target(hwnd):
+            return False
+
+        if self.user32.IsIconic(hwnd):
+            self.user32.ShowWindow(hwnd, self.SW_RESTORE)
+
+        foreground = self.user32.GetForegroundWindow()
+        foreground_thread = self.user32.GetWindowThreadProcessId(foreground, None)
+        target_thread = self.user32.GetWindowThreadProcessId(hwnd, None)
+        current_thread = self.kernel32.GetCurrentThreadId()
+
+        attached_foreground = False
+        attached_target = False
+        try:
+            if foreground_thread and foreground_thread != current_thread:
+                attached_foreground = bool(self.user32.AttachThreadInput(current_thread, foreground_thread, True))
+            if target_thread and target_thread != current_thread:
+                attached_target = bool(self.user32.AttachThreadInput(current_thread, target_thread, True))
+
+            self.user32.BringWindowToTop(hwnd)
+            self.user32.SetForegroundWindow(hwnd)
+            self.user32.SetFocus(hwnd)
+            return self.foreground_hwnd() == hwnd
+        finally:
+            if attached_target:
+                self.user32.AttachThreadInput(current_thread, target_thread, False)
+            if attached_foreground:
+                self.user32.AttachThreadInput(current_thread, foreground_thread, False)
+
+
 class HotkeyManager:
     def __init__(self, cfg, dispatch):
         self.cfg = cfg
@@ -213,10 +306,11 @@ class HotkeyManager:
 
 
 class DictationEngine:
-    def __init__(self, cfg, status_callback, text_callback):
+    def __init__(self, cfg, status_callback, text_callback, focus_callback=None):
         self.cfg = cfg
         self.status_callback = status_callback
         self.text_callback = text_callback
+        self.focus_callback = focus_callback
         self.asr = None
         self.punct = None
         self.loaded = False
@@ -380,8 +474,10 @@ class DictationEngine:
             if final_text:
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
                 if self.cfg.get("auto_paste", True):
-                    self.paste_text(final_text)
-                    self.set_status("Pasted")
+                    if self.paste_text(final_text):
+                        self.set_status("Pasted")
+                    else:
+                        self.set_status("Copied")
                 else:
                     pyperclip.copy(final_text)
                     self.set_status("Copied")
@@ -395,11 +491,17 @@ class DictationEngine:
 
     def paste_text(self, text):
         pyperclip.copy(text)
-        time.sleep(0.05)
+        target_ready = True
+        if self.focus_callback:
+            target_ready = bool(self.focus_callback())
+        if not target_ready:
+            return False
+        time.sleep(0.12)
         self.keyboard.press(keyboard.Key.ctrl)
         self.keyboard.press("v")
         self.keyboard.release("v")
         self.keyboard.release(keyboard.Key.ctrl)
+        return True
 
 
 class VoiceDictationApp:
@@ -418,7 +520,13 @@ class VoiceDictationApp:
         self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
         self.progress_running = False
 
-        self.engine = DictationEngine(self.cfg, self.queue_status, self.queue_text)
+        self.foreground_tracker = ForegroundWindowTracker()
+        self.engine = DictationEngine(
+            self.cfg,
+            self.queue_status,
+            self.queue_text,
+            focus_callback=self.restore_target_window,
+        )
         self.hotkeys = HotkeyManager(self.cfg, self.dispatch)
 
         self._build_overlay()
@@ -429,6 +537,7 @@ class VoiceDictationApp:
             self.root.withdraw()
 
         self.root.after(100, self.poll_events)
+        self.root.after(100, self.track_foreground)
         self.root.after(500, self.engine.load_async)
         self.hotkeys.start()
 
@@ -536,6 +645,13 @@ class VoiceDictationApp:
                 )
 
         self.root.after(50, self.poll_events)
+
+    def track_foreground(self):
+        self.foreground_tracker.observe_foreground()
+        self.root.after(100, self.track_foreground)
+
+    def restore_target_window(self):
+        return self.foreground_tracker.restore_last_target()
 
     def handle_action(self, action):
         if action == "toggle_overlay":
