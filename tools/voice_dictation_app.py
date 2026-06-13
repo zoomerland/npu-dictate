@@ -88,6 +88,7 @@ def default_config():
         "overlay_y": None,
         "overlay_size": "medium",
         "overlay_details": "full",
+        "overlay_opacity": 1.0,
     }
 
 
@@ -105,6 +106,14 @@ def save_config(cfg):
     path = config_path()
     with path.open("w", encoding="utf-8") as file:
         json.dump(cfg, file, ensure_ascii=False, indent=2)
+
+
+def clamp_overlay_opacity(value):
+    try:
+        opacity = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    return min(max(opacity, 0.3), 1.0)
 
 
 def log_debug(message):
@@ -790,6 +799,7 @@ class VoiceDictationApp:
         self.root.attributes("-topmost", True)
         self.root.overrideredirect(True)
         self.root.configure(bg="#20242b")
+        self.apply_overlay_opacity()
 
         self.status_var = tk.StringVar(value="Loading models")
         self.last_text_var = tk.StringVar(value="")
@@ -910,6 +920,13 @@ class VoiceDictationApp:
             },
         }
         return profiles.get(self.cfg.get("overlay_size", "medium"), profiles["medium"])
+
+    def apply_overlay_opacity(self, opacity=None):
+        opacity = clamp_overlay_opacity(self.cfg.get("overlay_opacity", 1.0) if opacity is None else opacity)
+        try:
+            self.root.attributes("-alpha", opacity)
+        except tk.TclError:
+            pass
 
     def overlay_details_mode(self):
         value = self.cfg.get("overlay_details", "full")
@@ -1186,6 +1203,8 @@ class VoiceDictationApp:
         overlay_hotkey = tk.StringVar(value=self.cfg.get("overlay_hotkey", "ctrl+alt+shift+d"))
         overlay_size = tk.StringVar(value=self.cfg.get("overlay_size", "medium"))
         overlay_details = tk.StringVar(value=self.cfg.get("overlay_details", "full"))
+        overlay_opacity = tk.DoubleVar(value=clamp_overlay_opacity(self.cfg.get("overlay_opacity", 1.0)) * 100)
+        overlay_opacity_label = tk.StringVar()
         sample_rate = tk.StringVar(value=str(self.cfg.get("sample_rate", 0)))
         use_punctuation = tk.BooleanVar(value=bool(self.cfg.get("use_punctuation", True)))
         auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
@@ -1214,6 +1233,7 @@ class VoiceDictationApp:
             overlay_hotkey,
             overlay_size,
             overlay_details,
+            overlay_opacity,
             selected_device,
             sample_rate,
             use_punctuation,
@@ -1221,6 +1241,12 @@ class VoiceDictationApp:
             append_space,
         ):
             variable.trace_add("write", mark_dirty)
+
+        def update_opacity_label(*_):
+            overlay_opacity_label.set(f"{int(round(overlay_opacity.get()))}%")
+
+        overlay_opacity.trace_add("write", update_opacity_label)
+        update_opacity_label()
 
         def current_values():
             try:
@@ -1235,6 +1261,7 @@ class VoiceDictationApp:
                 "overlay_hotkey": overlay_hotkey.get(),
                 "overlay_size": overlay_size.get(),
                 "overlay_details": overlay_details.get(),
+                "overlay_opacity": clamp_overlay_opacity(overlay_opacity.get() / 100),
                 "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
                 "sample_rate": sample_rate_value,
                 "use_punctuation": bool(use_punctuation.get()),
@@ -1299,6 +1326,20 @@ class VoiceDictationApp:
         ).grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
+        ttk.Label(win, text="Overlay opacity").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        opacity_frame = ttk.Frame(win)
+        opacity_frame.grid(row=row, column=1, sticky="ew", pady=6)
+        opacity_frame.columnconfigure(0, weight=1)
+        ttk.Scale(
+            opacity_frame,
+            from_=30,
+            to=100,
+            variable=overlay_opacity,
+            orient="horizontal",
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 12))
+        ttk.Label(opacity_frame, textvariable=overlay_opacity_label, width=5).grid(row=0, column=1, sticky="e")
+
+        row += 1
         ttk.Label(win, text="Dictation hotkey").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Entry(win, textvariable=dict_hotkey, width=36, font=settings_font).grid(row=row, column=1, sticky="ew", pady=6)
 
@@ -1351,6 +1392,7 @@ class VoiceDictationApp:
             values["overlay_size"] = "medium"
         if values.get("overlay_details") not in {"button", "status", "full"}:
             values["overlay_details"] = "full"
+        values["overlay_opacity"] = clamp_overlay_opacity(values.get("overlay_opacity", 1.0))
         if not parse_hotkey(values["dictation_hotkey"]):
             self.update_status("Bad hotkey")
             return False
@@ -1364,6 +1406,7 @@ class VoiceDictationApp:
         self.engine.update_config(self.cfg)
         self.hotkey_label.configure(text=self.cfg["dictation_hotkey"].upper())
         self.apply_overlay_layout()
+        self.apply_overlay_opacity()
         self._position_overlay()
         self.update_status("Settings saved")
         if close:

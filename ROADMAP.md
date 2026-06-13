@@ -60,7 +60,7 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Square.
   - Rounded square.
   - Circle.
-- [ ] Add overlay opacity slider in settings:
+- [x] Add overlay opacity slider in settings:
   - Store opacity in config.
   - Apply opacity to the overlay window immediately.
   - Keep a safe minimum opacity so the overlay cannot become invisible.
