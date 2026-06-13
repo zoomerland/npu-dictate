@@ -537,6 +537,41 @@ def lowercase_first_alpha(text):
     return text
 
 
+def first_alpha_is_lower(text):
+    for char in str(text or ""):
+        if char.isalpha():
+            return char.islower()
+    return False
+
+
+def align_inserted_tokens(raw_text, inserted_text):
+    raw_tokens = str(raw_text or "").split()
+    inserted_tokens = str(inserted_text or "").split()
+    if not raw_tokens or len(inserted_tokens) < len(raw_tokens):
+        return raw_tokens, inserted_tokens, 0
+    return raw_tokens, inserted_tokens, len(inserted_tokens) - len(raw_tokens)
+
+
+def adjust_inserted_casing(raw_text, inserted_text, context=""):
+    raw_tokens, inserted_tokens, start_index = align_inserted_tokens(raw_text, inserted_text)
+    if not raw_tokens or not inserted_tokens:
+        return str(inserted_text or "")
+
+    previous_text = str(context or "")
+    for token in inserted_tokens[:start_index]:
+        previous_text = f"{previous_text} {token}".strip()
+
+    for index, raw_token in enumerate(raw_tokens):
+        inserted_index = start_index + index
+        if inserted_index >= len(inserted_tokens):
+            break
+        if first_alpha_is_lower(raw_token) and previous_text and not text_ends_sentence(previous_text):
+            inserted_tokens[inserted_index] = lowercase_first_alpha(inserted_tokens[inserted_index])
+        previous_text = f"{previous_text} {inserted_tokens[inserted_index]}".strip()
+
+    return " ".join(inserted_tokens)
+
+
 def boundary_prefix_from_context(context, restored_tokens, raw_token_count):
     context = str(context or "")
     context_tokens = context.rstrip().split()
@@ -568,7 +603,7 @@ def inserted_text_from_context(raw_text, restored_with_context, context):
         tail = tail[len(boundary) :].lstrip()
     if context and not text_ends_sentence(context) and not text_ends_sentence(prefix):
         tail = lowercase_first_alpha(tail)
-    return f"{prefix}{tail}"
+    return adjust_inserted_casing(raw_text, f"{prefix}{tail}", context)
 
 
 class GUITHREADINFO(ctypes.Structure):
@@ -1166,6 +1201,7 @@ class DictationEngine:
                     final_text = inserted_text_from_context(raw_text, restored, context)
                 else:
                     final_text = self.punct.restore(raw_text)
+                    final_text = adjust_inserted_casing(raw_text, final_text)
                 punct_sec = time.perf_counter() - start
 
             if self.cfg.get("append_space", False) and final_text:
