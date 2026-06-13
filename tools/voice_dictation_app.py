@@ -990,7 +990,13 @@ class VoiceDictationApp:
         return x, y
 
     def _build_menu(self):
-        self.menu = tk.Menu(self.root, tearoff=0)
+        self.menu = tk.Menu(
+            self.root,
+            tearoff=0,
+            font=("Segoe UI", 12),
+            borderwidth=2,
+            activeborderwidth=2,
+        )
         self.menu.add_command(label="Start/Stop", command=self.engine.toggle_recording)
         self.menu.add_command(label="Settings", command=self.open_settings)
         self.menu.add_command(label="Hide overlay", command=self.hide_overlay)

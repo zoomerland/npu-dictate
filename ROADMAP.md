@@ -60,10 +60,19 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Square.
   - Rounded square.
   - Circle.
+- [ ] Add overlay opacity slider in settings:
+  - Store opacity in config.
+  - Apply opacity to the overlay window immediately.
+  - Keep a safe minimum opacity so the overlay cannot become invisible.
 - [x] Add compact/full overlay modes:
   - Button only.
   - Button plus status.
   - Button plus status and hotkey hint.
+- [ ] Round UI corners where the Windows/Tk stack allows it:
+  - Overlay button and frame.
+  - Settings controls or grouped sections.
+  - Context menu/tray menu where practical.
+- [x] Increase context menu size to match the settings readability scale.
 - [ ] Improve recording/loading/transcribing visual states.
 - [x] Add settings warning when closing with unsaved changes.
 - [x] Add Apply / Save / Cancel behavior.
