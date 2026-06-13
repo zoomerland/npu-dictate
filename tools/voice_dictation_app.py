@@ -1,7 +1,9 @@
 import ctypes
 import json
 import os
+import platform
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -1115,6 +1117,7 @@ class VoiceDictationApp:
         self.menu.add_command(label="Start/Stop", command=self.engine.toggle_recording)
         self.menu.add_command(label="Settings", command=self.open_settings)
         self.menu.add_command(label="Hide overlay", command=self.hide_overlay)
+        self.menu.add_command(label="Copy debug info", command=self.copy_debug_info)
         self.menu.add_separator()
         self.menu.add_command(label="Exit", command=self.exit_app)
 
@@ -1154,6 +1157,7 @@ class VoiceDictationApp:
                     pystray.MenuItem("Show overlay", lambda: self.dispatch("show_overlay"), default=True),
                     pystray.MenuItem("Hide overlay", lambda: self.dispatch("hide_overlay")),
                     pystray.MenuItem("Settings", lambda: self.dispatch("open_settings")),
+                    pystray.MenuItem("Copy debug info", lambda: self.dispatch("copy_debug_info")),
                     pystray.Menu.SEPARATOR,
                     pystray.MenuItem("Quit", lambda: self.dispatch("exit_app")),
                 ),
@@ -1227,6 +1231,39 @@ class VoiceDictationApp:
         log_debug(f"restore input={input_restored} window={window_restored}")
         return window_restored
 
+    def collect_debug_info(self):
+        log_path = repo_root() / "voice_dictation.log"
+        log_tail = []
+        if log_path.exists():
+            try:
+                log_tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
+            except OSError as exc:
+                log_tail = [f"log read error: {type(exc).__name__}"]
+
+        info = {
+            "app": APP_NAME,
+            "status": self.current_status,
+            "python": sys.version,
+            "platform": platform.platform(),
+            "repo_root": str(repo_root()),
+            "config_path": str(config_path()),
+            "config": self.cfg,
+            "models": {
+                "asr_dir_exists": asr_model_dir().exists(),
+                "punct_dir_exists": default_punct_model_dir().exists(),
+            },
+            "tray_available": pystray is not None,
+            "tray_running": self.tray_icon is not None,
+            "overlay_state": self.root.state(),
+            "last_text": self.last_text_var.get(),
+            "log_tail": log_tail,
+        }
+        return json.dumps(info, ensure_ascii=False, indent=2)
+
+    def copy_debug_info(self):
+        pyperclip.copy(self.collect_debug_info())
+        self.update_status("Debug copied")
+
     def handle_action(self, action):
         if action == "toggle_overlay":
             self.toggle_overlay()
@@ -1236,6 +1273,8 @@ class VoiceDictationApp:
             self.hide_overlay()
         elif action == "open_settings":
             self.open_settings()
+        elif action == "copy_debug_info":
+            self.copy_debug_info()
         elif action == "exit_app":
             self.exit_app()
         elif action == "start_recording":

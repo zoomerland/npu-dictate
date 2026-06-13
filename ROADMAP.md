@@ -32,7 +32,7 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Telegram/Slack/Discord-like apps.
   - Office/Word-like editors.
 - [ ] Add a user-visible fallback when paste fails.
-- [ ] Add a small diagnostics view or "copy debug info" action.
+- [x] Add a small diagnostics view or "copy debug info" action.
 - [ ] Long dictation test: pauses, silence, repeated phrases, and cancellation.
 - [ ] Decide how to handle leading/trailing spaces around inserted text.
 - [x] Fix startup state transitions:
