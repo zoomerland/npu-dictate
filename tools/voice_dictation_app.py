@@ -160,10 +160,25 @@ def result_to_text(result):
     return str(result)
 
 
+class GUITHREADINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("hwndActive", wintypes.HWND),
+        ("hwndFocus", wintypes.HWND),
+        ("hwndCapture", wintypes.HWND),
+        ("hwndMenuOwner", wintypes.HWND),
+        ("hwndMoveSize", wintypes.HWND),
+        ("hwndCaret", wintypes.HWND),
+        ("rcCaret", wintypes.RECT),
+    ]
+
+
 class ForegroundWindowTracker:
     def __init__(self):
         self.enabled = os.name == "nt"
         self.last_target_hwnd = None
+        self.last_focus_hwnd = None
         if not self.enabled:
             return
 
@@ -217,6 +232,10 @@ class ForegroundWindowTracker:
             wintypes.UINT,
         ]
         self.user32.SetWindowPos.restype = wintypes.BOOL
+        self.user32.GetGUIThreadInfo.argtypes = [wintypes.DWORD, ctypes.c_void_p]
+        self.user32.GetGUIThreadInfo.restype = wintypes.BOOL
+        self.user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        self.user32.GetClassNameW.restype = ctypes.c_int
 
     def foreground_hwnd(self):
         if not self.enabled:
@@ -242,17 +261,29 @@ class ForegroundWindowTracker:
         hwnd = self.foreground_hwnd()
         if self.is_usable_target(hwnd):
             self.last_target_hwnd = hwnd
+            focus_hwnd = self.focus_hwnd_for_window(hwnd)
+            if focus_hwnd and self.user32.IsWindow(focus_hwnd):
+                self.last_focus_hwnd = focus_hwnd
 
     def restore_last_target(self):
         current = self.foreground_hwnd()
         if self.is_usable_target(current):
             self.last_target_hwnd = current
+            focus_hwnd = self.focus_hwnd_for_window(current)
+            if focus_hwnd and self.user32.IsWindow(focus_hwnd):
+                self.last_focus_hwnd = focus_hwnd
+            log_debug(
+                "win current "
+                f"target={self.describe_hwnd(current)} "
+                f"focus={self.describe_hwnd(focus_hwnd)}"
+            )
             return True
 
         hwnd = self.last_target_hwnd
         if not self.is_usable_target(hwnd):
             return False
         target_pid = self.hwnd_pid(hwnd)
+        focus_hwnd = self.last_focus_hwnd if self.is_usable_focus(self.last_focus_hwnd, target_pid) else hwnd
 
         if self.user32.IsIconic(hwnd):
             self.user32.ShowWindow(hwnd, self.SW_RESTORE)
@@ -260,21 +291,32 @@ class ForegroundWindowTracker:
         foreground = self.user32.GetForegroundWindow()
         foreground_thread = self.user32.GetWindowThreadProcessId(foreground, None)
         target_thread = self.user32.GetWindowThreadProcessId(hwnd, None)
+        focus_thread = self.user32.GetWindowThreadProcessId(focus_hwnd, None)
         current_thread = self.kernel32.GetCurrentThreadId()
 
         attached_foreground = False
         attached_target = False
+        attached_focus = False
         try:
             if foreground_thread and foreground_thread != current_thread:
                 attached_foreground = bool(self.user32.AttachThreadInput(current_thread, foreground_thread, True))
             if target_thread and target_thread != current_thread:
                 attached_target = bool(self.user32.AttachThreadInput(current_thread, target_thread, True))
+            if focus_thread and focus_thread not in {current_thread, target_thread}:
+                attached_focus = bool(self.user32.AttachThreadInput(current_thread, focus_thread, True))
 
             self.user32.BringWindowToTop(hwnd)
             self.user32.SetForegroundWindow(hwnd)
-            self.user32.SetFocus(hwnd)
+            self.user32.SetFocus(focus_hwnd)
+            log_debug(
+                "win focus "
+                f"target={self.describe_hwnd(hwnd)} "
+                f"focus={self.describe_hwnd(focus_hwnd)}"
+            )
             return self.is_foreground_target(hwnd, target_pid)
         finally:
+            if attached_focus:
+                self.user32.AttachThreadInput(current_thread, focus_thread, False)
             if attached_target:
                 self.user32.AttachThreadInput(current_thread, target_thread, False)
             if attached_foreground:
@@ -300,6 +342,30 @@ class ForegroundWindowTracker:
         self.set_window_long(hwnd, self.GWL_EXSTYLE, style)
         flags = self.SWP_NOMOVE | self.SWP_NOSIZE | self.SWP_NOZORDER | self.SWP_FRAMECHANGED
         self.user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, flags)
+
+    def focus_hwnd_for_window(self, hwnd):
+        if not self.enabled or not hwnd:
+            return None
+
+        thread_id = self.user32.GetWindowThreadProcessId(hwnd, None)
+        info = GUITHREADINFO()
+        info.cbSize = ctypes.sizeof(GUITHREADINFO)
+        if not self.user32.GetGUIThreadInfo(thread_id, ctypes.byref(info)):
+            return None
+        return info.hwndFocus or info.hwndCaret or info.hwndActive
+
+    def is_usable_focus(self, hwnd, target_pid):
+        if not hwnd or not self.user32.IsWindow(hwnd):
+            return False
+        pid = self.hwnd_pid(hwnd)
+        return pid == target_pid and pid != self.current_pid
+
+    def describe_hwnd(self, hwnd):
+        if not hwnd:
+            return "None"
+        class_name = ctypes.create_unicode_buffer(256)
+        self.user32.GetClassNameW(hwnd, class_name, len(class_name))
+        return f"{int(hwnd)}:{class_name.value}"
 
 
 class FocusedInputTracker:
