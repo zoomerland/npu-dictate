@@ -893,9 +893,9 @@ class VoiceDictationApp:
                 "pady": 8,
                 "button_width": 10,
                 "button_height": 3,
-                "button_font": ("Segoe UI", 11, "bold"),
-                "status_font": ("Segoe UI", 9),
-                "hotkey_font": ("Segoe UI", 8),
+                "button_font": ("Segoe UI", 13, "bold"),
+                "status_font": ("Segoe UI", 10),
+                "hotkey_font": ("Segoe UI", 9),
                 "progress_length": 108,
             },
             "large": {
@@ -903,9 +903,9 @@ class VoiceDictationApp:
                 "pady": 10,
                 "button_width": 12,
                 "button_height": 3,
-                "button_font": ("Segoe UI", 12, "bold"),
-                "status_font": ("Segoe UI", 10),
-                "hotkey_font": ("Segoe UI", 9),
+                "button_font": ("Segoe UI", 17, "bold"),
+                "status_font": ("Segoe UI", 13),
+                "hotkey_font": ("Segoe UI", 11),
                 "progress_length": 128,
             },
         }
@@ -1162,8 +1162,18 @@ class VoiceDictationApp:
         self.settings_window = win
         win.title(APP_NAME + " Settings")
         win.attributes("-topmost", True)
-        win.resizable(False, False)
-        win.configure(padx=12, pady=12)
+        win.resizable(True, True)
+        win.configure(padx=24, pady=20)
+        win.minsize(780, 560)
+        win.columnconfigure(1, weight=1)
+
+        settings_font = ("Segoe UI", 12)
+        settings_small_font = ("Segoe UI", 10)
+        settings_style = ttk.Style(win)
+        settings_style.configure("TLabel", font=settings_font)
+        settings_style.configure("TCheckbutton", font=settings_font, padding=(0, 4))
+        settings_style.configure("TButton", font=settings_font, padding=(12, 6))
+        win.option_add("*TCombobox*Listbox.font", settings_font)
 
         mode = tk.StringVar(value=self.cfg.get("mode", "hold"))
         dict_hotkey = tk.StringVar(value=self.cfg.get("dictation_hotkey", "f8"))
@@ -1255,75 +1265,77 @@ class VoiceDictationApp:
         win.protocol("WM_DELETE_WINDOW", close_settings)
 
         row = 0
-        ttk.Label(win, text="Mode").grid(row=row, column=0, sticky="w", pady=4)
-        ttk.Combobox(win, textvariable=mode, values=["hold", "toggle"], state="readonly", width=24).grid(
-            row=row, column=1, sticky="ew", pady=4
+        ttk.Label(win, text="Mode").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Combobox(win, textvariable=mode, values=["hold", "toggle"], state="readonly", width=32, font=settings_font).grid(
+            row=row, column=1, sticky="ew", pady=6
         )
 
         row += 1
-        ttk.Label(win, text="Overlay size").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Label(win, text="Overlay size").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(
             win,
             textvariable=overlay_size,
             values=["small", "medium", "large"],
             state="readonly",
-            width=24,
-        ).grid(row=row, column=1, sticky="ew", pady=4)
+            width=32,
+            font=settings_font,
+        ).grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
-        ttk.Label(win, text="Overlay details").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Label(win, text="Overlay details").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(
             win,
             textvariable=overlay_details,
             values=["button", "status", "full"],
             state="readonly",
-            width=24,
-        ).grid(row=row, column=1, sticky="ew", pady=4)
+            width=32,
+            font=settings_font,
+        ).grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
-        ttk.Label(win, text="Dictation hotkey").grid(row=row, column=0, sticky="w", pady=4)
-        ttk.Entry(win, textvariable=dict_hotkey, width=28).grid(row=row, column=1, sticky="ew", pady=4)
+        ttk.Label(win, text="Dictation hotkey").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Entry(win, textvariable=dict_hotkey, width=36, font=settings_font).grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
-        ttk.Label(win, text="Overlay hotkey").grid(row=row, column=0, sticky="w", pady=4)
-        ttk.Entry(win, textvariable=overlay_hotkey, width=28).grid(row=row, column=1, sticky="ew", pady=4)
+        ttk.Label(win, text="Overlay hotkey").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Entry(win, textvariable=overlay_hotkey, width=36, font=settings_font).grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
-        ttk.Label(win, text="Input device").grid(row=row, column=0, sticky="w", pady=4)
-        ttk.Combobox(win, textvariable=selected_device, values=device_labels, state="readonly", width=56).grid(
-            row=row, column=1, sticky="ew", pady=4
+        ttk.Label(win, text="Input device").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Combobox(win, textvariable=selected_device, values=device_labels, state="readonly", width=72, font=settings_font).grid(
+            row=row, column=1, sticky="ew", pady=6
         )
 
         row += 1
-        ttk.Label(win, text="Sample rate").grid(row=row, column=0, sticky="w", pady=4)
-        ttk.Entry(win, textvariable=sample_rate, width=28).grid(row=row, column=1, sticky="w", pady=4)
+        ttk.Label(win, text="Sample rate").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Entry(win, textvariable=sample_rate, width=36, font=settings_font).grid(row=row, column=1, sticky="w", pady=6)
 
         row += 1
         ttk.Checkbutton(win, text="Use punctuation", variable=use_punctuation).grid(
-            row=row, column=1, sticky="w", pady=4
+            row=row, column=1, sticky="w", pady=6
         )
 
         row += 1
         ttk.Checkbutton(win, text="Paste into active field", variable=auto_paste).grid(
-            row=row, column=1, sticky="w", pady=4
+            row=row, column=1, sticky="w", pady=6
         )
 
         row += 1
         ttk.Checkbutton(win, text="Append trailing space", variable=append_space).grid(
-            row=row, column=1, sticky="w", pady=4
+            row=row, column=1, sticky="w", pady=6
         )
 
         row += 1
-        ttk.Label(win, textvariable=self.last_text_var, wraplength=420, foreground="#555").grid(
-            row=row, column=0, columnspan=2, sticky="ew", pady=(8, 4)
+        ttk.Label(win, textvariable=self.last_text_var, wraplength=700, foreground="#555", font=settings_small_font).grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=(12, 6)
         )
 
         row += 1
         buttons = ttk.Frame(win)
-        buttons.grid(row=row, column=0, columnspan=2, sticky="e", pady=(8, 0))
-        ttk.Button(buttons, text="Hide overlay", command=self.hide_overlay).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="Apply", command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="Save", command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 8))
+        buttons.grid(row=row, column=0, columnspan=2, sticky="e", pady=(14, 0))
+        ttk.Button(buttons, text="Hide overlay", command=self.hide_overlay).pack(side="left", padx=(0, 10))
+        ttk.Button(buttons, text="Apply", command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 10))
+        ttk.Button(buttons, text="Save", command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 10))
         ttk.Button(buttons, text="Cancel", command=close_settings).pack(side="left")
 
     def save_settings(self, win, values, close=True):
