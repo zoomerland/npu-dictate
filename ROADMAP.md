@@ -35,6 +35,10 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
 - [ ] Add a small diagnostics view or "copy debug info" action.
 - [ ] Long dictation test: pauses, silence, repeated phrases, and cancellation.
 - [ ] Decide how to handle leading/trailing spaces around inserted text.
+- [ ] Fix startup state transitions:
+  - Avoid briefly showing an idle/ready-looking state before model loading begins.
+  - Show model-loading/busy state immediately after app start.
+  - Keep the overlay disabled or clearly busy until models are ready.
 - [ ] Add context-aware insertion:
   - Read a small text fragment before the cursor when possible.
   - Use previous sentence or current unfinished sentence as punctuation context.
@@ -141,6 +145,14 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Long dictation.
   - CPU usage.
   - Battery/resource impact.
+- [ ] Publish benchmark notes for the current test laptop:
+  - Intel Core Ultra 5 135U.
+  - Intel AI Boost NPU.
+  - About 11 NPU TOPS / 22 total platform TOPS.
+  - Treat this as a weak/mainstream NPU baseline, not a high-end accelerator.
+- [ ] Document what currently runs on NPU and what still runs on CPU.
+- [ ] Provide CPU fallback for systems without NPU.
+- [ ] Make CPU-only mode obvious in settings and documentation.
 - [ ] Add device selector per model: Auto / CPU / GPU / NPU.
 - [ ] Add startup hardware capability checks.
 - [ ] Document tested Intel NPU devices.
@@ -158,6 +170,11 @@ Goal: publish a usable alpha for technical users.
   - Known limitations.
 - [ ] Add screenshots or short demo GIF/video.
 - [ ] Add CPU vs NPU section.
+- [ ] Include preliminary benchmark table:
+  - RUPunct CPU vs NPU latency.
+  - GigaAM CPU ASR latency.
+  - Planned GigaAM NPU benchmark once implemented.
+- [ ] Explain CPU-only support for users without NPU.
 - [ ] Add troubleshooting:
   - Microphone permissions.
   - Paste/focus problems.

@@ -50,6 +50,28 @@ The app prepares these local artifacts on first launch:
 
 Generated artifacts live under `models/` and are ignored by Git.
 
+## Hardware and Performance Notes
+
+Current development machine:
+
+- CPU: Intel Core Ultra 5 135U.
+- NPU: Intel AI Boost.
+- Approximate platform capability: 11 NPU TOPS, 22 total platform TOPS.
+
+This is intentionally treated as a mainstream/weak NPU baseline. If the app is useful here, it should be practical on many newer Windows laptops.
+
+Preliminary local measurements:
+
+- GigaAM v3 CTC ASR currently runs on CPU.
+  - 2 seconds of audio: about 0.15 seconds after warmup.
+  - 4 seconds of audio: about 0.24 seconds after warmup.
+  - 8 seconds of audio: about 0.40 seconds after warmup.
+- RUPunct punctuation restoration runs through OpenVINO and already works on NPU.
+  - Warm NPU inference is around 20-30 ms for short dictation chunks.
+  - Earlier OpenVINO CPU measurements were roughly 130 ms for comparable chunks.
+
+The app must support CPU-only machines. NPU acceleration is a feature, not a hard requirement. A clearer Auto / CPU / GPU / NPU device selector is planned.
+
 ## License Notes
 
 Do not publish converted model artifacts until each upstream license is checked again. GigaAM and `istupakov/gigaam-v3-onnx` are marked as MIT, but the RUPunct model card should be reviewed before redistributing a converted OpenVINO derivative.
