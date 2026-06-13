@@ -100,21 +100,21 @@ Goal: make the app interface available in multiple languages.
 
 This milestone is about UI language, not ASR language.
 
-- [ ] Add UI language selector to settings.
-- [ ] Store UI language in config.
-- [ ] Add translation dictionary or resource files.
-- [ ] Localize overlay text:
+- [x] Add UI language selector to settings.
+- [x] Store UI language in config.
+- [x] Add translation dictionary or resource files.
+- [x] Localize overlay text:
   - Recording.
   - Transcribing.
   - Loading.
   - Ready.
   - Copied/Pasted.
-- [ ] Localize settings window.
-- [ ] Localize tray menu.
-- [ ] Localize errors and model setup messages.
+- [x] Localize settings window.
+- [x] Localize tray menu.
+- [x] Localize errors and model setup messages.
 - [ ] Initial UI languages:
-  - English.
-  - Russian.
+  - [x] English.
+  - [x] Russian.
 - [ ] Optional later UI languages:
   - Spanish.
   - German.

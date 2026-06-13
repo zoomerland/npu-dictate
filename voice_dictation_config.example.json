@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "ui_language": "en",
   "mode": "hold",
   "dictation_hotkey": "f8",
   "overlay_hotkey": "ctrl+alt+shift+d",

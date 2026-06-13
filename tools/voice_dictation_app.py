@@ -30,6 +30,135 @@ except ImportError:
 
 APP_NAME = "Local Voice Dictation"
 CONFIG_VERSION = 1
+UI_LANGUAGE_NAMES = {
+    "en": "English",
+    "ru": "Русский",
+}
+UI_LANGUAGE_BY_NAME = {name: code for code, name in UI_LANGUAGE_NAMES.items()}
+TRANSLATIONS = {
+    "en": {
+        "settings_title": "Settings",
+        "status_prefix": "Status",
+        "start_stop": "Start/Stop",
+        "settings": "Settings",
+        "show_overlay": "Show overlay",
+        "hide_overlay": "Hide overlay",
+        "copy_debug_info": "Copy debug info",
+        "exit": "Exit",
+        "quit": "Quit",
+        "mode": "Mode",
+        "ui_language": "Interface language",
+        "overlay_size": "Overlay size",
+        "overlay_details": "Overlay details",
+        "overlay_opacity": "Overlay opacity",
+        "dictation_hotkey": "Dictation hotkey",
+        "overlay_hotkey": "Overlay hotkey",
+        "input_device": "Input device",
+        "sample_rate": "Sample rate",
+        "use_punctuation": "Use punctuation",
+        "paste_into_active_field": "Paste into active field",
+        "append_trailing_space": "Append trailing space",
+        "start_with_windows": "Start with Windows",
+        "assign": "Assign",
+        "press_keys": "Press keys...",
+        "apply": "Apply",
+        "save": "Save",
+        "cancel": "Cancel",
+        "unsaved_settings": "Unsaved settings",
+        "save_settings_before_closing": "Save settings before closing?",
+        "load_error": "Load error",
+        "error": "Error",
+        "Loading models": "Loading models",
+        "Downloading ASR": "Downloading ASR",
+        "Loading ASR": "Loading ASR",
+        "Downloading punct": "Downloading punct",
+        "Converting punct": "Converting punct",
+        "Loading punct": "Loading punct",
+        "Ready": "Ready",
+        "Starting": "Starting",
+        "Still loading": "Still loading",
+        "Recording": "Recording",
+        "Transcribing": "Transcribing",
+        "Pasted": "Pasted",
+        "Copied": "Copied",
+        "Copied - paste manually": "Copied - paste manually",
+        "No audio": "No audio",
+        "Too short": "Too short",
+        "No speech": "No speech",
+        "Debug copied": "Debug copied",
+        "Hotkey captured": "Hotkey captured",
+        "Hotkey capture canceled": "Hotkey capture canceled",
+        "Press hotkey": "Press hotkey",
+        "Finish hotkey capture": "Finish hotkey capture",
+        "Bad sample rate": "Bad sample rate",
+        "Bad hotkey": "Bad hotkey",
+        "Bad overlay key": "Bad overlay key",
+        "Hotkey conflict": "Hotkey conflict",
+        "Startup error": "Startup error",
+        "Settings saved": "Settings saved",
+    },
+    "ru": {
+        "settings_title": "Настройки",
+        "status_prefix": "Статус",
+        "start_stop": "Старт/стоп",
+        "settings": "Настройки",
+        "show_overlay": "Показать кнопку",
+        "hide_overlay": "Скрыть кнопку",
+        "copy_debug_info": "Скопировать диагностику",
+        "exit": "Выход",
+        "quit": "Выйти",
+        "mode": "Режим",
+        "ui_language": "Язык интерфейса",
+        "overlay_size": "Размер кнопки",
+        "overlay_details": "Детализация кнопки",
+        "overlay_opacity": "Прозрачность кнопки",
+        "dictation_hotkey": "Горячая клавиша диктовки",
+        "overlay_hotkey": "Горячая клавиша кнопки",
+        "input_device": "Микрофон",
+        "sample_rate": "Частота дискретизации",
+        "use_punctuation": "Использовать пунктуацию",
+        "paste_into_active_field": "Вставлять в активное поле",
+        "append_trailing_space": "Добавлять пробел в конце",
+        "start_with_windows": "Запускать вместе с Windows",
+        "assign": "Назначить",
+        "press_keys": "Нажмите клавиши...",
+        "apply": "Применить",
+        "save": "Сохранить",
+        "cancel": "Отмена",
+        "unsaved_settings": "Несохраненные настройки",
+        "save_settings_before_closing": "Сохранить настройки перед закрытием?",
+        "load_error": "Ошибка загрузки",
+        "error": "Ошибка",
+        "Loading models": "Загрузка моделей",
+        "Downloading ASR": "Загрузка ASR",
+        "Loading ASR": "Запуск ASR",
+        "Downloading punct": "Загрузка пунктуации",
+        "Converting punct": "Конвертация пунктуации",
+        "Loading punct": "Запуск пунктуации",
+        "Ready": "Готово",
+        "Starting": "Запуск",
+        "Still loading": "Еще загружается",
+        "Recording": "Запись",
+        "Transcribing": "Распознавание",
+        "Pasted": "Вставлено",
+        "Copied": "Скопировано",
+        "Copied - paste manually": "Скопировано - вставьте вручную",
+        "No audio": "Нет звука",
+        "Too short": "Слишком коротко",
+        "No speech": "Речь не найдена",
+        "Debug copied": "Диагностика скопирована",
+        "Hotkey captured": "Клавиша назначена",
+        "Hotkey capture canceled": "Назначение отменено",
+        "Press hotkey": "Нажмите сочетание",
+        "Finish hotkey capture": "Завершите назначение",
+        "Bad sample rate": "Неверная частота",
+        "Bad hotkey": "Неверная клавиша",
+        "Bad overlay key": "Неверная клавиша кнопки",
+        "Hotkey conflict": "Конфликт клавиш",
+        "Startup error": "Ошибка автозапуска",
+        "Settings saved": "Настройки сохранены",
+    },
+}
 
 
 def repo_root():
@@ -83,6 +212,7 @@ def choose_default_device_index():
 def default_config():
     return {
         "version": CONFIG_VERSION,
+        "ui_language": "en",
         "mode": "hold",
         "dictation_hotkey": "f8",
         "overlay_hotkey": "ctrl+alt+shift+d",
@@ -117,6 +247,10 @@ def save_config(cfg):
     path = config_path()
     with path.open("w", encoding="utf-8") as file:
         json.dump(cfg, file, ensure_ascii=False, indent=2)
+
+
+def normalize_ui_language(value):
+    return value if value in TRANSLATIONS else "en"
 
 
 def startup_folder():
@@ -964,6 +1098,7 @@ class DictationEngine:
 class VoiceDictationApp:
     def __init__(self):
         self.cfg = load_config()
+        self.cfg["ui_language"] = normalize_ui_language(self.cfg.get("ui_language", "en"))
         self.cfg["start_with_windows"] = is_startup_enabled()
         self.event_queue = queue.Queue()
         self.root = tk.Tk()
@@ -1018,6 +1153,17 @@ class VoiceDictationApp:
         self.root.after(100, self.track_foreground)
         self.root.after(50, self.engine.load_async)
         self.hotkeys.start()
+
+    def t(self, key):
+        language = normalize_ui_language(self.cfg.get("ui_language", "en"))
+        return TRANSLATIONS.get(language, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
+
+    def localize_status(self, status):
+        if status.startswith("Load error: "):
+            return f"{self.t('load_error')}: {status.split(': ', 1)[1]}"
+        if status.startswith("Error: "):
+            return f"{self.t('error')}: {status.split(': ', 1)[1]}"
+        return self.t(status)
 
     def _build_overlay(self):
         self.frame = tk.Frame(self.root, bg="#20242b", padx=8, pady=7)
@@ -1194,12 +1340,12 @@ class VoiceDictationApp:
             borderwidth=2,
             activeborderwidth=2,
         )
-        self.menu.add_command(label="Start/Stop", command=self.engine.toggle_recording)
-        self.menu.add_command(label="Settings", command=self.open_settings)
-        self.menu.add_command(label="Hide overlay", command=self.hide_overlay)
-        self.menu.add_command(label="Copy debug info", command=self.copy_debug_info)
+        self.menu.add_command(label=self.t("start_stop"), command=self.engine.toggle_recording)
+        self.menu.add_command(label=self.t("settings"), command=self.open_settings)
+        self.menu.add_command(label=self.t("hide_overlay"), command=self.hide_overlay)
+        self.menu.add_command(label=self.t("copy_debug_info"), command=self.copy_debug_info)
         self.menu.add_separator()
-        self.menu.add_command(label="Exit", command=self.exit_app)
+        self.menu.add_command(label=self.t("exit"), command=self.exit_app)
 
     def show_menu(self, event):
         self.menu.tk_popup(event.x_root, event.y_root)
@@ -1231,21 +1377,24 @@ class VoiceDictationApp:
                 "local_voice_dictation",
                 image,
                 self.tray_title(),
-                pystray.Menu(
-                    pystray.MenuItem(lambda item: f"Status: {self.current_status}", None, enabled=False),
-                    pystray.Menu.SEPARATOR,
-                    pystray.MenuItem("Show overlay", lambda: self.dispatch("show_overlay"), default=True),
-                    pystray.MenuItem("Hide overlay", lambda: self.dispatch("hide_overlay")),
-                    pystray.MenuItem("Settings", lambda: self.dispatch("open_settings")),
-                    pystray.MenuItem("Copy debug info", lambda: self.dispatch("copy_debug_info")),
-                    pystray.Menu.SEPARATOR,
-                    pystray.MenuItem("Quit", lambda: self.dispatch("exit_app")),
-                ),
+                self.build_tray_menu(),
             )
             self.tray_icon.run_detached()
         except Exception as exc:
             self.tray_icon = None
             log_debug(f"tray start error={type(exc).__name__}")
+
+    def build_tray_menu(self):
+        return pystray.Menu(
+            pystray.MenuItem(lambda item: f"{self.t('status_prefix')}: {self.current_display_status}", None, enabled=False),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(self.t("show_overlay"), lambda: self.dispatch("show_overlay"), default=True),
+            pystray.MenuItem(self.t("hide_overlay"), lambda: self.dispatch("hide_overlay")),
+            pystray.MenuItem(self.t("settings"), lambda: self.dispatch("open_settings")),
+            pystray.MenuItem(self.t("copy_debug_info"), lambda: self.dispatch("copy_debug_info")),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(self.t("quit"), lambda: self.dispatch("exit_app")),
+        )
 
     def tray_title(self):
         status = self.current_display_status[:80]
@@ -1258,6 +1407,18 @@ class VoiceDictationApp:
             self.tray_icon.title = self.tray_title()
         except Exception as exc:
             log_debug(f"tray update error={type(exc).__name__}")
+
+    def refresh_static_ui_text(self):
+        self.root.title(APP_NAME)
+        self._build_menu()
+        if self.tray_icon and pystray is not None:
+            try:
+                self.tray_icon.menu = self.build_tray_menu()
+            except Exception as exc:
+                log_debug(f"tray menu language error={type(exc).__name__}")
+        if hasattr(self, "settings_window") and self.settings_window.winfo_exists():
+            self.settings_window.title(f"{APP_NAME} {self.t('settings_title')}")
+        self.update_status(self.current_status)
 
     def dispatch(self, action):
         self.event_queue.put(("action", action))
@@ -1372,10 +1533,10 @@ class VoiceDictationApp:
     def dynamic_status_text(self):
         now = time.perf_counter()
         if self.current_status == "Recording" and self.recording_started_at is not None:
-            return f"Recording {format_elapsed(now - self.recording_started_at)}"
+            return f"{self.t('Recording')} {format_elapsed(now - self.recording_started_at)}"
         if self.current_status == "Transcribing" and self.transcribing_started_at is not None:
-            return f"Transcribing {format_elapsed(now - self.transcribing_started_at)}"
-        return self.current_status
+            return f"{self.t('Transcribing')} {format_elapsed(now - self.transcribing_started_at)}"
+        return self.localize_status(self.current_status)
 
     def schedule_status_tick(self):
         if self.status_tick_after_id is None:
@@ -1407,7 +1568,7 @@ class VoiceDictationApp:
         else:
             self.recording_started_at = None
             self.transcribing_started_at = None
-            self.set_display_status(status)
+            self.set_display_status(self.localize_status(status))
 
         busy = (
             status.startswith("Downloading")
@@ -1532,7 +1693,7 @@ class VoiceDictationApp:
 
         win = tk.Toplevel(self.root)
         self.settings_window = win
-        win.title(APP_NAME + " Settings")
+        win.title(f"{APP_NAME} {self.t('settings_title')}")
         win.attributes("-topmost", True)
         win.resizable(True, True)
         win.configure(padx=24, pady=20)
@@ -1548,6 +1709,7 @@ class VoiceDictationApp:
         win.option_add("*TCombobox*Listbox.font", settings_font)
 
         mode = tk.StringVar(value=self.cfg.get("mode", "hold"))
+        ui_language = tk.StringVar(value=UI_LANGUAGE_NAMES[normalize_ui_language(self.cfg.get("ui_language", "en"))])
         dict_hotkey = tk.StringVar(value=self.cfg.get("dictation_hotkey", "f8"))
         overlay_hotkey = tk.StringVar(value=self.cfg.get("overlay_hotkey", "ctrl+alt+shift+d"))
         overlay_size = tk.StringVar(value=self.cfg.get("overlay_size", "medium"))
@@ -1579,6 +1741,7 @@ class VoiceDictationApp:
 
         for variable in (
             mode,
+            ui_language,
             dict_hotkey,
             overlay_hotkey,
             overlay_size,
@@ -1656,7 +1819,7 @@ class VoiceDictationApp:
             capture_state["variable"] = variable
             capture_state["previous"] = variable.get()
             capture_state["tokens"] = set()
-            variable.set("Press keys...")
+            variable.set(self.t("press_keys"))
             self.hotkeys.set_suspended(True)
             win.bind("<KeyPress>", capture_keypress)
             win.bind("<KeyRelease>", capture_keyrelease)
@@ -1677,6 +1840,7 @@ class VoiceDictationApp:
 
             return {
                 "mode": mode.get(),
+                "ui_language": normalize_ui_language(UI_LANGUAGE_BY_NAME.get(ui_language.get(), "en")),
                 "dictation_hotkey": dict_hotkey.get(),
                 "overlay_hotkey": overlay_hotkey.get(),
                 "overlay_size": overlay_size.get(),
@@ -1708,8 +1872,8 @@ class VoiceDictationApp:
                 return
 
             choice = messagebox.askyesnocancel(
-                "Unsaved settings",
-                "Save settings before closing?",
+                self.t("unsaved_settings"),
+                self.t("save_settings_before_closing"),
                 parent=win,
             )
             if choice is None:
@@ -1722,13 +1886,24 @@ class VoiceDictationApp:
         win.protocol("WM_DELETE_WINDOW", close_settings)
 
         row = 0
-        ttk.Label(win, text="Mode").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Label(win, text=self.t("mode")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(win, textvariable=mode, values=["hold", "toggle"], state="readonly", width=32, font=settings_font).grid(
             row=row, column=1, sticky="ew", pady=6
         )
 
         row += 1
-        ttk.Label(win, text="Overlay size").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Label(win, text=self.t("ui_language")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Combobox(
+            win,
+            textvariable=ui_language,
+            values=list(UI_LANGUAGE_NAMES.values()),
+            state="readonly",
+            width=32,
+            font=settings_font,
+        ).grid(row=row, column=1, sticky="ew", pady=6)
+
+        row += 1
+        ttk.Label(win, text=self.t("overlay_size")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(
             win,
             textvariable=overlay_size,
@@ -1739,7 +1914,7 @@ class VoiceDictationApp:
         ).grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
-        ttk.Label(win, text="Overlay details").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Label(win, text=self.t("overlay_details")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(
             win,
             textvariable=overlay_details,
@@ -1750,7 +1925,7 @@ class VoiceDictationApp:
         ).grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
-        ttk.Label(win, text="Overlay opacity").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Label(win, text=self.t("overlay_opacity")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         opacity_frame = ttk.Frame(win)
         opacity_frame.grid(row=row, column=1, sticky="ew", pady=6)
         opacity_frame.columnconfigure(0, weight=1)
@@ -1764,7 +1939,7 @@ class VoiceDictationApp:
         ttk.Label(opacity_frame, textvariable=overlay_opacity_label, width=5).grid(row=0, column=1, sticky="e")
 
         row += 1
-        ttk.Label(win, text="Dictation hotkey").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Label(win, text=self.t("dictation_hotkey")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         dict_hotkey_frame = ttk.Frame(win)
         dict_hotkey_frame.grid(row=row, column=1, sticky="ew", pady=6)
         dict_hotkey_frame.columnconfigure(0, weight=1)
@@ -1772,12 +1947,12 @@ class VoiceDictationApp:
         dict_hotkey_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         ttk.Button(
             dict_hotkey_frame,
-            text="Assign",
+            text=self.t("assign"),
             command=lambda: start_hotkey_capture(dict_hotkey, dict_hotkey_entry),
         ).grid(row=0, column=1, sticky="e")
 
         row += 1
-        ttk.Label(win, text="Overlay hotkey").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Label(win, text=self.t("overlay_hotkey")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         overlay_hotkey_frame = ttk.Frame(win)
         overlay_hotkey_frame.grid(row=row, column=1, sticky="ew", pady=6)
         overlay_hotkey_frame.columnconfigure(0, weight=1)
@@ -1785,37 +1960,37 @@ class VoiceDictationApp:
         overlay_hotkey_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         ttk.Button(
             overlay_hotkey_frame,
-            text="Assign",
+            text=self.t("assign"),
             command=lambda: start_hotkey_capture(overlay_hotkey, overlay_hotkey_entry),
         ).grid(row=0, column=1, sticky="e")
 
         row += 1
-        ttk.Label(win, text="Input device").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Label(win, text=self.t("input_device")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(win, textvariable=selected_device, values=device_labels, state="readonly", width=72, font=settings_font).grid(
             row=row, column=1, sticky="ew", pady=6
         )
 
         row += 1
-        ttk.Label(win, text="Sample rate").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Label(win, text=self.t("sample_rate")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Entry(win, textvariable=sample_rate, width=36, font=settings_font).grid(row=row, column=1, sticky="w", pady=6)
 
         row += 1
-        ttk.Checkbutton(win, text="Use punctuation", variable=use_punctuation).grid(
+        ttk.Checkbutton(win, text=self.t("use_punctuation"), variable=use_punctuation).grid(
             row=row, column=1, sticky="w", pady=6
         )
 
         row += 1
-        ttk.Checkbutton(win, text="Paste into active field", variable=auto_paste).grid(
+        ttk.Checkbutton(win, text=self.t("paste_into_active_field"), variable=auto_paste).grid(
             row=row, column=1, sticky="w", pady=6
         )
 
         row += 1
-        ttk.Checkbutton(win, text="Append trailing space", variable=append_space).grid(
+        ttk.Checkbutton(win, text=self.t("append_trailing_space"), variable=append_space).grid(
             row=row, column=1, sticky="w", pady=6
         )
 
         row += 1
-        ttk.Checkbutton(win, text="Start with Windows", variable=start_with_windows).grid(
+        ttk.Checkbutton(win, text=self.t("start_with_windows"), variable=start_with_windows).grid(
             row=row, column=1, sticky="w", pady=6
         )
 
@@ -1827,12 +2002,13 @@ class VoiceDictationApp:
         row += 1
         buttons = ttk.Frame(win)
         buttons.grid(row=row, column=0, columnspan=2, sticky="e", pady=(14, 0))
-        ttk.Button(buttons, text="Hide overlay", command=self.hide_overlay).pack(side="left", padx=(0, 10))
-        ttk.Button(buttons, text="Apply", command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 10))
-        ttk.Button(buttons, text="Save", command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 10))
-        ttk.Button(buttons, text="Cancel", command=close_settings).pack(side="left")
+        ttk.Button(buttons, text=self.t("hide_overlay"), command=self.hide_overlay).pack(side="left", padx=(0, 10))
+        ttk.Button(buttons, text=self.t("apply"), command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 10))
+        ttk.Button(buttons, text=self.t("save"), command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 10))
+        ttk.Button(buttons, text=self.t("cancel"), command=close_settings).pack(side="left")
 
     def save_settings(self, win, values, close=True):
+        values["ui_language"] = normalize_ui_language(values.get("ui_language", "en"))
         values["dictation_hotkey"] = values["dictation_hotkey"].lower().strip()
         values["overlay_hotkey"] = values["overlay_hotkey"].lower().strip()
         if values.get("overlay_size") not in {"small", "medium", "large"}:
@@ -1865,6 +2041,7 @@ class VoiceDictationApp:
         self.apply_overlay_layout()
         self.apply_overlay_opacity()
         self._position_overlay()
+        self.refresh_static_ui_text()
         self.update_status("Settings saved")
         if close:
             win.destroy()
