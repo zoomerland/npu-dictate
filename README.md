@@ -4,6 +4,8 @@ Windows-first local dictation prototype: microphone audio goes through GigaAM v3
 
 The repository intentionally does not store model weights, local virtual environments, recordings, or Hugging Face caches. The first launch prepares models locally.
 
+See [ROADMAP.md](ROADMAP.md) for the current development plan.
+
 ## Current Flow
 
 1. Hold or toggle the dictation hotkey.
