@@ -178,6 +178,12 @@ def clamp_overlay_opacity(value):
     return min(max(opacity, 0.3), 1.0)
 
 
+def format_elapsed(seconds):
+    seconds = max(0, int(seconds))
+    minutes, seconds = divmod(seconds, 60)
+    return f"{minutes:02d}:{seconds:02d}"
+
+
 def log_debug(message):
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -970,10 +976,14 @@ class VoiceDictationApp:
 
         self.status_var = tk.StringVar(value="Loading models")
         self.current_status = "Loading models"
+        self.current_display_status = "Loading models"
         self.last_text_var = tk.StringVar(value="")
         self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
         self.progress_running = False
         self.tray_icon = None
+        self.recording_started_at = None
+        self.transcribing_started_at = None
+        self.status_tick_after_id = None
         self.drag_threshold = 8
         self.drag_start_x = 0
         self.drag_start_y = 0
@@ -1127,7 +1137,7 @@ class VoiceDictationApp:
         else:
             self.hotkey_label.pack_forget()
 
-        self.update_status(self.status_var.get())
+        self.update_status(self.current_status)
 
     def _position_overlay(self):
         self.root.update_idletasks()
@@ -1238,7 +1248,7 @@ class VoiceDictationApp:
             log_debug(f"tray start error={type(exc).__name__}")
 
     def tray_title(self):
-        status = self.current_status[:80]
+        status = self.current_display_status[:80]
         return f"{APP_NAME}: {status}"
 
     def update_tray_status(self):
@@ -1311,7 +1321,7 @@ class VoiceDictationApp:
 
         info = {
             "app": APP_NAME,
-            "status": self.current_status,
+            "status": self.current_display_status,
             "python": sys.version,
             "platform": platform.platform(),
             "repo_root": str(repo_root()),
@@ -1321,6 +1331,7 @@ class VoiceDictationApp:
                 "asr_dir_exists": asr_model_dir().exists(),
                 "punct_dir_exists": default_punct_model_dir().exists(),
             },
+            "raw_status": self.current_status,
             "tray_available": pystray is not None,
             "tray_running": self.tray_icon is not None,
             "overlay_state": self.root.state(),
@@ -1353,9 +1364,51 @@ class VoiceDictationApp:
         elif action == "toggle_recording":
             self.engine.toggle_recording()
 
-    def update_status(self, status):
-        self.current_status = status
+    def set_display_status(self, status):
+        self.current_display_status = status
         self.status_var.set(status)
+        self.update_tray_status()
+
+    def dynamic_status_text(self):
+        now = time.perf_counter()
+        if self.current_status == "Recording" and self.recording_started_at is not None:
+            return f"Recording {format_elapsed(now - self.recording_started_at)}"
+        if self.current_status == "Transcribing" and self.transcribing_started_at is not None:
+            return f"Transcribing {format_elapsed(now - self.transcribing_started_at)}"
+        return self.current_status
+
+    def schedule_status_tick(self):
+        if self.status_tick_after_id is None:
+            self.status_tick_after_id = self.root.after(500, self.refresh_dynamic_status)
+
+    def refresh_dynamic_status(self):
+        self.status_tick_after_id = None
+        if self.current_status not in {"Recording", "Transcribing"}:
+            return
+        self.set_display_status(self.dynamic_status_text())
+        self.schedule_status_tick()
+
+    def update_status(self, status):
+        previous_status = self.current_status
+        self.current_status = status
+
+        if status == "Recording":
+            if previous_status != "Recording" or self.recording_started_at is None:
+                self.recording_started_at = time.perf_counter()
+            self.transcribing_started_at = None
+            self.set_display_status(self.dynamic_status_text())
+            self.schedule_status_tick()
+        elif status == "Transcribing":
+            if previous_status != "Transcribing" or self.transcribing_started_at is None:
+                self.transcribing_started_at = time.perf_counter()
+            self.recording_started_at = None
+            self.set_display_status(self.dynamic_status_text())
+            self.schedule_status_tick()
+        else:
+            self.recording_started_at = None
+            self.transcribing_started_at = None
+            self.set_display_status(status)
+
         busy = (
             status.startswith("Downloading")
             or status.startswith("Converting")
@@ -1374,13 +1427,31 @@ class VoiceDictationApp:
 
         if status == "Recording":
             self.button.configure(text="REC", bg="#b83030", activebackground="#982727")
+        elif status == "Loading ASR":
+            self.button.configure(text="ASR", bg="#81612b", activebackground="#6d5124")
+        elif status == "Loading punct":
+            self.button.configure(text="PUNCT", bg="#81612b", activebackground="#6d5124")
+        elif status == "Transcribing":
+            self.button.configure(text="TEXT", bg="#81612b", activebackground="#6d5124")
         elif busy:
             self.button.configure(text="BUSY", bg="#81612b", activebackground="#6d5124")
+        elif status == "Pasted":
+            self.button.configure(text="OK", bg="#267d45", activebackground="#206b3b")
+        elif status == "Copied":
+            self.button.configure(text="COPY", bg="#2b7281", activebackground="#245f6c")
         elif status.startswith("Copied - paste"):
             self.button.configure(text="PASTE", bg="#b85528", activebackground="#98441f")
+        elif status in {"No audio", "Too short", "No speech"}:
+            self.button.configure(text="EMPTY", bg="#5f6773", activebackground="#505762")
+        elif status.startswith("Error") or status.startswith("Load error") or status in {
+            "Bad hotkey",
+            "Bad overlay key",
+            "Hotkey conflict",
+            "Startup error",
+        }:
+            self.button.configure(text="ERR", bg="#9f3030", activebackground="#832929")
         else:
             self.button.configure(text="DICT", bg="#2864d8", activebackground="#1f55bd")
-        self.update_tray_status()
 
     def on_overlay_press(self, event):
         self.drag_start_x = event.x_root
@@ -1801,6 +1872,12 @@ class VoiceDictationApp:
 
     def exit_app(self):
         save_config(self.cfg)
+        if self.status_tick_after_id is not None:
+            try:
+                self.root.after_cancel(self.status_tick_after_id)
+            except tk.TclError:
+                pass
+            self.status_tick_after_id = None
         if self.tray_icon:
             tray_icon = self.tray_icon
             self.tray_icon = None

@@ -75,7 +75,7 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Settings controls or grouped sections.
   - Context menu/tray menu where practical.
 - [x] Increase context menu size to match the settings readability scale.
-- [ ] Improve recording/loading/transcribing visual states.
+- [x] Improve recording/loading/transcribing visual states.
 - [x] Add settings warning when closing with unsaved changes.
 - [x] Add Apply / Save / Cancel behavior.
 - [x] Add real hotkey capture controls:
