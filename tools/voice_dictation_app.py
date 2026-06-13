@@ -525,6 +525,18 @@ def token_trailing_punctuation(token):
     return match.group(1) if match else ""
 
 
+def text_ends_sentence(text):
+    return bool(re.search("[.!?\\u2026]+[\"')\\]]*$", str(text or "").rstrip()))
+
+
+def lowercase_first_alpha(text):
+    text = str(text or "")
+    for index, char in enumerate(text):
+        if char.isalpha():
+            return f"{text[:index]}{char.lower()}{text[index + 1:]}"
+    return text
+
+
 def boundary_prefix_from_context(context, restored_tokens, raw_token_count):
     context = str(context or "")
     context_tokens = context.rstrip().split()
@@ -554,6 +566,8 @@ def inserted_text_from_context(raw_text, restored_with_context, context):
     boundary = prefix.strip()
     if boundary and tail.startswith(boundary):
         tail = tail[len(boundary) :].lstrip()
+    if context and not text_ends_sentence(context) and not text_ends_sentence(prefix):
+        tail = lowercase_first_alpha(tail)
     return f"{prefix}{tail}"
 
 
@@ -832,19 +846,25 @@ class FocusedInputTracker:
 
             comtypes.CoInitialize()
             focused = self.find_text_control(self.auto.GetFocusedControl())
+            if focused and int(focused.ProcessId) != self.current_pid:
+                self.last_input = focused
             control = focused or self.last_input
             if control is None:
+                log_debug("uia context skipped=no-control")
                 return ""
             if int(control.ProcessId) == self.current_pid:
+                log_debug("uia context skipped=self")
                 return ""
 
             control_type = getattr(control, "ControlTypeName", "")
             pattern = control.GetTextPattern()
             if pattern is None:
+                log_debug(f"uia context skipped=no-text-pattern type={control_type}")
                 return ""
 
             selections = pattern.GetSelection()
             if not selections:
+                log_debug(f"uia context skipped=no-selection type={control_type}")
                 return ""
 
             cursor = selections[0]
@@ -965,6 +985,7 @@ class DictationEngine:
         self.stream = None
         self.sample_rate = None
         self.audio_blocks = []
+        self.recording_context = ""
         self.lock = threading.RLock()
         self.keyboard = keyboard.Controller()
 
@@ -1043,6 +1064,7 @@ class DictationEngine:
             channels = int(self.cfg.get("channels") or 1)
             self.sample_rate = self.resolve_sample_rate()
             self.audio_blocks = []
+            self.recording_context = self.context_before_cursor()
 
             self.stream = sd.InputStream(
                 samplerate=self.sample_rate,
@@ -1083,6 +1105,7 @@ class DictationEngine:
             self.stream = None
             self.recording = False
             self.audio_blocks = []
+            self.recording_context = ""
 
         if stream:
             stream.stop()
@@ -1137,7 +1160,7 @@ class DictationEngine:
                         cache_dir=repo_root() / "models" / "openvino" / "cache",
                     )
                 start = time.perf_counter()
-                context = self.context_before_cursor()
+                context = self.recording_context or self.context_before_cursor()
                 if context:
                     restored = self.punct.restore(f"{context} {raw_text}".strip())
                     final_text = inserted_text_from_context(raw_text, restored, context)
@@ -1165,6 +1188,7 @@ class DictationEngine:
         finally:
             with self.lock:
                 self.transcribing = False
+                self.recording_context = ""
 
     def context_before_cursor(self):
         if not self.cfg.get("use_context", True) or self.context_callback is None:
