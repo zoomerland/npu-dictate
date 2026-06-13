@@ -125,8 +125,34 @@ def log_debug(message):
         pass
 
 
+def token_from_virtual_key(vk):
+    try:
+        vk = int(vk)
+    except (TypeError, ValueError):
+        return None
+
+    if 0x30 <= vk <= 0x39:
+        return str(vk - 0x30)
+    if 0x41 <= vk <= 0x5A:
+        return chr(vk).lower()
+    if 0x60 <= vk <= 0x69:
+        return str(vk - 0x60)
+    if 0x70 <= vk <= 0x87:
+        return f"f{vk - 0x6F}"
+    if vk == 0x0D:
+        return "enter"
+    if vk == 0x1B:
+        return "esc"
+    if vk == 0x20:
+        return "space"
+    return None
+
+
 def key_to_token(key):
     if isinstance(key, keyboard.KeyCode):
+        vk_token = token_from_virtual_key(getattr(key, "vk", None))
+        if vk_token:
+            return vk_token
         if key.char:
             return key.char.lower()
         return None
@@ -183,6 +209,9 @@ def tk_key_to_token(event):
     keysym = (event.keysym or "").lower()
     if keysym in aliases:
         return aliases[keysym]
+    vk_token = token_from_virtual_key(getattr(event, "keycode", None))
+    if vk_token:
+        return vk_token
     if event.char and len(event.char) == 1 and event.char.isprintable():
         return event.char.lower()
     return aliases.get(keysym, keysym)
