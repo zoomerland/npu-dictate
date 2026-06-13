@@ -508,16 +508,16 @@ def result_to_text(result):
 
 
 def normalize_punctuation_context(text, max_chars=320):
-    text = re.sub(r"\s+", " ", str(text or "")).strip()
-    if not text:
+    text = re.sub(r"\s+", " ", str(text or ""))
+    if not text.strip():
         return ""
     if len(text) > max_chars:
         text = text[-max_chars:]
 
-    sentence_breaks = list(re.finditer(r"[.!?…]+[\"')\]]?\s+", text))
-    if sentence_breaks and sentence_breaks[-1].end() < len(text):
-        return text[sentence_breaks[-1].end() :].strip()
-    return text
+    sentence_breaks = list(re.finditer("[.!?\\u2026]+[\"')\\]]?\\s+", text))
+    if sentence_breaks and sentence_breaks[-1].end() < len(text.rstrip()):
+        return text[sentence_breaks[-1].end() :].lstrip()
+    return text.lstrip()
 
 
 def token_trailing_punctuation(token):
@@ -551,6 +551,9 @@ def inserted_text_from_context(raw_text, restored_with_context, context):
 
     tail = " ".join(restored_tokens[-raw_token_count:])
     prefix = boundary_prefix_from_context(context, restored_tokens, raw_token_count)
+    boundary = prefix.strip()
+    if boundary and tail.startswith(boundary):
+        tail = tail[len(boundary) :].lstrip()
     return f"{prefix}{tail}"
 
 
@@ -828,12 +831,14 @@ class FocusedInputTracker:
             import comtypes
 
             comtypes.CoInitialize()
-            control = self.last_input or self.find_text_control(self.auto.GetFocusedControl())
+            focused = self.find_text_control(self.auto.GetFocusedControl())
+            control = focused or self.last_input
             if control is None:
                 return ""
             if int(control.ProcessId) == self.current_pid:
                 return ""
 
+            control_type = getattr(control, "ControlTypeName", "")
             pattern = control.GetTextPattern()
             if pattern is None:
                 return ""
@@ -842,21 +847,25 @@ class FocusedInputTracker:
             if not selections:
                 return ""
 
-            cursor = selections[0].Clone()
-            cursor.MoveEndpointByRange(
+            cursor = selections[0]
+            context_range = cursor.Clone()
+            context_range.ExpandToEnclosingUnit(self.auto.TextUnit.Paragraph, waitTime=0)
+            context_range.MoveEndpointByRange(
                 self.auto.TextPatternRangeEndpoint.End,
-                selections[0],
+                cursor,
                 self.auto.TextPatternRangeEndpoint.Start,
                 waitTime=0,
             )
-            cursor.MoveEndpointByUnit(
-                self.auto.TextPatternRangeEndpoint.Start,
-                self.auto.TextUnit.Character,
-                -int(max_chars),
-                waitTime=0,
-            )
-            text = cursor.GetText(-1) or ""
-            log_debug(f"uia context chars={len(text)}")
+            text = context_range.GetText(-1) or ""
+            if "\ufffc" in text:
+                log_debug(f"uia context rejected=object-char type={control_type} chars={len(text)}")
+                return ""
+            if len(text) > max_chars * 3:
+                log_debug(f"uia context rejected=too-wide type={control_type} chars={len(text)}")
+                return ""
+            if len(text) > max_chars:
+                text = text[-int(max_chars) :]
+            log_debug(f"uia context type={control_type} chars={len(text)}")
             return text
         except Exception as exc:
             log_debug(f"uia context error={type(exc).__name__}")
