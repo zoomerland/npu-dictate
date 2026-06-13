@@ -70,6 +70,11 @@ Preliminary local measurements:
   - Warm NPU inference is around 20-30 ms for short dictation chunks.
   - Earlier OpenVINO CPU measurements were roughly 130 ms for comparable chunks.
 
+Current NPU status:
+
+- RUPunct: end-to-end OpenVINO/NPU inference is implemented and tested.
+- GigaAM ASR: the ONNX encoder has been compile-tested on NPU with static input shapes, but the app does not yet run ASR inference through NPU. A dedicated OpenVINO/NPU wrapper and benchmark are planned.
+
 The app must support CPU-only machines. NPU acceleration is a feature, not a hard requirement. A clearer Auto / CPU / GPU / NPU device selector is planned.
 
 ## License Notes

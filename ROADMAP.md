@@ -138,6 +138,7 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
 - [x] GigaAM ONNX can compile on NPU with static input shapes.
 - [ ] Build an OpenVINO/NPU GigaAM encoder wrapper.
 - [ ] Keep existing CTC decoder behavior.
+- [ ] Run end-to-end GigaAM ASR inference through NPU.
 - [ ] Benchmark CPU vs NPU:
   - Cold load.
   - Warm inference.
