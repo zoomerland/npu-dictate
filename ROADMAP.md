@@ -56,10 +56,11 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Small.
   - Medium.
   - Large.
-- [x] Add overlay shape presets:
+- [ ] Add overlay shape presets:
   - Square.
   - Rounded square.
   - Circle.
+  - Previous WinAPI window-region prototype caused bugs; revisit later.
 - [x] Add overlay opacity slider in settings:
   - Store opacity in config.
   - Apply opacity to the overlay window immediately.
@@ -69,7 +70,7 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Button plus status.
   - Button plus status and hotkey hint.
 - [ ] Round UI corners where the Windows/Tk stack allows it:
-  - [x] Overlay window shape.
+  - [ ] Overlay window shape.
   - [ ] Overlay button and frame internals.
   - Settings controls or grouped sections.
   - Context menu/tray menu where practical.
@@ -77,7 +78,7 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
 - [ ] Improve recording/loading/transcribing visual states.
 - [x] Add settings warning when closing with unsaved changes.
 - [x] Add Apply / Save / Cancel behavior.
-- [ ] Add real hotkey capture controls:
+- [x] Add real hotkey capture controls:
   - "Assign" button.
   - Capture one key or a key combination.
   - Support dictation hotkey.

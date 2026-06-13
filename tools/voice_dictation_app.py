@@ -89,7 +89,6 @@ def default_config():
         "overlay_size": "medium",
         "overlay_details": "full",
         "overlay_opacity": 1.0,
-        "overlay_shape": "rounded",
     }
 
 
@@ -142,6 +141,51 @@ def key_to_token(key):
     if name.startswith("cmd"):
         return "win"
     return name
+
+
+MODIFIER_TOKENS = {"ctrl", "alt", "shift", "win"}
+TOKEN_LABELS = {
+    "ctrl": "Ctrl",
+    "alt": "Alt",
+    "shift": "Shift",
+    "win": "Win",
+    "esc": "Esc",
+    "enter": "Enter",
+    "space": "Space",
+}
+
+
+def format_hotkey_tokens(tokens):
+    ordered = []
+    for token in ("ctrl", "alt", "shift", "win"):
+        if token in tokens:
+            ordered.append(token)
+    ordered.extend(sorted(token for token in tokens if token not in MODIFIER_TOKENS))
+    return "+".join(TOKEN_LABELS.get(token, token.upper() if token.startswith("f") else token) for token in ordered)
+
+
+def tk_key_to_token(event):
+    aliases = {
+        "control_l": "ctrl",
+        "control_r": "ctrl",
+        "shift_l": "shift",
+        "shift_r": "shift",
+        "alt_l": "alt",
+        "alt_r": "alt",
+        "menu": "alt",
+        "win_l": "win",
+        "win_r": "win",
+        "super_l": "win",
+        "super_r": "win",
+        "escape": "esc",
+        "return": "enter",
+    }
+    keysym = (event.keysym or "").lower()
+    if keysym in aliases:
+        return aliases[keysym]
+    if event.char and len(event.char) == 1 and event.char.isprintable():
+        return event.char.lower()
+    return aliases.get(keysym, keysym)
 
 
 def parse_hotkey(value):
@@ -446,6 +490,7 @@ class HotkeyManager:
         self.pressed = set()
         self.dictation_down = False
         self.overlay_down = False
+        self.suspended = False
         self.listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
         self.listener.daemon = True
 
@@ -460,10 +505,19 @@ class HotkeyManager:
         self.dictation_down = False
         self.overlay_down = False
 
+    def set_suspended(self, suspended):
+        self.suspended = suspended
+        self.pressed.clear()
+        self.dictation_down = False
+        self.overlay_down = False
+
     def hotkeys(self):
         return parse_hotkey(self.cfg["dictation_hotkey"]), parse_hotkey(self.cfg["overlay_hotkey"])
 
     def on_press(self, key):
+        if self.suspended:
+            return
+
         token = key_to_token(key)
         if token:
             self.pressed.add(token)
@@ -487,6 +541,9 @@ class HotkeyManager:
             self.dispatch("start_recording")
 
     def on_release(self, key):
+        if self.suspended:
+            return
+
         token = key_to_token(key)
         if token:
             self.pressed.discard(token)
@@ -933,53 +990,6 @@ class VoiceDictationApp:
         value = self.cfg.get("overlay_details", "full")
         return value if value in {"button", "status", "full"} else "full"
 
-    def overlay_shape_mode(self):
-        value = self.cfg.get("overlay_shape", "rounded")
-        return value if value in {"square", "rounded", "circle"} else "rounded"
-
-    def apply_overlay_shape(self):
-        if os.name != "nt":
-            return
-
-        self.root.update_idletasks()
-        width = int(max(self.root.winfo_width(), self.root.winfo_reqwidth()))
-        height = int(max(self.root.winfo_height(), self.root.winfo_reqheight()))
-        if width <= 1 or height <= 1:
-            return
-
-        user32 = ctypes.WinDLL("user32", use_last_error=True)
-        gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
-        user32.SetWindowRgn.argtypes = [wintypes.HWND, wintypes.HRGN, wintypes.BOOL]
-        user32.SetWindowRgn.restype = ctypes.c_int
-        gdi32.CreateRoundRectRgn.argtypes = [
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-        ]
-        gdi32.CreateRoundRectRgn.restype = wintypes.HRGN
-        gdi32.CreateEllipticRgn.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
-        gdi32.CreateEllipticRgn.restype = wintypes.HRGN
-        gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
-        gdi32.DeleteObject.restype = wintypes.BOOL
-
-        shape = self.overlay_shape_mode()
-        hwnd = self.root.winfo_id()
-        if shape == "square":
-            user32.SetWindowRgn(hwnd, None, True)
-            return
-
-        if shape == "circle":
-            region = gdi32.CreateEllipticRgn(0, 0, width + 1, height + 1)
-        else:
-            corner = min(max(24, int(min(width, height) * 0.45)), 56)
-            region = gdi32.CreateRoundRectRgn(0, 0, width + 1, height + 1, corner, corner)
-
-        if region and not user32.SetWindowRgn(hwnd, region, True):
-            gdi32.DeleteObject(region)
-
     def apply_overlay_layout(self):
         profile = self.overlay_size_profile()
         self.frame.configure(padx=profile["padx"], pady=profile["pady"])
@@ -1006,7 +1016,6 @@ class VoiceDictationApp:
             self.hotkey_label.pack_forget()
 
         self.update_status(self.status_var.get())
-        self.apply_overlay_shape()
 
     def _position_overlay(self):
         self.root.update_idletasks()
@@ -1029,7 +1038,6 @@ class VoiceDictationApp:
             f"bounds={self.virtual_screen_bounds()}"
         )
         self.root.geometry(f"+{int(x)}+{int(y)}")
-        self.apply_overlay_shape()
         if self.cfg.get("overlay_x") != x or self.cfg.get("overlay_y") != y:
             self.cfg["overlay_x"] = x
             self.cfg["overlay_y"] = y
@@ -1158,7 +1166,6 @@ class VoiceDictationApp:
             self.button.configure(text="BUSY", bg="#81612b", activebackground="#6d5124")
         else:
             self.button.configure(text="DICT", bg="#2864d8", activebackground="#1f55bd")
-        self.apply_overlay_shape()
 
     def on_overlay_press(self, event):
         self.drag_start_x = event.x_root
@@ -1253,7 +1260,6 @@ class VoiceDictationApp:
         dict_hotkey = tk.StringVar(value=self.cfg.get("dictation_hotkey", "f8"))
         overlay_hotkey = tk.StringVar(value=self.cfg.get("overlay_hotkey", "ctrl+alt+shift+d"))
         overlay_size = tk.StringVar(value=self.cfg.get("overlay_size", "medium"))
-        overlay_shape = tk.StringVar(value=self.overlay_shape_mode())
         overlay_details = tk.StringVar(value=self.cfg.get("overlay_details", "full"))
         overlay_opacity = tk.DoubleVar(value=clamp_overlay_opacity(self.cfg.get("overlay_opacity", 1.0)) * 100)
         overlay_opacity_label = tk.StringVar()
@@ -1284,7 +1290,6 @@ class VoiceDictationApp:
             dict_hotkey,
             overlay_hotkey,
             overlay_size,
-            overlay_shape,
             overlay_details,
             overlay_opacity,
             selected_device,
@@ -1301,7 +1306,76 @@ class VoiceDictationApp:
         overlay_opacity.trace_add("write", update_opacity_label)
         update_opacity_label()
 
+        capture_state = {
+            "variable": None,
+            "previous": "",
+            "tokens": set(),
+        }
+
+        def stop_hotkey_capture():
+            win.unbind("<KeyPress>")
+            win.unbind("<KeyRelease>")
+            self.hotkeys.set_suspended(False)
+            capture_state["variable"] = None
+            capture_state["previous"] = ""
+            capture_state["tokens"] = set()
+
+        def finish_hotkey_capture(tokens):
+            variable = capture_state["variable"]
+            if variable is not None and tokens:
+                variable.set(format_hotkey_tokens(tokens))
+            stop_hotkey_capture()
+            self.update_status("Hotkey captured")
+
+        def cancel_hotkey_capture():
+            variable = capture_state["variable"]
+            if variable is not None:
+                variable.set(capture_state["previous"])
+            stop_hotkey_capture()
+            self.update_status("Hotkey capture canceled")
+
+        def capture_keypress(event):
+            token = tk_key_to_token(event)
+            if not token:
+                return "break"
+            if token == "esc":
+                cancel_hotkey_capture()
+                return "break"
+
+            capture_state["tokens"].add(token)
+            variable = capture_state["variable"]
+            if variable is not None:
+                variable.set(format_hotkey_tokens(capture_state["tokens"]))
+
+            if token not in MODIFIER_TOKENS:
+                finish_hotkey_capture(capture_state["tokens"])
+            return "break"
+
+        def capture_keyrelease(event):
+            token = tk_key_to_token(event)
+            if token in MODIFIER_TOKENS and capture_state["tokens"] == {token}:
+                finish_hotkey_capture(capture_state["tokens"])
+            return "break"
+
+        def start_hotkey_capture(variable, entry):
+            if capture_state["variable"] is not None:
+                cancel_hotkey_capture()
+            capture_state["variable"] = variable
+            capture_state["previous"] = variable.get()
+            capture_state["tokens"] = set()
+            variable.set("Press keys...")
+            self.hotkeys.set_suspended(True)
+            win.bind("<KeyPress>", capture_keypress)
+            win.bind("<KeyRelease>", capture_keyrelease)
+            entry.focus_set()
+            win.focus_force()
+            self.update_status("Press hotkey")
+
         def current_values():
+            if capture_state["variable"] is not None:
+                self.update_status("Finish hotkey capture")
+                return None
+
             try:
                 sample_rate_value = int(sample_rate.get() or 0)
             except ValueError:
@@ -1313,7 +1387,6 @@ class VoiceDictationApp:
                 "dictation_hotkey": dict_hotkey.get(),
                 "overlay_hotkey": overlay_hotkey.get(),
                 "overlay_size": overlay_size.get(),
-                "overlay_shape": overlay_shape.get(),
                 "overlay_details": overlay_details.get(),
                 "overlay_opacity": clamp_overlay_opacity(overlay_opacity.get() / 100),
                 "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
@@ -1333,6 +1406,9 @@ class VoiceDictationApp:
             return True
 
         def close_settings():
+            if capture_state["variable"] is not None:
+                cancel_hotkey_capture()
+
             if not dirty.get():
                 win.destroy()
                 return
@@ -1368,18 +1444,6 @@ class VoiceDictationApp:
             font=settings_font,
         ).grid(row=row, column=1, sticky="ew", pady=6)
 
-        row += 1
-        ttk.Label(win, text="Overlay shape").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
-        ttk.Combobox(
-            win,
-            textvariable=overlay_shape,
-            values=["square", "rounded", "circle"],
-            state="readonly",
-            width=32,
-            font=settings_font,
-        ).grid(row=row, column=1, sticky="ew", pady=6)
-
-        row += 1
         ttk.Label(win, text="Overlay details").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(
             win,
@@ -1406,11 +1470,29 @@ class VoiceDictationApp:
 
         row += 1
         ttk.Label(win, text="Dictation hotkey").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
-        ttk.Entry(win, textvariable=dict_hotkey, width=36, font=settings_font).grid(row=row, column=1, sticky="ew", pady=6)
+        dict_hotkey_frame = ttk.Frame(win)
+        dict_hotkey_frame.grid(row=row, column=1, sticky="ew", pady=6)
+        dict_hotkey_frame.columnconfigure(0, weight=1)
+        dict_hotkey_entry = ttk.Entry(dict_hotkey_frame, textvariable=dict_hotkey, width=36, font=settings_font)
+        dict_hotkey_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        ttk.Button(
+            dict_hotkey_frame,
+            text="Assign",
+            command=lambda: start_hotkey_capture(dict_hotkey, dict_hotkey_entry),
+        ).grid(row=0, column=1, sticky="e")
 
         row += 1
         ttk.Label(win, text="Overlay hotkey").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
-        ttk.Entry(win, textvariable=overlay_hotkey, width=36, font=settings_font).grid(row=row, column=1, sticky="ew", pady=6)
+        overlay_hotkey_frame = ttk.Frame(win)
+        overlay_hotkey_frame.grid(row=row, column=1, sticky="ew", pady=6)
+        overlay_hotkey_frame.columnconfigure(0, weight=1)
+        overlay_hotkey_entry = ttk.Entry(overlay_hotkey_frame, textvariable=overlay_hotkey, width=36, font=settings_font)
+        overlay_hotkey_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        ttk.Button(
+            overlay_hotkey_frame,
+            text="Assign",
+            command=lambda: start_hotkey_capture(overlay_hotkey, overlay_hotkey_entry),
+        ).grid(row=0, column=1, sticky="e")
 
         row += 1
         ttk.Label(win, text="Input device").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
@@ -1455,16 +1537,19 @@ class VoiceDictationApp:
         values["overlay_hotkey"] = values["overlay_hotkey"].lower().strip()
         if values.get("overlay_size") not in {"small", "medium", "large"}:
             values["overlay_size"] = "medium"
-        if values.get("overlay_shape") not in {"square", "rounded", "circle"}:
-            values["overlay_shape"] = "rounded"
         if values.get("overlay_details") not in {"button", "status", "full"}:
             values["overlay_details"] = "full"
         values["overlay_opacity"] = clamp_overlay_opacity(values.get("overlay_opacity", 1.0))
-        if not parse_hotkey(values["dictation_hotkey"]):
+        dictation_hotkey = parse_hotkey(values["dictation_hotkey"])
+        overlay_hotkey = parse_hotkey(values["overlay_hotkey"])
+        if not dictation_hotkey:
             self.update_status("Bad hotkey")
             return False
-        if not parse_hotkey(values["overlay_hotkey"]):
+        if not overlay_hotkey:
             self.update_status("Bad overlay key")
+            return False
+        if dictation_hotkey == overlay_hotkey:
+            self.update_status("Hotkey conflict")
             return False
 
         self.cfg.update(values)
@@ -1474,7 +1559,6 @@ class VoiceDictationApp:
         self.hotkey_label.configure(text=self.cfg["dictation_hotkey"].upper())
         self.apply_overlay_layout()
         self.apply_overlay_opacity()
-        self.apply_overlay_shape()
         self._position_overlay()
         self.update_status("Settings saved")
         if close:
