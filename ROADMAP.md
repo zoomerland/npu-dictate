@@ -35,7 +35,7 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
 - [ ] Add a small diagnostics view or "copy debug info" action.
 - [ ] Long dictation test: pauses, silence, repeated phrases, and cancellation.
 - [ ] Decide how to handle leading/trailing spaces around inserted text.
-- [ ] Fix startup state transitions:
+- [x] Fix startup state transitions:
   - Avoid briefly showing an idle/ready-looking state before model loading begins.
   - Show model-loading/busy state immediately after app start.
   - Keep the overlay disabled or clearly busy until models are ready.

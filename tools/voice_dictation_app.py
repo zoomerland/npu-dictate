@@ -789,7 +789,7 @@ class VoiceDictationApp:
         self.root.overrideredirect(True)
         self.root.configure(bg="#20242b")
 
-        self.status_var = tk.StringVar(value="Starting")
+        self.status_var = tk.StringVar(value="Loading models")
         self.last_text_var = tk.StringVar(value="")
         self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
         self.progress_running = False
@@ -813,6 +813,7 @@ class VoiceDictationApp:
         self.hotkeys = HotkeyManager(self.cfg, self.dispatch)
 
         self._build_overlay()
+        self.update_status("Loading models")
         self._position_overlay()
         self.foreground_tracker.make_no_activate(self.root.winfo_id())
         self._position_overlay()
@@ -823,7 +824,7 @@ class VoiceDictationApp:
 
         self.root.after(100, self.poll_events)
         self.root.after(100, self.track_foreground)
-        self.root.after(500, self.engine.load_async)
+        self.root.after(50, self.engine.load_async)
         self.hotkeys.start()
 
     def _build_overlay(self):
@@ -1009,7 +1010,7 @@ class VoiceDictationApp:
 
         if status == "Recording":
             self.button.configure(text="REC", bg="#b83030", activebackground="#982727")
-        elif status in {"Transcribing", "Loading ASR", "Loading punct", "Still loading"}:
+        elif busy:
             self.button.configure(text="BUSY", bg="#81612b", activebackground="#6d5124")
         else:
             self.button.configure(text="DICT", bg="#2864d8", activebackground="#1f55bd")
