@@ -604,6 +604,21 @@ class DictationEngine:
         else:
             self.start_recording()
 
+    def cancel_recording(self):
+        with self.lock:
+            if not self.recording:
+                return
+            stream = self.stream
+            self.stream = None
+            self.recording = False
+            self.audio_blocks = []
+
+        if stream:
+            stream.stop()
+            stream.close()
+
+        self.set_status("Ready" if self.loaded else "Starting")
+
     def _audio_callback(self, indata, frames, time_info, status):
         if status:
             self.set_status(str(status))
@@ -778,6 +793,14 @@ class VoiceDictationApp:
         self.last_text_var = tk.StringVar(value="")
         self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
         self.progress_running = False
+        self.drag_threshold = 8
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+        self.overlay_start_x = 0
+        self.overlay_start_y = 0
+        self.dragging_overlay = False
+        self.mouse_recording_active = False
+        self.mouse_pressed_widget = None
 
         self.foreground_tracker = ForegroundWindowTracker()
         self.input_tracker = FocusedInputTracker()
@@ -816,7 +839,6 @@ class VoiceDictationApp:
             activeforeground="white",
             activebackground="#1f55bd",
             relief="flat",
-            command=self.on_button_click,
         )
         self.button.pack(fill="x")
 
@@ -842,16 +864,11 @@ class VoiceDictationApp:
         self.progress.pack(fill="x", pady=(5, 0))
         self.progress.pack_forget()
 
-        self.status_label.bind("<ButtonPress-1>", self.start_drag)
-        self.status_label.bind("<B1-Motion>", self.drag)
-        self.hotkey_label.bind("<ButtonPress-1>", self.start_drag)
-        self.hotkey_label.bind("<B1-Motion>", self.drag)
-
         for widget in (self.root, self.frame, self.button, self.status_label, self.hotkey_label):
             widget.bind("<Button-3>", self.show_menu)
-
-        self.button.bind("<ButtonPress-1>", self.on_button_press)
-        self.button.bind("<ButtonRelease-1>", self.on_button_release)
+            widget.bind("<ButtonPress-1>", self.on_overlay_press)
+            widget.bind("<B1-Motion>", self.on_overlay_motion)
+            widget.bind("<ButtonRelease-1>", self.on_overlay_release)
 
     def _position_overlay(self):
         self.root.update_idletasks()
@@ -962,32 +979,59 @@ class VoiceDictationApp:
         else:
             self.button.configure(text="DICT", bg="#2864d8", activebackground="#1f55bd")
 
-    def on_button_click(self):
-        if self.cfg.get("mode", "hold") == "toggle":
-            self.engine.toggle_recording()
+    def on_overlay_press(self, event):
+        self.drag_start_x = event.x_root
+        self.drag_start_y = event.y_root
+        self.overlay_start_x = self.root.winfo_x()
+        self.overlay_start_y = self.root.winfo_y()
+        self.dragging_overlay = False
+        self.mouse_pressed_widget = event.widget
+        self.mouse_recording_active = False
 
-    def on_button_press(self, event):
-        if self.cfg.get("mode", "hold") == "hold":
+        if event.widget == self.button and self.cfg.get("mode", "hold") == "hold":
             self.engine.start_recording()
+            self.mouse_recording_active = True
 
-    def on_button_release(self, event):
-        if self.cfg.get("mode", "hold") == "hold":
-            self.engine.stop_recording()
+    def on_overlay_motion(self, event):
+        dx = event.x_root - self.drag_start_x
+        dy = event.y_root - self.drag_start_y
 
-    def start_drag(self, event):
-        self.drag_x = event.x_root
-        self.drag_y = event.y_root
-        self.start_x = self.root.winfo_x()
-        self.start_y = self.root.winfo_y()
+        if not self.dragging_overlay and (dx * dx + dy * dy) < self.drag_threshold * self.drag_threshold:
+            return
 
-    def drag(self, event):
-        dx = event.x_root - self.drag_x
-        dy = event.y_root - self.drag_y
-        x = self.start_x + dx
-        y = self.start_y + dy
+        if not self.dragging_overlay:
+            self.dragging_overlay = True
+            if self.mouse_recording_active:
+                self.engine.cancel_recording()
+                self.mouse_recording_active = False
+
+        self.move_overlay(self.overlay_start_x + dx, self.overlay_start_y + dy)
+
+    def on_overlay_release(self, event):
+        if self.dragging_overlay:
+            self.persist_overlay_position()
+        elif self.mouse_pressed_widget == self.button:
+            mode = self.cfg.get("mode", "hold")
+            if mode == "hold" and self.mouse_recording_active:
+                self.engine.stop_recording()
+            elif mode == "toggle":
+                self.engine.toggle_recording()
+
+        self.dragging_overlay = False
+        self.mouse_recording_active = False
+        self.mouse_pressed_widget = None
+
+    def move_overlay(self, x, y):
+        x = int(x)
+        y = int(y)
         self.root.geometry(f"+{x}+{y}")
         self.cfg["overlay_x"] = x
         self.cfg["overlay_y"] = y
+
+    def persist_overlay_position(self):
+        self.cfg["overlay_x"] = int(self.root.winfo_x())
+        self.cfg["overlay_y"] = int(self.root.winfo_y())
+        save_config(self.cfg)
 
     def toggle_overlay(self):
         if self.root.state() == "withdrawn":

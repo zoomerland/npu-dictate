@@ -45,9 +45,9 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
 
 Goal: make the app feel like a real desktop utility instead of a prototype.
 
-- [ ] Make the entire overlay draggable, including the main button.
+- [x] Make the entire overlay draggable, including the main button.
 - [x] Persist overlay visibility in config.
-- [ ] Persist overlay position after drag and restore it on next launch.
+- [x] Persist overlay position after drag and restore it on next launch.
 - [ ] Add overlay size presets:
   - Small.
   - Medium.
