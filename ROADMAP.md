@@ -56,7 +56,7 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Small.
   - Medium.
   - Large.
-- [ ] Add overlay shape presets:
+- [x] Add overlay shape presets:
   - Square.
   - Rounded square.
   - Circle.
@@ -69,7 +69,8 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Button plus status.
   - Button plus status and hotkey hint.
 - [ ] Round UI corners where the Windows/Tk stack allows it:
-  - Overlay button and frame.
+  - [x] Overlay window shape.
+  - [ ] Overlay button and frame internals.
   - Settings controls or grouped sections.
   - Context menu/tray menu where practical.
 - [x] Increase context menu size to match the settings readability scale.

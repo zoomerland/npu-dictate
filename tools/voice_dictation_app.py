@@ -89,6 +89,7 @@ def default_config():
         "overlay_size": "medium",
         "overlay_details": "full",
         "overlay_opacity": 1.0,
+        "overlay_shape": "rounded",
     }
 
 
@@ -932,6 +933,53 @@ class VoiceDictationApp:
         value = self.cfg.get("overlay_details", "full")
         return value if value in {"button", "status", "full"} else "full"
 
+    def overlay_shape_mode(self):
+        value = self.cfg.get("overlay_shape", "rounded")
+        return value if value in {"square", "rounded", "circle"} else "rounded"
+
+    def apply_overlay_shape(self):
+        if os.name != "nt":
+            return
+
+        self.root.update_idletasks()
+        width = int(max(self.root.winfo_width(), self.root.winfo_reqwidth()))
+        height = int(max(self.root.winfo_height(), self.root.winfo_reqheight()))
+        if width <= 1 or height <= 1:
+            return
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+        user32.SetWindowRgn.argtypes = [wintypes.HWND, wintypes.HRGN, wintypes.BOOL]
+        user32.SetWindowRgn.restype = ctypes.c_int
+        gdi32.CreateRoundRectRgn.argtypes = [
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+        ]
+        gdi32.CreateRoundRectRgn.restype = wintypes.HRGN
+        gdi32.CreateEllipticRgn.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+        gdi32.CreateEllipticRgn.restype = wintypes.HRGN
+        gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
+        gdi32.DeleteObject.restype = wintypes.BOOL
+
+        shape = self.overlay_shape_mode()
+        hwnd = self.root.winfo_id()
+        if shape == "square":
+            user32.SetWindowRgn(hwnd, None, True)
+            return
+
+        if shape == "circle":
+            region = gdi32.CreateEllipticRgn(0, 0, width + 1, height + 1)
+        else:
+            corner = min(max(24, int(min(width, height) * 0.45)), 56)
+            region = gdi32.CreateRoundRectRgn(0, 0, width + 1, height + 1, corner, corner)
+
+        if region and not user32.SetWindowRgn(hwnd, region, True):
+            gdi32.DeleteObject(region)
+
     def apply_overlay_layout(self):
         profile = self.overlay_size_profile()
         self.frame.configure(padx=profile["padx"], pady=profile["pady"])
@@ -958,6 +1006,7 @@ class VoiceDictationApp:
             self.hotkey_label.pack_forget()
 
         self.update_status(self.status_var.get())
+        self.apply_overlay_shape()
 
     def _position_overlay(self):
         self.root.update_idletasks()
@@ -980,6 +1029,7 @@ class VoiceDictationApp:
             f"bounds={self.virtual_screen_bounds()}"
         )
         self.root.geometry(f"+{int(x)}+{int(y)}")
+        self.apply_overlay_shape()
         if self.cfg.get("overlay_x") != x or self.cfg.get("overlay_y") != y:
             self.cfg["overlay_x"] = x
             self.cfg["overlay_y"] = y
@@ -1108,6 +1158,7 @@ class VoiceDictationApp:
             self.button.configure(text="BUSY", bg="#81612b", activebackground="#6d5124")
         else:
             self.button.configure(text="DICT", bg="#2864d8", activebackground="#1f55bd")
+        self.apply_overlay_shape()
 
     def on_overlay_press(self, event):
         self.drag_start_x = event.x_root
@@ -1202,6 +1253,7 @@ class VoiceDictationApp:
         dict_hotkey = tk.StringVar(value=self.cfg.get("dictation_hotkey", "f8"))
         overlay_hotkey = tk.StringVar(value=self.cfg.get("overlay_hotkey", "ctrl+alt+shift+d"))
         overlay_size = tk.StringVar(value=self.cfg.get("overlay_size", "medium"))
+        overlay_shape = tk.StringVar(value=self.overlay_shape_mode())
         overlay_details = tk.StringVar(value=self.cfg.get("overlay_details", "full"))
         overlay_opacity = tk.DoubleVar(value=clamp_overlay_opacity(self.cfg.get("overlay_opacity", 1.0)) * 100)
         overlay_opacity_label = tk.StringVar()
@@ -1232,6 +1284,7 @@ class VoiceDictationApp:
             dict_hotkey,
             overlay_hotkey,
             overlay_size,
+            overlay_shape,
             overlay_details,
             overlay_opacity,
             selected_device,
@@ -1260,6 +1313,7 @@ class VoiceDictationApp:
                 "dictation_hotkey": dict_hotkey.get(),
                 "overlay_hotkey": overlay_hotkey.get(),
                 "overlay_size": overlay_size.get(),
+                "overlay_shape": overlay_shape.get(),
                 "overlay_details": overlay_details.get(),
                 "overlay_opacity": clamp_overlay_opacity(overlay_opacity.get() / 100),
                 "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
@@ -1309,6 +1363,17 @@ class VoiceDictationApp:
             win,
             textvariable=overlay_size,
             values=["small", "medium", "large"],
+            state="readonly",
+            width=32,
+            font=settings_font,
+        ).grid(row=row, column=1, sticky="ew", pady=6)
+
+        row += 1
+        ttk.Label(win, text="Overlay shape").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Combobox(
+            win,
+            textvariable=overlay_shape,
+            values=["square", "rounded", "circle"],
             state="readonly",
             width=32,
             font=settings_font,
@@ -1390,6 +1455,8 @@ class VoiceDictationApp:
         values["overlay_hotkey"] = values["overlay_hotkey"].lower().strip()
         if values.get("overlay_size") not in {"small", "medium", "large"}:
             values["overlay_size"] = "medium"
+        if values.get("overlay_shape") not in {"square", "rounded", "circle"}:
+            values["overlay_shape"] = "rounded"
         if values.get("overlay_details") not in {"button", "status", "full"}:
             values["overlay_details"] = "full"
         values["overlay_opacity"] = clamp_overlay_opacity(values.get("overlay_opacity", 1.0))
@@ -1407,6 +1474,7 @@ class VoiceDictationApp:
         self.hotkey_label.configure(text=self.cfg["dictation_hotkey"].upper())
         self.apply_overlay_layout()
         self.apply_overlay_opacity()
+        self.apply_overlay_shape()
         self._position_overlay()
         self.update_status("Settings saved")
         if close:
