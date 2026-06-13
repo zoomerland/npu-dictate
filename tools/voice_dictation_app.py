@@ -785,7 +785,6 @@ class FocusedInputTracker:
     def __init__(self):
         self.last_input = None
         self.current_pid = os.getpid()
-        self.keyboard_controller = keyboard.Controller()
         try:
             import uiautomation as auto
         except ImportError:
@@ -861,12 +860,12 @@ class FocusedInputTracker:
             pattern = control.GetTextPattern()
             if pattern is None:
                 log_debug(f"uia context skipped=no-text-pattern type={control_type}")
-                return self.clipboard_line_context(max_chars)
+                return ""
 
             selections = pattern.GetSelection()
             if not selections:
                 log_debug(f"uia context skipped=no-selection type={control_type}")
-                return self.clipboard_line_context(max_chars)
+                return ""
 
             cursor = selections[0]
             context_range = cursor.Clone()
@@ -891,45 +890,6 @@ class FocusedInputTracker:
         except Exception as exc:
             log_debug(f"uia context error={type(exc).__name__}")
             return ""
-
-    def clipboard_line_context(self, max_chars=320):
-        try:
-            previous_clipboard = pyperclip.paste()
-        except Exception:
-            previous_clipboard = ""
-
-        try:
-            pyperclip.copy("")
-            self.keyboard_controller.press(keyboard.Key.shift)
-            self.keyboard_controller.press(keyboard.Key.home)
-            self.keyboard_controller.release(keyboard.Key.home)
-            self.keyboard_controller.release(keyboard.Key.shift)
-            time.sleep(0.04)
-
-            self.keyboard_controller.press(keyboard.Key.ctrl)
-            self.keyboard_controller.press("c")
-            self.keyboard_controller.release("c")
-            self.keyboard_controller.release(keyboard.Key.ctrl)
-            time.sleep(0.06)
-
-            text = pyperclip.paste() or ""
-            if text:
-                self.keyboard_controller.press(keyboard.Key.right)
-                self.keyboard_controller.release(keyboard.Key.right)
-                time.sleep(0.02)
-
-            if len(text) > max_chars:
-                text = text[-int(max_chars) :]
-            log_debug(f"clipboard context chars={len(text)}")
-            return text
-        except Exception as exc:
-            log_debug(f"clipboard context error={type(exc).__name__}")
-            return ""
-        finally:
-            try:
-                pyperclip.copy(previous_clipboard)
-            except Exception:
-                pass
 
 
 class HotkeyManager:
