@@ -17,6 +17,14 @@ from pynput import keyboard
 
 from model_setup import ensure_asr_model, ensure_punct_model
 
+try:
+    import pystray
+    from PIL import Image, ImageDraw
+except ImportError:
+    pystray = None
+    Image = None
+    ImageDraw = None
+
 
 APP_NAME = "Local Voice Dictation"
 CONFIG_VERSION = 1
@@ -889,9 +897,11 @@ class VoiceDictationApp:
         self.apply_overlay_opacity()
 
         self.status_var = tk.StringVar(value="Loading models")
+        self.current_status = "Loading models"
         self.last_text_var = tk.StringVar(value="")
         self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
         self.progress_running = False
+        self.tray_icon = None
         self.drag_threshold = 8
         self.drag_start_x = 0
         self.drag_start_y = 0
@@ -917,6 +927,7 @@ class VoiceDictationApp:
         self.foreground_tracker.make_no_activate(self.root.winfo_id())
         self._position_overlay()
         self._build_menu()
+        self.start_tray_icon()
 
         if not self.cfg.get("overlay_visible", True):
             self.root.withdraw()
@@ -1110,6 +1121,61 @@ class VoiceDictationApp:
     def show_menu(self, event):
         self.menu.tk_popup(event.x_root, event.y_root)
 
+    def make_tray_image(self):
+        if Image is None or ImageDraw is None:
+            return None
+
+        image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((6, 6, 58, 58), radius=14, fill="#2864d8")
+        draw.ellipse((22, 14, 42, 38), fill="white")
+        draw.rounded_rectangle((27, 36, 37, 49), radius=4, fill="white")
+        draw.rounded_rectangle((20, 48, 44, 53), radius=2, fill="white")
+        return image
+
+    def start_tray_icon(self):
+        if pystray is None:
+            log_debug("tray unavailable: pystray not installed")
+            return
+
+        image = self.make_tray_image()
+        if image is None:
+            log_debug("tray unavailable: icon image backend missing")
+            return
+
+        try:
+            self.tray_icon = pystray.Icon(
+                "local_voice_dictation",
+                image,
+                self.tray_title(),
+                pystray.Menu(
+                    pystray.MenuItem(lambda item: f"Status: {self.current_status}", None, enabled=False),
+                    pystray.Menu.SEPARATOR,
+                    pystray.MenuItem("Show overlay", lambda: self.dispatch("show_overlay"), default=True),
+                    pystray.MenuItem("Hide overlay", lambda: self.dispatch("hide_overlay")),
+                    pystray.MenuItem("Settings", lambda: self.dispatch("open_settings")),
+                    pystray.Menu.SEPARATOR,
+                    pystray.MenuItem("Quit", lambda: self.dispatch("exit_app")),
+                ),
+            )
+            self.tray_icon.run_detached()
+        except Exception as exc:
+            self.tray_icon = None
+            log_debug(f"tray start error={type(exc).__name__}")
+
+    def tray_title(self):
+        status = self.current_status[:80]
+        return f"{APP_NAME}: {status}"
+
+    def update_tray_status(self):
+        if not self.tray_icon:
+            return
+        try:
+            self.tray_icon.title = self.tray_title()
+            self.tray_icon.update_menu()
+        except Exception as exc:
+            log_debug(f"tray update error={type(exc).__name__}")
+
     def dispatch(self, action):
         self.event_queue.put(("action", action))
 
@@ -1164,6 +1230,14 @@ class VoiceDictationApp:
     def handle_action(self, action):
         if action == "toggle_overlay":
             self.toggle_overlay()
+        elif action == "show_overlay":
+            self.show_overlay()
+        elif action == "hide_overlay":
+            self.hide_overlay()
+        elif action == "open_settings":
+            self.open_settings()
+        elif action == "exit_app":
+            self.exit_app()
         elif action == "start_recording":
             self.engine.start_recording()
         elif action == "stop_recording":
@@ -1172,6 +1246,7 @@ class VoiceDictationApp:
             self.engine.toggle_recording()
 
     def update_status(self, status):
+        self.current_status = status
         self.status_var.set(status)
         busy = (
             status.startswith("Downloading")
@@ -1195,6 +1270,7 @@ class VoiceDictationApp:
             self.button.configure(text="BUSY", bg="#81612b", activebackground="#6d5124")
         else:
             self.button.configure(text="DICT", bg="#2864d8", activebackground="#1f55bd")
+        self.update_tray_status()
 
     def on_overlay_press(self, event):
         self.drag_start_x = event.x_root
@@ -1251,12 +1327,17 @@ class VoiceDictationApp:
 
     def toggle_overlay(self):
         if self.root.state() == "withdrawn":
-            self.cfg["overlay_visible"] = True
-            self.root.deiconify()
-            self.root.attributes("-topmost", True)
+            self.show_overlay()
         else:
             self.hide_overlay()
+
+    def show_overlay(self):
+        self.cfg["overlay_visible"] = True
         save_config(self.cfg)
+        self.root.deiconify()
+        self.root.attributes("-topmost", True)
+        self.apply_overlay_opacity()
+        self._position_overlay()
 
     def hide_overlay(self):
         self.cfg["overlay_visible"] = False
@@ -1473,6 +1554,7 @@ class VoiceDictationApp:
             font=settings_font,
         ).grid(row=row, column=1, sticky="ew", pady=6)
 
+        row += 1
         ttk.Label(win, text="Overlay details").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(
             win,
@@ -1596,6 +1678,13 @@ class VoiceDictationApp:
 
     def exit_app(self):
         save_config(self.cfg)
+        if self.tray_icon:
+            tray_icon = self.tray_icon
+            self.tray_icon = None
+            try:
+                tray_icon.stop()
+            except Exception as exc:
+                log_debug(f"tray stop error={type(exc).__name__}")
         self.hotkeys.stop()
         if self.engine.recording:
             self.engine.stop_recording()

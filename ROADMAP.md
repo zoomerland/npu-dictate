@@ -84,7 +84,7 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Support dictation hotkey.
   - Support overlay show/hide hotkey.
   - Validate conflicts and empty hotkeys.
-- [ ] Add tray icon:
+- [x] Add tray icon:
   - Restore overlay on click.
   - Hide overlay.
   - Open settings.
