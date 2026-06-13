@@ -52,7 +52,7 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
 - [x] Make the entire overlay draggable, including the main button.
 - [x] Persist overlay visibility in config.
 - [x] Persist overlay position after drag and restore it on next launch.
-- [ ] Add overlay size presets:
+- [x] Add overlay size presets:
   - Small.
   - Medium.
   - Large.
@@ -60,7 +60,7 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Square.
   - Rounded square.
   - Circle.
-- [ ] Add compact/full overlay modes:
+- [x] Add compact/full overlay modes:
   - Button only.
   - Button plus status.
   - Button plus status and hotkey hint.

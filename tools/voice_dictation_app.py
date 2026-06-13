@@ -86,6 +86,8 @@ def default_config():
         "overlay_visible": True,
         "overlay_x": None,
         "overlay_y": None,
+        "overlay_size": "medium",
+        "overlay_details": "full",
     }
 
 
@@ -866,11 +868,79 @@ class VoiceDictationApp:
         self.progress.pack(fill="x", pady=(5, 0))
         self.progress.pack_forget()
 
-        for widget in (self.root, self.frame, self.button, self.status_label, self.hotkey_label):
+        self.apply_overlay_layout()
+
+        for widget in (self.root, self.frame, self.button, self.status_label, self.hotkey_label, self.progress):
             widget.bind("<Button-3>", self.show_menu)
             widget.bind("<ButtonPress-1>", self.on_overlay_press)
             widget.bind("<B1-Motion>", self.on_overlay_motion)
             widget.bind("<ButtonRelease-1>", self.on_overlay_release)
+
+    def overlay_size_profile(self):
+        profiles = {
+            "small": {
+                "padx": 6,
+                "pady": 5,
+                "button_width": 6,
+                "button_height": 1,
+                "button_font": ("Segoe UI", 9, "bold"),
+                "status_font": ("Segoe UI", 7),
+                "hotkey_font": ("Segoe UI", 6),
+                "progress_length": 70,
+            },
+            "medium": {
+                "padx": 8,
+                "pady": 7,
+                "button_width": 8,
+                "button_height": 2,
+                "button_font": ("Segoe UI", 10, "bold"),
+                "status_font": ("Segoe UI", 8),
+                "hotkey_font": ("Segoe UI", 7),
+                "progress_length": 86,
+            },
+            "large": {
+                "padx": 10,
+                "pady": 8,
+                "button_width": 10,
+                "button_height": 3,
+                "button_font": ("Segoe UI", 11, "bold"),
+                "status_font": ("Segoe UI", 9),
+                "hotkey_font": ("Segoe UI", 8),
+                "progress_length": 108,
+            },
+        }
+        return profiles.get(self.cfg.get("overlay_size", "medium"), profiles["medium"])
+
+    def overlay_details_mode(self):
+        value = self.cfg.get("overlay_details", "full")
+        return value if value in {"button", "status", "full"} else "full"
+
+    def apply_overlay_layout(self):
+        profile = self.overlay_size_profile()
+        self.frame.configure(padx=profile["padx"], pady=profile["pady"])
+        self.button.configure(
+            width=profile["button_width"],
+            height=profile["button_height"],
+            font=profile["button_font"],
+        )
+        self.status_label.configure(font=profile["status_font"])
+        self.hotkey_label.configure(font=profile["hotkey_font"])
+        self.progress.configure(length=profile["progress_length"])
+
+        details = self.overlay_details_mode()
+        if details in {"status", "full"}:
+            if not self.status_label.winfo_ismapped():
+                self.status_label.pack(fill="x", pady=(5, 0))
+        else:
+            self.status_label.pack_forget()
+
+        if details == "full":
+            if not self.hotkey_label.winfo_ismapped():
+                self.hotkey_label.pack(fill="x")
+        else:
+            self.hotkey_label.pack_forget()
+
+        self.update_status(self.status_var.get())
 
     def _position_overlay(self):
         self.root.update_idletasks()
@@ -999,11 +1069,12 @@ class VoiceDictationApp:
             or status.startswith("Loading")
             or status in {"Still loading", "Transcribing"}
         )
-        if busy and not self.progress_running:
+        show_progress = busy and self.overlay_details_mode() != "button"
+        if show_progress and not self.progress_running:
             self.progress.pack(fill="x", pady=(5, 0))
             self.progress.start(12)
             self.progress_running = True
-        elif not busy and self.progress_running:
+        elif not show_progress and self.progress_running:
             self.progress.stop()
             self.progress.pack_forget()
             self.progress_running = False
@@ -1097,6 +1168,8 @@ class VoiceDictationApp:
         mode = tk.StringVar(value=self.cfg.get("mode", "hold"))
         dict_hotkey = tk.StringVar(value=self.cfg.get("dictation_hotkey", "f8"))
         overlay_hotkey = tk.StringVar(value=self.cfg.get("overlay_hotkey", "ctrl+alt+shift+d"))
+        overlay_size = tk.StringVar(value=self.cfg.get("overlay_size", "medium"))
+        overlay_details = tk.StringVar(value=self.cfg.get("overlay_details", "full"))
         sample_rate = tk.StringVar(value=str(self.cfg.get("sample_rate", 0)))
         use_punctuation = tk.BooleanVar(value=bool(self.cfg.get("use_punctuation", True)))
         auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
@@ -1123,6 +1196,8 @@ class VoiceDictationApp:
             mode,
             dict_hotkey,
             overlay_hotkey,
+            overlay_size,
+            overlay_details,
             selected_device,
             sample_rate,
             use_punctuation,
@@ -1142,6 +1217,8 @@ class VoiceDictationApp:
                 "mode": mode.get(),
                 "dictation_hotkey": dict_hotkey.get(),
                 "overlay_hotkey": overlay_hotkey.get(),
+                "overlay_size": overlay_size.get(),
+                "overlay_details": overlay_details.get(),
                 "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
                 "sample_rate": sample_rate_value,
                 "use_punctuation": bool(use_punctuation.get()),
@@ -1182,6 +1259,26 @@ class VoiceDictationApp:
         ttk.Combobox(win, textvariable=mode, values=["hold", "toggle"], state="readonly", width=24).grid(
             row=row, column=1, sticky="ew", pady=4
         )
+
+        row += 1
+        ttk.Label(win, text="Overlay size").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Combobox(
+            win,
+            textvariable=overlay_size,
+            values=["small", "medium", "large"],
+            state="readonly",
+            width=24,
+        ).grid(row=row, column=1, sticky="ew", pady=4)
+
+        row += 1
+        ttk.Label(win, text="Overlay details").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Combobox(
+            win,
+            textvariable=overlay_details,
+            values=["button", "status", "full"],
+            state="readonly",
+            width=24,
+        ).grid(row=row, column=1, sticky="ew", pady=4)
 
         row += 1
         ttk.Label(win, text="Dictation hotkey").grid(row=row, column=0, sticky="w", pady=4)
@@ -1232,6 +1329,10 @@ class VoiceDictationApp:
     def save_settings(self, win, values, close=True):
         values["dictation_hotkey"] = values["dictation_hotkey"].lower().strip()
         values["overlay_hotkey"] = values["overlay_hotkey"].lower().strip()
+        if values.get("overlay_size") not in {"small", "medium", "large"}:
+            values["overlay_size"] = "medium"
+        if values.get("overlay_details") not in {"button", "status", "full"}:
+            values["overlay_details"] = "full"
         if not parse_hotkey(values["dictation_hotkey"]):
             self.update_status("Bad hotkey")
             return False
@@ -1244,6 +1345,8 @@ class VoiceDictationApp:
         self.hotkeys.update_config(self.cfg)
         self.engine.update_config(self.cfg)
         self.hotkey_label.configure(text=self.cfg["dictation_hotkey"].upper())
+        self.apply_overlay_layout()
+        self._position_overlay()
         self.update_status("Settings saved")
         if close:
             win.destroy()
