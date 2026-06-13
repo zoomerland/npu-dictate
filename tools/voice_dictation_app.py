@@ -529,6 +529,10 @@ def text_ends_sentence(text):
     return bool(re.search("[.!?\\u2026]+[\"')\\]]*$", str(text or "").rstrip()))
 
 
+def text_ends_clause(text):
+    return bool(re.search("[,;:\\u2014-]+[\"')\\]]*$", str(text or "").rstrip()))
+
+
 def lowercase_first_alpha(text):
     text = str(text or "")
     for index, char in enumerate(text):
@@ -542,6 +546,11 @@ def first_alpha_is_lower(text):
         if char.isalpha():
             return char.islower()
     return False
+
+
+def token_is_all_caps_word(text):
+    letters = [char for char in str(text or "") if char.isalpha()]
+    return bool(letters) and all(char.isupper() for char in letters)
 
 
 def align_inserted_tokens(raw_text, inserted_text):
@@ -565,7 +574,11 @@ def adjust_inserted_casing(raw_text, inserted_text, context=""):
         inserted_index = start_index + index
         if inserted_index >= len(inserted_tokens):
             break
-        if first_alpha_is_lower(raw_token) and previous_text and not text_ends_sentence(previous_text):
+        should_lower = (
+            first_alpha_is_lower(raw_token)
+            or (text_ends_clause(previous_text) and not token_is_all_caps_word(raw_token))
+        )
+        if should_lower and previous_text and not text_ends_sentence(previous_text):
             inserted_tokens[inserted_index] = lowercase_first_alpha(inserted_tokens[inserted_index])
         previous_text = f"{previous_text} {inserted_tokens[inserted_index]}".strip()
 
@@ -1208,6 +1221,11 @@ class DictationEngine:
                 final_text = final_text.rstrip() + " "
 
             if final_text:
+                log_debug(
+                    "dictation result "
+                    f"raw={raw_text!r} final={final_text!r} "
+                    f"context_chars={len(context) if 'context' in locals() else 0}"
+                )
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
                 if self.cfg.get("auto_paste", True):
                     if self.paste_text(final_text):

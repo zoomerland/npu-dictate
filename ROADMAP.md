@@ -45,6 +45,11 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - [x] Send context plus new dictation to the postprocessor.
   - [x] Insert only the newly dictated segment back into the field.
   - [ ] Test and tune in Chromium/Electron and native Win32 inputs.
+  - [ ] Optional full-field repunctuation mode:
+    - Re-read the full text field after insertion.
+    - Run punctuation/casing over the full field text.
+    - Replace the field only through a safe editor-specific path.
+    - Do not use selection-based fallbacks that can destroy user text.
 
 ## Milestone 1: Overlay and Settings UX
 
