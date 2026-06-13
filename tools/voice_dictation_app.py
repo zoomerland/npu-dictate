@@ -181,8 +181,33 @@ class ForegroundWindowTracker:
         self.user32.SetFocus.restype = wintypes.HWND
         self.kernel32.GetCurrentThreadId.restype = wintypes.DWORD
         self.current_pid = os.getpid()
+        self.GWL_EXSTYLE = -20
         self.GA_ROOT = 2
         self.SW_RESTORE = 9
+        self.WS_EX_NOACTIVATE = 0x08000000
+        self.WS_EX_TOOLWINDOW = 0x00000080
+        self.SWP_NOSIZE = 0x0001
+        self.SWP_NOMOVE = 0x0002
+        self.SWP_NOZORDER = 0x0004
+        self.SWP_FRAMECHANGED = 0x0020
+
+        long_ptr = ctypes.c_longlong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_long
+        self.get_window_long = getattr(self.user32, "GetWindowLongPtrW", self.user32.GetWindowLongW)
+        self.get_window_long.argtypes = [wintypes.HWND, ctypes.c_int]
+        self.get_window_long.restype = long_ptr
+        self.set_window_long = getattr(self.user32, "SetWindowLongPtrW", self.user32.SetWindowLongW)
+        self.set_window_long.argtypes = [wintypes.HWND, ctypes.c_int, long_ptr]
+        self.set_window_long.restype = long_ptr
+        self.user32.SetWindowPos.argtypes = [
+            wintypes.HWND,
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        ]
+        self.user32.SetWindowPos.restype = wintypes.BOOL
 
     def foreground_hwnd(self):
         if not self.enabled:
@@ -213,6 +238,7 @@ class ForegroundWindowTracker:
         hwnd = self.last_target_hwnd
         if not self.is_usable_target(hwnd):
             return False
+        target_pid = self.hwnd_pid(hwnd)
 
         if self.user32.IsIconic(hwnd):
             self.user32.ShowWindow(hwnd, self.SW_RESTORE)
@@ -233,12 +259,33 @@ class ForegroundWindowTracker:
             self.user32.BringWindowToTop(hwnd)
             self.user32.SetForegroundWindow(hwnd)
             self.user32.SetFocus(hwnd)
-            return self.foreground_hwnd() == hwnd
+            return self.is_foreground_target(hwnd, target_pid)
         finally:
             if attached_target:
                 self.user32.AttachThreadInput(current_thread, target_thread, False)
             if attached_foreground:
                 self.user32.AttachThreadInput(current_thread, foreground_thread, False)
+
+    def is_foreground_target(self, hwnd, target_pid):
+        deadline = time.perf_counter() + 0.6
+        while time.perf_counter() < deadline:
+            foreground = self.foreground_hwnd()
+            if foreground == hwnd:
+                return True
+            if self.is_usable_target(foreground) and self.hwnd_pid(foreground) == target_pid:
+                return True
+            time.sleep(0.03)
+        return False
+
+    def make_no_activate(self, hwnd):
+        if not self.enabled or not hwnd:
+            return
+        hwnd = self.user32.GetAncestor(hwnd, self.GA_ROOT) or hwnd
+        style = int(self.get_window_long(hwnd, self.GWL_EXSTYLE))
+        style |= self.WS_EX_NOACTIVATE | self.WS_EX_TOOLWINDOW
+        self.set_window_long(hwnd, self.GWL_EXSTYLE, style)
+        flags = self.SWP_NOMOVE | self.SWP_NOSIZE | self.SWP_NOZORDER | self.SWP_FRAMECHANGED
+        self.user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, flags)
 
 
 class HotkeyManager:
@@ -531,6 +578,7 @@ class VoiceDictationApp:
 
         self._build_overlay()
         self._position_overlay()
+        self.foreground_tracker.make_no_activate(self.root.winfo_id())
         self._build_menu()
 
         if not self.cfg.get("overlay_visible", True):
