@@ -47,9 +47,17 @@ TRANSLATIONS = {
         "exit": "Exit",
         "quit": "Quit",
         "mode": "Mode",
+        "mode_hold": "Hold to talk",
+        "mode_toggle": "Toggle",
         "ui_language": "Interface language",
         "overlay_size": "Overlay size",
+        "overlay_size_small": "Small",
+        "overlay_size_medium": "Medium",
+        "overlay_size_large": "Large",
         "overlay_details": "Overlay details",
+        "overlay_details_button": "Button only",
+        "overlay_details_status": "Button + status",
+        "overlay_details_full": "Full",
         "overlay_opacity": "Overlay opacity",
         "dictation_hotkey": "Dictation hotkey",
         "overlay_hotkey": "Overlay hotkey",
@@ -119,9 +127,17 @@ TRANSLATIONS = {
         "exit": "Выход",
         "quit": "Выйти",
         "mode": "Режим",
+        "mode_hold": "Удерживать",
+        "mode_toggle": "Нажать старт/стоп",
         "ui_language": "Язык интерфейса",
         "overlay_size": "Размер кнопки",
+        "overlay_size_small": "Маленькая",
+        "overlay_size_medium": "Средняя",
+        "overlay_size_large": "Большая",
         "overlay_details": "Детализация кнопки",
+        "overlay_details_button": "Только кнопка",
+        "overlay_details_status": "Кнопка и статус",
+        "overlay_details_full": "Полная",
         "overlay_opacity": "Прозрачность кнопки",
         "dictation_hotkey": "Горячая клавиша диктовки",
         "overlay_hotkey": "Горячая клавиша кнопки",
@@ -180,6 +196,23 @@ TRANSLATIONS = {
         "Startup error": "Ошибка автозапуска",
         "Settings saved": "Настройки сохранены",
     },
+}
+
+CHOICE_TRANSLATION_KEYS = {
+    "mode": [
+        ("hold", "mode_hold"),
+        ("toggle", "mode_toggle"),
+    ],
+    "overlay_size": [
+        ("small", "overlay_size_small"),
+        ("medium", "overlay_size_medium"),
+        ("large", "overlay_size_large"),
+    ],
+    "overlay_details": [
+        ("button", "overlay_details_button"),
+        ("status", "overlay_details_status"),
+        ("full", "overlay_details_full"),
+    ],
 }
 
 
@@ -1137,6 +1170,7 @@ class VoiceDictationApp:
         self.last_text_var = tk.StringVar(value="")
         self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
         self.settings_i18n_widgets = []
+        self.settings_i18n_choices = []
         self.progress_running = False
         self.tray_icon = None
         self.recording_started_at = None
@@ -1187,6 +1221,27 @@ class VoiceDictationApp:
         if status.startswith("Error: "):
             return f"{self.t('error')}: {status.split(': ', 1)[1]}"
         return self.t(status)
+
+    def choice_label(self, group, value):
+        for code, key in CHOICE_TRANSLATION_KEYS.get(group, []):
+            if code == value:
+                return self.t(key)
+        return value
+
+    def choice_labels(self, group):
+        return [self.t(key) for _, key in CHOICE_TRANSLATION_KEYS.get(group, [])]
+
+    def choice_value(self, group, label, default=None):
+        label = str(label)
+        choices = CHOICE_TRANSLATION_KEYS.get(group, [])
+        for code, key in choices:
+            if label == code:
+                return code
+            if any(label == translations.get(key) for translations in TRANSLATIONS.values()):
+                return code
+        if default is not None:
+            return default
+        return choices[0][0] if choices else label
 
     def _build_overlay(self):
         self.frame = tk.Frame(self.root, bg="#20242b", padx=8, pady=7)
@@ -1445,6 +1500,7 @@ class VoiceDictationApp:
     def refresh_settings_window_text(self):
         if not hasattr(self, "settings_window") or not self.settings_window.winfo_exists():
             self.settings_i18n_widgets = []
+            self.settings_i18n_choices = []
             return
 
         self.settings_window.title(f"{APP_NAME} {self.t('settings_title')}")
@@ -1452,6 +1508,15 @@ class VoiceDictationApp:
             try:
                 if widget.winfo_exists():
                     widget.configure(text=self.t(key))
+            except tk.TclError:
+                pass
+        for combobox, variable, group, default in self.settings_i18n_choices:
+            try:
+                if not combobox.winfo_exists():
+                    continue
+                value = self.choice_value(group, variable.get(), self.cfg.get(group, default))
+                combobox.configure(values=self.choice_labels(group))
+                variable.set(self.choice_label(group, value))
             except tk.TclError:
                 pass
 
@@ -1729,6 +1794,7 @@ class VoiceDictationApp:
         win = tk.Toplevel(self.root)
         self.settings_window = win
         self.settings_i18n_widgets = []
+        self.settings_i18n_choices = []
         win.title(f"{APP_NAME} {self.t('settings_title')}")
         win.attributes("-topmost", True)
         win.resizable(True, True)
@@ -1744,12 +1810,12 @@ class VoiceDictationApp:
         settings_style.configure("TButton", font=settings_font, padding=(12, 6))
         win.option_add("*TCombobox*Listbox.font", settings_font)
 
-        mode = tk.StringVar(value=self.cfg.get("mode", "hold"))
+        mode = tk.StringVar(value=self.choice_label("mode", self.cfg.get("mode", "hold")))
         ui_language = tk.StringVar(value=UI_LANGUAGE_NAMES[normalize_ui_language(self.cfg.get("ui_language", "en"))])
         dict_hotkey = tk.StringVar(value=self.cfg.get("dictation_hotkey", "f8"))
         overlay_hotkey = tk.StringVar(value=self.cfg.get("overlay_hotkey", "ctrl+alt+shift+d"))
-        overlay_size = tk.StringVar(value=self.cfg.get("overlay_size", "medium"))
-        overlay_details = tk.StringVar(value=self.cfg.get("overlay_details", "full"))
+        overlay_size = tk.StringVar(value=self.choice_label("overlay_size", self.cfg.get("overlay_size", "medium")))
+        overlay_details = tk.StringVar(value=self.choice_label("overlay_details", self.cfg.get("overlay_details", "full")))
         overlay_opacity = tk.DoubleVar(value=clamp_overlay_opacity(self.cfg.get("overlay_opacity", 1.0)) * 100)
         overlay_opacity_label = tk.StringVar()
         sample_rate = tk.StringVar(value=str(self.cfg.get("sample_rate", 0)))
@@ -1763,6 +1829,10 @@ class VoiceDictationApp:
             self.settings_i18n_widgets.append((widget, key))
             return widget
 
+        def remember_choice(combobox, variable, group, default):
+            self.settings_i18n_choices.append((combobox, variable, group, default))
+            return combobox
+
         def i18n_label(parent, key, **kwargs):
             return remember_i18n(ttk.Label(parent, text=self.t(key), **kwargs), key)
 
@@ -1775,6 +1845,7 @@ class VoiceDictationApp:
         def clear_i18n_registry(event):
             if event.widget == win:
                 self.settings_i18n_widgets = []
+                self.settings_i18n_choices = []
 
         win.bind("<Destroy>", clear_i18n_registry, add="+")
 
@@ -1894,12 +1965,12 @@ class VoiceDictationApp:
                 return None
 
             return {
-                "mode": mode.get(),
+                "mode": self.choice_value("mode", mode.get(), "hold"),
                 "ui_language": normalize_ui_language(UI_LANGUAGE_BY_NAME.get(ui_language.get(), "en")),
                 "dictation_hotkey": dict_hotkey.get(),
                 "overlay_hotkey": overlay_hotkey.get(),
-                "overlay_size": overlay_size.get(),
-                "overlay_details": overlay_details.get(),
+                "overlay_size": self.choice_value("overlay_size", overlay_size.get(), "medium"),
+                "overlay_details": self.choice_value("overlay_details", overlay_details.get(), "full"),
                 "overlay_opacity": clamp_overlay_opacity(overlay_opacity.get() / 100),
                 "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
                 "sample_rate": sample_rate_value,
@@ -1942,9 +2013,15 @@ class VoiceDictationApp:
 
         row = 0
         i18n_label(win, "mode").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
-        ttk.Combobox(win, textvariable=mode, values=["hold", "toggle"], state="readonly", width=32, font=settings_font).grid(
-            row=row, column=1, sticky="ew", pady=6
+        mode_combo = ttk.Combobox(
+            win,
+            textvariable=mode,
+            values=self.choice_labels("mode"),
+            state="readonly",
+            width=32,
+            font=settings_font,
         )
+        remember_choice(mode_combo, mode, "mode", "hold").grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
         i18n_label(win, "ui_language").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
@@ -1959,25 +2036,27 @@ class VoiceDictationApp:
 
         row += 1
         i18n_label(win, "overlay_size").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
-        ttk.Combobox(
+        overlay_size_combo = ttk.Combobox(
             win,
             textvariable=overlay_size,
-            values=["small", "medium", "large"],
+            values=self.choice_labels("overlay_size"),
             state="readonly",
             width=32,
             font=settings_font,
-        ).grid(row=row, column=1, sticky="ew", pady=6)
+        )
+        remember_choice(overlay_size_combo, overlay_size, "overlay_size", "medium").grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
         i18n_label(win, "overlay_details").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
-        ttk.Combobox(
+        overlay_details_combo = ttk.Combobox(
             win,
             textvariable=overlay_details,
-            values=["button", "status", "full"],
+            values=self.choice_labels("overlay_details"),
             state="readonly",
             width=32,
             font=settings_font,
-        ).grid(row=row, column=1, sticky="ew", pady=6)
+        )
+        remember_choice(overlay_details_combo, overlay_details, "overlay_details", "full").grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
         i18n_label(win, "overlay_opacity").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))

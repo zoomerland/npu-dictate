@@ -110,9 +110,10 @@ This milestone is about UI language, not ASR language.
   - Ready.
   - Copied/Pasted.
 - [x] Localize settings window.
+- [x] Localize settings option values.
 - [x] Localize tray menu.
 - [x] Localize errors and model setup messages.
-- [ ] Initial UI languages:
+- [x] Initial UI languages:
   - [x] English.
   - [x] Russian.
 - [ ] Optional later UI languages:
