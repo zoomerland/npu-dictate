@@ -684,31 +684,43 @@ class DictationEngine:
 
     def _load_models(self):
         try:
+            load_start = time.perf_counter()
+            log_debug("load start")
             ensure_asr_model(self.set_status)
             self.set_status("Loading ASR")
+            asr_start = time.perf_counter()
             asr = onnx_asr.load_model("gigaam-v3-ctc", asr_model_dir(), quantization="int8")
+            log_debug(f"load asr done seconds={time.perf_counter() - asr_start:.3f}")
 
             punct = None
             if self.cfg.get("use_punctuation", True):
-                from rupunct_restore import RUPunctRestorer
-
-                ensure_punct_model(self.set_status)
                 self.set_status("Loading punct")
+                log_debug("load punct import start")
+                from rupunct_restore import RUPunctRestorer
+                log_debug("load punct import done")
+
+                log_debug("load punct ensure start")
+                ensure_punct_model(self.set_status)
+                log_debug("load punct ensure done")
+                punct_start = time.perf_counter()
                 punct = RUPunctRestorer(
                     default_punct_model_dir(),
                     self.cfg.get("punct_device", "NPU"),
                     cache_dir=repo_root() / "models" / "openvino" / "cache",
                 )
+                log_debug(f"load punct done seconds={time.perf_counter() - punct_start:.3f}")
 
             with self.lock:
                 self.asr = asr
                 self.punct = punct
                 self.loaded = True
                 self.loading = False
+            log_debug(f"load ready seconds={time.perf_counter() - load_start:.3f}")
             self.set_status("Ready")
         except Exception as exc:
             with self.lock:
                 self.loading = False
+            log_debug(f"load error type={type(exc).__name__}")
             self.set_status(f"Load error: {type(exc).__name__}")
 
     def resolve_sample_rate(self):
@@ -1234,7 +1246,6 @@ class VoiceDictationApp:
             return
         try:
             self.tray_icon.title = self.tray_title()
-            self.tray_icon.update_menu()
         except Exception as exc:
             log_debug(f"tray update error={type(exc).__name__}")
 
