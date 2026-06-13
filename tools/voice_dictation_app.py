@@ -3,6 +3,7 @@ import json
 import os
 import platform
 import queue
+import re
 import sys
 import threading
 import time
@@ -65,6 +66,7 @@ TRANSLATIONS = {
         "sample_rate": "Sample rate",
         "use_punctuation": "Use punctuation",
         "paste_into_active_field": "Paste into active field",
+        "use_context": "Use text before cursor",
         "append_trailing_space": "Append trailing space",
         "start_with_windows": "Start with Windows",
         "button_dict": "DICT",
@@ -145,6 +147,7 @@ TRANSLATIONS = {
         "sample_rate": "Частота дискретизации",
         "use_punctuation": "Использовать пунктуацию",
         "paste_into_active_field": "Вставлять в активное поле",
+        "use_context": "Учитывать текст перед курсором",
         "append_trailing_space": "Добавлять пробел в конце",
         "start_with_windows": "Запускать вместе с Windows",
         "button_dict": "ДИКТ",
@@ -277,6 +280,8 @@ def default_config():
         "use_punctuation": True,
         "punct_device": "NPU",
         "auto_paste": True,
+        "use_context": True,
+        "context_chars": 320,
         "append_space": True,
         "start_with_windows": False,
         "overlay_visible": True,
@@ -500,6 +505,53 @@ def result_to_text(result):
     if isinstance(result, dict) and "text" in result:
         return str(result["text"])
     return str(result)
+
+
+def normalize_punctuation_context(text, max_chars=320):
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not text:
+        return ""
+    if len(text) > max_chars:
+        text = text[-max_chars:]
+
+    sentence_breaks = list(re.finditer(r"[.!?…]+[\"')\]]?\s+", text))
+    if sentence_breaks and sentence_breaks[-1].end() < len(text):
+        return text[sentence_breaks[-1].end() :].strip()
+    return text
+
+
+def token_trailing_punctuation(token):
+    match = re.search(r"([^\w\s]+)$", str(token or ""), flags=re.UNICODE)
+    return match.group(1) if match else ""
+
+
+def boundary_prefix_from_context(context, restored_tokens, raw_token_count):
+    context = str(context or "")
+    context_tokens = context.rstrip().split()
+    boundary_index = len(restored_tokens) - raw_token_count - 1
+    if not context_tokens or boundary_index < 0:
+        return ""
+
+    original_suffix = token_trailing_punctuation(context_tokens[-1])
+    restored_suffix = token_trailing_punctuation(restored_tokens[boundary_index])
+    if restored_suffix and restored_suffix != original_suffix:
+        return f"{restored_suffix} "
+    return " " if context and not context[-1].isspace() else ""
+
+
+def inserted_text_from_context(raw_text, restored_with_context, context):
+    raw_tokens = str(raw_text or "").split()
+    if not raw_tokens or not context:
+        return str(restored_with_context or "").strip()
+
+    restored_tokens = str(restored_with_context or "").split()
+    raw_token_count = len(raw_tokens)
+    if len(restored_tokens) < raw_token_count:
+        return str(restored_with_context or "").strip()
+
+    tail = " ".join(restored_tokens[-raw_token_count:])
+    prefix = boundary_prefix_from_context(context, restored_tokens, raw_token_count)
+    return f"{prefix}{tail}"
 
 
 class GUITHREADINFO(ctypes.Structure):
@@ -768,6 +820,48 @@ class FocusedInputTracker:
             log_debug(f"uia focus error={type(exc).__name__}")
             return False
 
+    def context_before_cursor(self, max_chars=320):
+        if self.auto is None:
+            return ""
+
+        try:
+            import comtypes
+
+            comtypes.CoInitialize()
+            control = self.last_input or self.find_text_control(self.auto.GetFocusedControl())
+            if control is None:
+                return ""
+            if int(control.ProcessId) == self.current_pid:
+                return ""
+
+            pattern = control.GetTextPattern()
+            if pattern is None:
+                return ""
+
+            selections = pattern.GetSelection()
+            if not selections:
+                return ""
+
+            cursor = selections[0].Clone()
+            cursor.MoveEndpointByRange(
+                self.auto.TextPatternRangeEndpoint.End,
+                selections[0],
+                self.auto.TextPatternRangeEndpoint.Start,
+                waitTime=0,
+            )
+            cursor.MoveEndpointByUnit(
+                self.auto.TextPatternRangeEndpoint.Start,
+                self.auto.TextUnit.Character,
+                -int(max_chars),
+                waitTime=0,
+            )
+            text = cursor.GetText(-1) or ""
+            log_debug(f"uia context chars={len(text)}")
+            return text
+        except Exception as exc:
+            log_debug(f"uia context error={type(exc).__name__}")
+            return ""
+
 
 class HotkeyManager:
     def __init__(self, cfg, dispatch):
@@ -847,11 +941,12 @@ class HotkeyManager:
 
 
 class DictationEngine:
-    def __init__(self, cfg, status_callback, text_callback, focus_callback=None):
+    def __init__(self, cfg, status_callback, text_callback, focus_callback=None, context_callback=None):
         self.cfg = cfg
         self.status_callback = status_callback
         self.text_callback = text_callback
         self.focus_callback = focus_callback
+        self.context_callback = context_callback
         self.asr = None
         self.punct = None
         self.loaded = False
@@ -1033,11 +1128,16 @@ class DictationEngine:
                         cache_dir=repo_root() / "models" / "openvino" / "cache",
                     )
                 start = time.perf_counter()
-                final_text = self.punct.restore(raw_text)
+                context = self.context_before_cursor()
+                if context:
+                    restored = self.punct.restore(f"{context} {raw_text}".strip())
+                    final_text = inserted_text_from_context(raw_text, restored, context)
+                else:
+                    final_text = self.punct.restore(raw_text)
                 punct_sec = time.perf_counter() - start
 
             if self.cfg.get("append_space", False) and final_text:
-                final_text += " "
+                final_text = final_text.rstrip() + " "
 
             if final_text:
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
@@ -1056,6 +1156,18 @@ class DictationEngine:
         finally:
             with self.lock:
                 self.transcribing = False
+
+    def context_before_cursor(self):
+        if not self.cfg.get("use_context", True) or self.context_callback is None:
+            return ""
+        try:
+            max_chars = int(self.cfg.get("context_chars", 320) or 320)
+        except (TypeError, ValueError):
+            max_chars = 320
+        context = normalize_punctuation_context(self.context_callback(max_chars), max_chars)
+        if context:
+            log_debug(f"punct context normalized_chars={len(context)}")
+        return context
 
     def paste_text(self, text):
         pyperclip.copy(text)
@@ -1192,6 +1304,7 @@ class VoiceDictationApp:
             self.queue_status,
             self.queue_text,
             focus_callback=self.restore_target_window,
+            context_callback=self.context_before_cursor,
         )
         self.hotkeys = HotkeyManager(self.cfg, self.dispatch)
 
@@ -1571,6 +1684,11 @@ class VoiceDictationApp:
         log_debug(f"restore input={input_restored} window={window_restored}")
         return window_restored
 
+    def context_before_cursor(self, max_chars=320):
+        if not self.cfg.get("use_context", True):
+            return ""
+        return self.input_tracker.context_before_cursor(max_chars)
+
     def collect_debug_info(self):
         log_path = repo_root() / "voice_dictation.log"
         log_tail = []
@@ -1821,6 +1939,7 @@ class VoiceDictationApp:
         sample_rate = tk.StringVar(value=str(self.cfg.get("sample_rate", 0)))
         use_punctuation = tk.BooleanVar(value=bool(self.cfg.get("use_punctuation", True)))
         auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
+        use_context = tk.BooleanVar(value=bool(self.cfg.get("use_context", True)))
         append_space = tk.BooleanVar(value=bool(self.cfg.get("append_space", False)))
         start_with_windows = tk.BooleanVar(value=is_startup_enabled())
         dirty = tk.BooleanVar(value=False)
@@ -1877,6 +1996,7 @@ class VoiceDictationApp:
             sample_rate,
             use_punctuation,
             auto_paste,
+            use_context,
             append_space,
             start_with_windows,
         ):
@@ -1976,6 +2096,7 @@ class VoiceDictationApp:
                 "sample_rate": sample_rate_value,
                 "use_punctuation": bool(use_punctuation.get()),
                 "auto_paste": bool(auto_paste.get()),
+                "use_context": bool(use_context.get()),
                 "append_space": bool(append_space.get()),
                 "start_with_windows": bool(start_with_windows.get()),
             }
@@ -2115,6 +2236,11 @@ class VoiceDictationApp:
 
         row += 1
         i18n_checkbutton(win, "paste_into_active_field", variable=auto_paste).grid(
+            row=row, column=1, sticky="w", pady=6
+        )
+
+        row += 1
+        i18n_checkbutton(win, "use_context", variable=use_context).grid(
             row=row, column=1, sticky="w", pady=6
         )
 

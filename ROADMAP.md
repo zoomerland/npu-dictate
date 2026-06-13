@@ -40,10 +40,11 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Show model-loading/busy state immediately after app start.
   - Keep the overlay disabled or clearly busy until models are ready.
 - [ ] Add context-aware insertion:
-  - Read a small text fragment before the cursor when possible.
-  - Use previous sentence or current unfinished sentence as punctuation context.
-  - Send context plus new dictation to the postprocessor.
-  - Insert only the newly dictated segment back into the field.
+  - [x] Read a small text fragment before the cursor when possible.
+  - [x] Use previous sentence or current unfinished sentence as punctuation context.
+  - [x] Send context plus new dictation to the postprocessor.
+  - [x] Insert only the newly dictated segment back into the field.
+  - [ ] Test and tune in Chromium/Electron and native Win32 inputs.
 
 ## Milestone 1: Overlay and Settings UX
 

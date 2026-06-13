@@ -10,6 +10,8 @@
   "use_punctuation": true,
   "punct_device": "NPU",
   "auto_paste": true,
+  "use_context": true,
+  "context_chars": 320,
   "append_space": true,
   "start_with_windows": false,
   "overlay_visible": true,
