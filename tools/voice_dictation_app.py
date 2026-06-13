@@ -59,6 +59,17 @@ TRANSLATIONS = {
         "paste_into_active_field": "Paste into active field",
         "append_trailing_space": "Append trailing space",
         "start_with_windows": "Start with Windows",
+        "button_dict": "DICT",
+        "button_record": "REC",
+        "button_asr": "ASR",
+        "button_punct": "PUNCT",
+        "button_text": "TEXT",
+        "button_busy": "BUSY",
+        "button_ok": "OK",
+        "button_copy": "COPY",
+        "button_paste": "PASTE",
+        "button_empty": "EMPTY",
+        "button_error": "ERR",
         "assign": "Assign",
         "press_keys": "Press keys...",
         "apply": "Apply",
@@ -120,6 +131,17 @@ TRANSLATIONS = {
         "paste_into_active_field": "Вставлять в активное поле",
         "append_trailing_space": "Добавлять пробел в конце",
         "start_with_windows": "Запускать вместе с Windows",
+        "button_dict": "ДИКТ",
+        "button_record": "ЗАП",
+        "button_asr": "АСР",
+        "button_punct": "ПУНКТ",
+        "button_text": "ТЕКСТ",
+        "button_busy": "ЗАНЯТ",
+        "button_ok": "ОК",
+        "button_copy": "КОПИЯ",
+        "button_paste": "ВСТ",
+        "button_empty": "ПУСТО",
+        "button_error": "ОШИБ",
         "assign": "Назначить",
         "press_keys": "Нажмите клавиши...",
         "apply": "Применить",
@@ -1171,7 +1193,7 @@ class VoiceDictationApp:
 
         self.button = tk.Button(
             self.frame,
-            text="DICT",
+            text=self.t("button_dict"),
             width=8,
             height=2,
             fg="white",
@@ -1587,32 +1609,32 @@ class VoiceDictationApp:
             self.progress_running = False
 
         if status == "Recording":
-            self.button.configure(text="REC", bg="#b83030", activebackground="#982727")
+            self.button.configure(text=self.t("button_record"), bg="#b83030", activebackground="#982727")
         elif status == "Loading ASR":
-            self.button.configure(text="ASR", bg="#81612b", activebackground="#6d5124")
+            self.button.configure(text=self.t("button_asr"), bg="#81612b", activebackground="#6d5124")
         elif status == "Loading punct":
-            self.button.configure(text="PUNCT", bg="#81612b", activebackground="#6d5124")
+            self.button.configure(text=self.t("button_punct"), bg="#81612b", activebackground="#6d5124")
         elif status == "Transcribing":
-            self.button.configure(text="TEXT", bg="#81612b", activebackground="#6d5124")
+            self.button.configure(text=self.t("button_text"), bg="#81612b", activebackground="#6d5124")
         elif busy:
-            self.button.configure(text="BUSY", bg="#81612b", activebackground="#6d5124")
+            self.button.configure(text=self.t("button_busy"), bg="#81612b", activebackground="#6d5124")
         elif status == "Pasted":
-            self.button.configure(text="OK", bg="#267d45", activebackground="#206b3b")
+            self.button.configure(text=self.t("button_ok"), bg="#267d45", activebackground="#206b3b")
         elif status == "Copied":
-            self.button.configure(text="COPY", bg="#2b7281", activebackground="#245f6c")
+            self.button.configure(text=self.t("button_copy"), bg="#2b7281", activebackground="#245f6c")
         elif status.startswith("Copied - paste"):
-            self.button.configure(text="PASTE", bg="#b85528", activebackground="#98441f")
+            self.button.configure(text=self.t("button_paste"), bg="#b85528", activebackground="#98441f")
         elif status in {"No audio", "Too short", "No speech"}:
-            self.button.configure(text="EMPTY", bg="#5f6773", activebackground="#505762")
+            self.button.configure(text=self.t("button_empty"), bg="#5f6773", activebackground="#505762")
         elif status.startswith("Error") or status.startswith("Load error") or status in {
             "Bad hotkey",
             "Bad overlay key",
             "Hotkey conflict",
             "Startup error",
         }:
-            self.button.configure(text="ERR", bg="#9f3030", activebackground="#832929")
+            self.button.configure(text=self.t("button_error"), bg="#9f3030", activebackground="#832929")
         else:
-            self.button.configure(text="DICT", bg="#2864d8", activebackground="#1f55bd")
+            self.button.configure(text=self.t("button_dict"), bg="#2864d8", activebackground="#1f55bd")
 
     def on_overlay_press(self, event):
         self.drag_start_x = event.x_root
