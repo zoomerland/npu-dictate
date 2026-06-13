@@ -1,0 +1,16 @@
+.venv/
+.hf/
+models/
+recordings/
+
+__pycache__/
+*.py[cod]
+*.pyo
+
+voice_dictation_config.json
+*.log
+
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

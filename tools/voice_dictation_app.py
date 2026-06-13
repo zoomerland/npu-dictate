@@ -1,0 +1,742 @@
+import json
+import queue
+import threading
+import time
+import tkinter as tk
+from pathlib import Path
+from tkinter import ttk
+
+import numpy as np
+import onnx_asr
+import pyperclip
+import sounddevice as sd
+from pynput import keyboard
+
+from model_setup import ensure_asr_model, ensure_punct_model
+
+
+APP_NAME = "Local Voice Dictation"
+CONFIG_VERSION = 1
+
+
+def repo_root():
+    return Path(__file__).resolve().parents[1]
+
+
+def config_path():
+    return repo_root() / "voice_dictation_config.json"
+
+
+def asr_model_dir():
+    return repo_root() / "models" / "asr" / "gigaam-v3-ctc"
+
+
+def default_punct_model_dir():
+    return repo_root() / "models" / "openvino" / "RUPunct_big_fp16_static128"
+
+
+def input_devices():
+    devices = []
+    for index, info in enumerate(sd.query_devices()):
+        if int(info.get("max_input_channels", 0)) <= 0:
+            continue
+        hostapi = sd.query_hostapis(info["hostapi"])
+        devices.append(
+            {
+                "index": index,
+                "name": str(info["name"]),
+                "hostapi": str(hostapi["name"]),
+                "sample_rate": int(info["default_samplerate"]),
+                "channels": int(info["max_input_channels"]),
+            }
+        )
+    return devices
+
+
+def choose_default_device_index():
+    devices = input_devices()
+    for device in devices:
+        name = device["name"].lower()
+        hostapi = device["hostapi"].lower()
+        if "microphone array" in name and "wasapi" in hostapi:
+            return device["index"]
+    default = sd.query_devices(kind="input")
+    for device in devices:
+        if device["name"] == default["name"]:
+            return device["index"]
+    return devices[0]["index"] if devices else None
+
+
+def default_config():
+    return {
+        "version": CONFIG_VERSION,
+        "mode": "hold",
+        "dictation_hotkey": "f8",
+        "overlay_hotkey": "ctrl+alt+shift+d",
+        "input_device_index": choose_default_device_index(),
+        "sample_rate": 0,
+        "channels": 1,
+        "use_punctuation": True,
+        "punct_device": "NPU",
+        "auto_paste": True,
+        "append_space": False,
+        "overlay_visible": True,
+        "overlay_x": None,
+        "overlay_y": None,
+    }
+
+
+def load_config():
+    cfg = default_config()
+    path = config_path()
+    if path.exists():
+        with path.open("r", encoding="utf-8") as file:
+            loaded = json.load(file)
+        cfg.update(loaded)
+    return cfg
+
+
+def save_config(cfg):
+    path = config_path()
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(cfg, file, ensure_ascii=False, indent=2)
+
+
+def key_to_token(key):
+    if isinstance(key, keyboard.KeyCode):
+        if key.char:
+            return key.char.lower()
+        return None
+
+    name = getattr(key, "name", "").lower()
+    if name.startswith("ctrl"):
+        return "ctrl"
+    if name.startswith("alt"):
+        return "alt"
+    if name.startswith("shift"):
+        return "shift"
+    if name.startswith("cmd"):
+        return "win"
+    return name
+
+
+def parse_hotkey(value):
+    aliases = {
+        "control": "ctrl",
+        "ctl": "ctrl",
+        "option": "alt",
+        "escape": "esc",
+        "return": "enter",
+        "windows": "win",
+        "super": "win",
+    }
+    tokens = []
+    for raw in value.lower().replace(" ", "").split("+"):
+        if not raw:
+            continue
+        tokens.append(aliases.get(raw, raw))
+    return frozenset(tokens)
+
+
+def result_to_text(result):
+    if isinstance(result, str):
+        return result
+    if hasattr(result, "text"):
+        return result.text
+    if isinstance(result, dict) and "text" in result:
+        return str(result["text"])
+    return str(result)
+
+
+class HotkeyManager:
+    def __init__(self, cfg, dispatch):
+        self.cfg = cfg
+        self.dispatch = dispatch
+        self.pressed = set()
+        self.dictation_down = False
+        self.overlay_down = False
+        self.listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
+        self.listener.daemon = True
+
+    def start(self):
+        self.listener.start()
+
+    def stop(self):
+        self.listener.stop()
+
+    def update_config(self, cfg):
+        self.cfg = cfg
+        self.dictation_down = False
+        self.overlay_down = False
+
+    def hotkeys(self):
+        return parse_hotkey(self.cfg["dictation_hotkey"]), parse_hotkey(self.cfg["overlay_hotkey"])
+
+    def on_press(self, key):
+        token = key_to_token(key)
+        if token:
+            self.pressed.add(token)
+
+        dictation_hotkey, overlay_hotkey = self.hotkeys()
+
+        if overlay_hotkey and overlay_hotkey <= self.pressed and not self.overlay_down:
+            self.overlay_down = True
+            self.dispatch("toggle_overlay")
+
+        if not dictation_hotkey or not dictation_hotkey <= self.pressed:
+            return
+
+        mode = self.cfg.get("mode", "hold")
+        if mode == "toggle":
+            if not self.dictation_down:
+                self.dictation_down = True
+                self.dispatch("toggle_recording")
+        elif not self.dictation_down:
+            self.dictation_down = True
+            self.dispatch("start_recording")
+
+    def on_release(self, key):
+        token = key_to_token(key)
+        if token:
+            self.pressed.discard(token)
+
+        dictation_hotkey, overlay_hotkey = self.hotkeys()
+
+        if overlay_hotkey and not overlay_hotkey <= self.pressed:
+            self.overlay_down = False
+
+        if dictation_hotkey and not dictation_hotkey <= self.pressed:
+            was_down = self.dictation_down
+            self.dictation_down = False
+            if was_down and self.cfg.get("mode", "hold") == "hold":
+                self.dispatch("stop_recording")
+
+
+class DictationEngine:
+    def __init__(self, cfg, status_callback, text_callback):
+        self.cfg = cfg
+        self.status_callback = status_callback
+        self.text_callback = text_callback
+        self.asr = None
+        self.punct = None
+        self.loaded = False
+        self.loading = False
+        self.recording = False
+        self.transcribing = False
+        self.stream = None
+        self.sample_rate = None
+        self.audio_blocks = []
+        self.lock = threading.RLock()
+        self.keyboard = keyboard.Controller()
+
+    def update_config(self, cfg):
+        with self.lock:
+            self.cfg = cfg
+
+    def set_status(self, status):
+        self.status_callback(status)
+
+    def load_async(self):
+        if self.loading or self.loaded:
+            return
+        self.loading = True
+        threading.Thread(target=self._load_models, daemon=True).start()
+
+    def _load_models(self):
+        try:
+            ensure_asr_model(self.set_status)
+            self.set_status("Loading ASR")
+            asr = onnx_asr.load_model("gigaam-v3-ctc", asr_model_dir(), quantization="int8")
+
+            punct = None
+            if self.cfg.get("use_punctuation", True):
+                from rupunct_restore import RUPunctRestorer
+
+                ensure_punct_model(self.set_status)
+                self.set_status("Loading punct")
+                punct = RUPunctRestorer(
+                    default_punct_model_dir(),
+                    self.cfg.get("punct_device", "NPU"),
+                    cache_dir=repo_root() / "models" / "openvino" / "cache",
+                )
+
+            with self.lock:
+                self.asr = asr
+                self.punct = punct
+                self.loaded = True
+                self.loading = False
+            self.set_status("Ready")
+        except Exception as exc:
+            with self.lock:
+                self.loading = False
+            self.set_status(f"Load error: {type(exc).__name__}")
+
+    def resolve_sample_rate(self):
+        configured = int(self.cfg.get("sample_rate") or 0)
+        if configured:
+            return configured
+        device_index = self.cfg.get("input_device_index")
+        info = sd.query_devices(device_index, "input")
+        return int(info["default_samplerate"])
+
+    def start_recording(self):
+        with self.lock:
+            if self.recording or self.transcribing:
+                return
+            if not self.loaded:
+                self.set_status("Still loading")
+                self.load_async()
+                return
+
+            device_index = self.cfg.get("input_device_index")
+            channels = int(self.cfg.get("channels") or 1)
+            self.sample_rate = self.resolve_sample_rate()
+            self.audio_blocks = []
+
+            self.stream = sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=channels,
+                dtype="float32",
+                device=device_index,
+                callback=self._audio_callback,
+            )
+            self.stream.start()
+            self.recording = True
+            self.set_status("Recording")
+
+    def stop_recording(self):
+        with self.lock:
+            if not self.recording:
+                return
+            stream = self.stream
+            self.stream = None
+            self.recording = False
+
+        if stream:
+            stream.stop()
+            stream.close()
+
+        threading.Thread(target=self._transcribe_recording, daemon=True).start()
+
+    def toggle_recording(self):
+        if self.recording:
+            self.stop_recording()
+        else:
+            self.start_recording()
+
+    def _audio_callback(self, indata, frames, time_info, status):
+        if status:
+            self.set_status(str(status))
+        self.audio_blocks.append(indata.copy())
+
+    def _transcribe_recording(self):
+        with self.lock:
+            blocks = self.audio_blocks
+            sample_rate = self.sample_rate
+            self.transcribing = True
+
+        try:
+            if not blocks:
+                self.set_status("No audio")
+                return
+
+            audio = np.concatenate(blocks, axis=0)
+            if audio.ndim == 2 and audio.shape[1] > 1:
+                audio = audio.mean(axis=1)
+            else:
+                audio = np.squeeze(audio)
+
+            audio = np.ascontiguousarray(audio, dtype=np.float32)
+            duration = len(audio) / sample_rate if sample_rate else 0.0
+            if duration < 0.25:
+                self.set_status("Too short")
+                return
+
+            self.set_status("Transcribing")
+            start = time.perf_counter()
+            raw_result = self.asr.recognize(audio, sample_rate=sample_rate)
+            raw_text = result_to_text(raw_result).strip()
+            asr_sec = time.perf_counter() - start
+
+            final_text = raw_text
+            punct_sec = 0.0
+            if raw_text and self.cfg.get("use_punctuation", True):
+                if self.punct is None:
+                    from rupunct_restore import RUPunctRestorer
+
+                    ensure_punct_model(self.set_status)
+                    self.punct = RUPunctRestorer(
+                        default_punct_model_dir(),
+                        self.cfg.get("punct_device", "NPU"),
+                        cache_dir=repo_root() / "models" / "openvino" / "cache",
+                    )
+                start = time.perf_counter()
+                final_text = self.punct.restore(raw_text)
+                punct_sec = time.perf_counter() - start
+
+            if self.cfg.get("append_space", False) and final_text:
+                final_text += " "
+
+            if final_text:
+                self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
+                if self.cfg.get("auto_paste", True):
+                    self.paste_text(final_text)
+                    self.set_status("Pasted")
+                else:
+                    pyperclip.copy(final_text)
+                    self.set_status("Copied")
+            else:
+                self.set_status("No speech")
+        except Exception as exc:
+            self.set_status(f"Error: {type(exc).__name__}")
+        finally:
+            with self.lock:
+                self.transcribing = False
+
+    def paste_text(self, text):
+        pyperclip.copy(text)
+        time.sleep(0.05)
+        self.keyboard.press(keyboard.Key.ctrl)
+        self.keyboard.press("v")
+        self.keyboard.release("v")
+        self.keyboard.release(keyboard.Key.ctrl)
+
+
+class VoiceDictationApp:
+    def __init__(self):
+        self.cfg = load_config()
+        self.event_queue = queue.Queue()
+        self.root = tk.Tk()
+        self.root.title(APP_NAME)
+        self.root.protocol("WM_DELETE_WINDOW", self.hide_overlay)
+        self.root.attributes("-topmost", True)
+        self.root.overrideredirect(True)
+        self.root.configure(bg="#20242b")
+
+        self.status_var = tk.StringVar(value="Starting")
+        self.last_text_var = tk.StringVar(value="")
+        self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
+        self.progress_running = False
+
+        self.engine = DictationEngine(self.cfg, self.queue_status, self.queue_text)
+        self.hotkeys = HotkeyManager(self.cfg, self.dispatch)
+
+        self._build_overlay()
+        self._position_overlay()
+        self._build_menu()
+
+        if not self.cfg.get("overlay_visible", True):
+            self.root.withdraw()
+
+        self.root.after(100, self.poll_events)
+        self.root.after(500, self.engine.load_async)
+        self.hotkeys.start()
+
+    def _build_overlay(self):
+        self.frame = tk.Frame(self.root, bg="#20242b", padx=8, pady=7)
+        self.frame.pack(fill="both", expand=True)
+
+        self.button = tk.Button(
+            self.frame,
+            text="DICT",
+            width=8,
+            height=2,
+            fg="white",
+            bg="#2864d8",
+            activeforeground="white",
+            activebackground="#1f55bd",
+            relief="flat",
+            command=self.on_button_click,
+        )
+        self.button.pack(fill="x")
+
+        self.status_label = tk.Label(
+            self.frame,
+            textvariable=self.status_var,
+            fg="#d7deeb",
+            bg="#20242b",
+            font=("Segoe UI", 8),
+        )
+        self.status_label.pack(fill="x", pady=(5, 0))
+
+        self.hotkey_label = tk.Label(
+            self.frame,
+            text=self.cfg.get("dictation_hotkey", "f8").upper(),
+            fg="#8fa0bd",
+            bg="#20242b",
+            font=("Segoe UI", 7),
+        )
+        self.hotkey_label.pack(fill="x")
+
+        self.progress = ttk.Progressbar(self.frame, mode="indeterminate", length=86)
+        self.progress.pack(fill="x", pady=(5, 0))
+        self.progress.pack_forget()
+
+        self.status_label.bind("<ButtonPress-1>", self.start_drag)
+        self.status_label.bind("<B1-Motion>", self.drag)
+        self.hotkey_label.bind("<ButtonPress-1>", self.start_drag)
+        self.hotkey_label.bind("<B1-Motion>", self.drag)
+
+        for widget in (self.root, self.frame, self.button, self.status_label, self.hotkey_label):
+            widget.bind("<Button-3>", self.show_menu)
+
+        self.button.bind("<ButtonPress-1>", self.on_button_press)
+        self.button.bind("<ButtonRelease-1>", self.on_button_release)
+
+    def _position_overlay(self):
+        self.root.update_idletasks()
+        width = self.root.winfo_reqwidth()
+        height = self.root.winfo_reqheight()
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        x = self.cfg.get("overlay_x")
+        y = self.cfg.get("overlay_y")
+        if x is None or y is None:
+            x = screen_w - width - 32
+            y = screen_h - height - 80
+        self.root.geometry(f"+{int(x)}+{int(y)}")
+
+    def _build_menu(self):
+        self.menu = tk.Menu(self.root, tearoff=0)
+        self.menu.add_command(label="Start/Stop", command=self.engine.toggle_recording)
+        self.menu.add_command(label="Settings", command=self.open_settings)
+        self.menu.add_command(label="Hide overlay", command=self.hide_overlay)
+        self.menu.add_separator()
+        self.menu.add_command(label="Exit", command=self.exit_app)
+
+    def show_menu(self, event):
+        self.menu.tk_popup(event.x_root, event.y_root)
+
+    def dispatch(self, action):
+        self.event_queue.put(("action", action))
+
+    def queue_status(self, status):
+        self.event_queue.put(("status", status))
+
+    def queue_text(self, raw_text, final_text, duration, asr_sec, punct_sec):
+        self.event_queue.put(("text", raw_text, final_text, duration, asr_sec, punct_sec))
+
+    def poll_events(self):
+        while True:
+            try:
+                item = self.event_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if item[0] == "action":
+                self.handle_action(item[1])
+            elif item[0] == "status":
+                self.update_status(item[1])
+            elif item[0] == "text":
+                _, raw_text, final_text, duration, asr_sec, punct_sec = item
+                self.last_text_var.set(final_text)
+                print(
+                    f"audio={duration:.2f}s asr={asr_sec:.3f}s punct={punct_sec:.3f}s raw={raw_text} final={final_text}",
+                    flush=True,
+                )
+
+        self.root.after(50, self.poll_events)
+
+    def handle_action(self, action):
+        if action == "toggle_overlay":
+            self.toggle_overlay()
+        elif action == "start_recording":
+            self.engine.start_recording()
+        elif action == "stop_recording":
+            self.engine.stop_recording()
+        elif action == "toggle_recording":
+            self.engine.toggle_recording()
+
+    def update_status(self, status):
+        self.status_var.set(status)
+        busy = (
+            status.startswith("Downloading")
+            or status.startswith("Converting")
+            or status.startswith("Loading")
+            or status in {"Still loading", "Transcribing"}
+        )
+        if busy and not self.progress_running:
+            self.progress.pack(fill="x", pady=(5, 0))
+            self.progress.start(12)
+            self.progress_running = True
+        elif not busy and self.progress_running:
+            self.progress.stop()
+            self.progress.pack_forget()
+            self.progress_running = False
+
+        if status == "Recording":
+            self.button.configure(text="REC", bg="#b83030", activebackground="#982727")
+        elif status in {"Transcribing", "Loading ASR", "Loading punct", "Still loading"}:
+            self.button.configure(text="BUSY", bg="#81612b", activebackground="#6d5124")
+        else:
+            self.button.configure(text="DICT", bg="#2864d8", activebackground="#1f55bd")
+
+    def on_button_click(self):
+        if self.cfg.get("mode", "hold") == "toggle":
+            self.engine.toggle_recording()
+
+    def on_button_press(self, event):
+        if self.cfg.get("mode", "hold") == "hold":
+            self.engine.start_recording()
+
+    def on_button_release(self, event):
+        if self.cfg.get("mode", "hold") == "hold":
+            self.engine.stop_recording()
+
+    def start_drag(self, event):
+        self.drag_x = event.x_root
+        self.drag_y = event.y_root
+        self.start_x = self.root.winfo_x()
+        self.start_y = self.root.winfo_y()
+
+    def drag(self, event):
+        dx = event.x_root - self.drag_x
+        dy = event.y_root - self.drag_y
+        x = self.start_x + dx
+        y = self.start_y + dy
+        self.root.geometry(f"+{x}+{y}")
+        self.cfg["overlay_x"] = x
+        self.cfg["overlay_y"] = y
+
+    def toggle_overlay(self):
+        if self.root.state() == "withdrawn":
+            self.cfg["overlay_visible"] = True
+            self.root.deiconify()
+            self.root.attributes("-topmost", True)
+        else:
+            self.hide_overlay()
+        save_config(self.cfg)
+
+    def hide_overlay(self):
+        self.cfg["overlay_visible"] = False
+        save_config(self.cfg)
+        self.root.withdraw()
+
+    def open_settings(self):
+        if hasattr(self, "settings_window") and self.settings_window.winfo_exists():
+            self.settings_window.focus()
+            return
+
+        win = tk.Toplevel(self.root)
+        self.settings_window = win
+        win.title(APP_NAME + " Settings")
+        win.attributes("-topmost", True)
+        win.resizable(False, False)
+        win.configure(padx=12, pady=12)
+
+        mode = tk.StringVar(value=self.cfg.get("mode", "hold"))
+        dict_hotkey = tk.StringVar(value=self.cfg.get("dictation_hotkey", "f8"))
+        overlay_hotkey = tk.StringVar(value=self.cfg.get("overlay_hotkey", "ctrl+alt+shift+d"))
+        sample_rate = tk.StringVar(value=str(self.cfg.get("sample_rate", 0)))
+        use_punctuation = tk.BooleanVar(value=bool(self.cfg.get("use_punctuation", True)))
+        auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
+        append_space = tk.BooleanVar(value=bool(self.cfg.get("append_space", False)))
+
+        devices = input_devices()
+        device_labels = [
+            f"{d['index']}: {d['name']} [{d['hostapi']}, {d['sample_rate']} Hz]" for d in devices
+        ]
+        current_device = self.cfg.get("input_device_index")
+        selected_device = tk.StringVar(value="")
+        for label in device_labels:
+            if label.startswith(f"{current_device}:"):
+                selected_device.set(label)
+                break
+        if not selected_device.get() and device_labels:
+            selected_device.set(device_labels[0])
+
+        row = 0
+        ttk.Label(win, text="Mode").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Combobox(win, textvariable=mode, values=["hold", "toggle"], state="readonly", width=24).grid(
+            row=row, column=1, sticky="ew", pady=4
+        )
+
+        row += 1
+        ttk.Label(win, text="Dictation hotkey").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Entry(win, textvariable=dict_hotkey, width=28).grid(row=row, column=1, sticky="ew", pady=4)
+
+        row += 1
+        ttk.Label(win, text="Overlay hotkey").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Entry(win, textvariable=overlay_hotkey, width=28).grid(row=row, column=1, sticky="ew", pady=4)
+
+        row += 1
+        ttk.Label(win, text="Input device").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Combobox(win, textvariable=selected_device, values=device_labels, state="readonly", width=56).grid(
+            row=row, column=1, sticky="ew", pady=4
+        )
+
+        row += 1
+        ttk.Label(win, text="Sample rate").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Entry(win, textvariable=sample_rate, width=28).grid(row=row, column=1, sticky="w", pady=4)
+
+        row += 1
+        ttk.Checkbutton(win, text="Use punctuation", variable=use_punctuation).grid(
+            row=row, column=1, sticky="w", pady=4
+        )
+
+        row += 1
+        ttk.Checkbutton(win, text="Paste into active field", variable=auto_paste).grid(
+            row=row, column=1, sticky="w", pady=4
+        )
+
+        row += 1
+        ttk.Checkbutton(win, text="Append trailing space", variable=append_space).grid(
+            row=row, column=1, sticky="w", pady=4
+        )
+
+        row += 1
+        ttk.Label(win, textvariable=self.last_text_var, wraplength=420, foreground="#555").grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=(8, 4)
+        )
+
+        row += 1
+        buttons = ttk.Frame(win)
+        buttons.grid(row=row, column=0, columnspan=2, sticky="e", pady=(8, 0))
+        ttk.Button(buttons, text="Hide overlay", command=self.hide_overlay).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="Save", command=lambda: self.save_settings(win, {
+            "mode": mode.get(),
+            "dictation_hotkey": dict_hotkey.get(),
+            "overlay_hotkey": overlay_hotkey.get(),
+            "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
+            "sample_rate": int(sample_rate.get() or 0),
+            "use_punctuation": bool(use_punctuation.get()),
+            "auto_paste": bool(auto_paste.get()),
+            "append_space": bool(append_space.get()),
+        })).pack(side="left")
+
+    def save_settings(self, win, values):
+        values["dictation_hotkey"] = values["dictation_hotkey"].lower().strip()
+        values["overlay_hotkey"] = values["overlay_hotkey"].lower().strip()
+        if not parse_hotkey(values["dictation_hotkey"]):
+            self.update_status("Bad hotkey")
+            return
+        if not parse_hotkey(values["overlay_hotkey"]):
+            self.update_status("Bad overlay key")
+            return
+
+        self.cfg.update(values)
+        save_config(self.cfg)
+        self.hotkeys.update_config(self.cfg)
+        self.engine.update_config(self.cfg)
+        self.hotkey_label.configure(text=self.cfg["dictation_hotkey"].upper())
+        self.update_status("Settings saved")
+        win.destroy()
+
+    def exit_app(self):
+        save_config(self.cfg)
+        self.hotkeys.stop()
+        if self.engine.recording:
+            self.engine.stop_recording()
+        self.root.destroy()
+
+    def run(self):
+        self.root.mainloop()
+
+
+def main():
+    app = VoiceDictationApp()
+    app.run()
+
+
+if __name__ == "__main__":
+    main()
