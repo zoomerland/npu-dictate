@@ -913,10 +913,20 @@ class VoiceDictationApp:
         self.root.after(100, self.track_foreground)
 
     def restore_target_window(self):
+        window_restored = self.foreground_tracker.restore_last_target()
+        if window_restored:
+            log_debug("restore input=skipped-current-window window=True")
+            return True
+
         input_restored = self.input_tracker.restore_last_input()
+        if input_restored:
+            self.foreground_tracker.observe_foreground()
+            log_debug("restore input=True window=after-input")
+            return True
+
         window_restored = self.foreground_tracker.restore_last_target()
         log_debug(f"restore input={input_restored} window={window_restored}")
-        return input_restored or window_restored
+        return window_restored
 
     def handle_action(self, action):
         if action == "toggle_overlay":
