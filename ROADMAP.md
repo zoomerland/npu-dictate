@@ -65,8 +65,8 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Button plus status.
   - Button plus status and hotkey hint.
 - [ ] Improve recording/loading/transcribing visual states.
-- [ ] Add settings warning when closing with unsaved changes.
-- [ ] Add Apply / Save / Cancel behavior.
+- [x] Add settings warning when closing with unsaved changes.
+- [x] Add Apply / Save / Cancel behavior.
 - [ ] Add real hotkey capture controls:
   - "Assign" button.
   - Capture one key or a key combination.

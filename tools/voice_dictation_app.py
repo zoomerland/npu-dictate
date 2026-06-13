@@ -6,7 +6,7 @@ import threading
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from ctypes import wintypes
 
 import numpy as np
@@ -1101,6 +1101,7 @@ class VoiceDictationApp:
         use_punctuation = tk.BooleanVar(value=bool(self.cfg.get("use_punctuation", True)))
         auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
         append_space = tk.BooleanVar(value=bool(self.cfg.get("append_space", False)))
+        dirty = tk.BooleanVar(value=False)
 
         devices = input_devices()
         device_labels = [
@@ -1114,6 +1115,67 @@ class VoiceDictationApp:
                 break
         if not selected_device.get() and device_labels:
             selected_device.set(device_labels[0])
+
+        def mark_dirty(*_):
+            dirty.set(True)
+
+        for variable in (
+            mode,
+            dict_hotkey,
+            overlay_hotkey,
+            selected_device,
+            sample_rate,
+            use_punctuation,
+            auto_paste,
+            append_space,
+        ):
+            variable.trace_add("write", mark_dirty)
+
+        def current_values():
+            try:
+                sample_rate_value = int(sample_rate.get() or 0)
+            except ValueError:
+                self.update_status("Bad sample rate")
+                return None
+
+            return {
+                "mode": mode.get(),
+                "dictation_hotkey": dict_hotkey.get(),
+                "overlay_hotkey": overlay_hotkey.get(),
+                "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
+                "sample_rate": sample_rate_value,
+                "use_punctuation": bool(use_punctuation.get()),
+                "auto_paste": bool(auto_paste.get()),
+                "append_space": bool(append_space.get()),
+            }
+
+        def apply_settings(close=False):
+            values = current_values()
+            if values is None:
+                return False
+            if not self.save_settings(win, values, close=close):
+                return False
+            dirty.set(False)
+            return True
+
+        def close_settings():
+            if not dirty.get():
+                win.destroy()
+                return
+
+            choice = messagebox.askyesnocancel(
+                "Unsaved settings",
+                "Save settings before closing?",
+                parent=win,
+            )
+            if choice is None:
+                return
+            if choice:
+                apply_settings(close=True)
+                return
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", close_settings)
 
         row = 0
         ttk.Label(win, text="Mode").grid(row=row, column=0, sticky="w", pady=4)
@@ -1163,26 +1225,19 @@ class VoiceDictationApp:
         buttons = ttk.Frame(win)
         buttons.grid(row=row, column=0, columnspan=2, sticky="e", pady=(8, 0))
         ttk.Button(buttons, text="Hide overlay", command=self.hide_overlay).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="Save", command=lambda: self.save_settings(win, {
-            "mode": mode.get(),
-            "dictation_hotkey": dict_hotkey.get(),
-            "overlay_hotkey": overlay_hotkey.get(),
-            "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
-            "sample_rate": int(sample_rate.get() or 0),
-            "use_punctuation": bool(use_punctuation.get()),
-            "auto_paste": bool(auto_paste.get()),
-            "append_space": bool(append_space.get()),
-        })).pack(side="left")
+        ttk.Button(buttons, text="Apply", command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="Save", command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="Cancel", command=close_settings).pack(side="left")
 
-    def save_settings(self, win, values):
+    def save_settings(self, win, values, close=True):
         values["dictation_hotkey"] = values["dictation_hotkey"].lower().strip()
         values["overlay_hotkey"] = values["overlay_hotkey"].lower().strip()
         if not parse_hotkey(values["dictation_hotkey"]):
             self.update_status("Bad hotkey")
-            return
+            return False
         if not parse_hotkey(values["overlay_hotkey"]):
             self.update_status("Bad overlay key")
-            return
+            return False
 
         self.cfg.update(values)
         save_config(self.cfg)
@@ -1190,7 +1245,9 @@ class VoiceDictationApp:
         self.engine.update_config(self.cfg)
         self.hotkey_label.configure(text=self.cfg["dictation_hotkey"].upper())
         self.update_status("Settings saved")
-        win.destroy()
+        if close:
+            win.destroy()
+        return True
 
     def exit_app(self):
         save_config(self.cfg)
