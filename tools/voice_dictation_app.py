@@ -632,7 +632,7 @@ class DictationEngine:
             return False
 
         user32 = ctypes.WinDLL("user32", use_last_error=True)
-        ULONG_PTR = wintypes.WPARAM
+        ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
         INPUT_KEYBOARD = 1
         KEYEVENTF_KEYUP = 0x0002
         VK_CONTROL = 0x11
@@ -647,18 +647,39 @@ class DictationEngine:
                 ("dwExtraInfo", ULONG_PTR),
             ]
 
+        class MOUSEINPUT(ctypes.Structure):
+            _fields_ = [
+                ("dx", wintypes.LONG),
+                ("dy", wintypes.LONG),
+                ("mouseData", wintypes.DWORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ULONG_PTR),
+            ]
+
+        class HARDWAREINPUT(ctypes.Structure):
+            _fields_ = [
+                ("uMsg", wintypes.DWORD),
+                ("wParamL", wintypes.WORD),
+                ("wParamH", wintypes.WORD),
+            ]
+
         class INPUT_UNION(ctypes.Union):
-            _fields_ = [("ki", KEYBDINPUT)]
+            _fields_ = [
+                ("mi", MOUSEINPUT),
+                ("ki", KEYBDINPUT),
+                ("hi", HARDWAREINPUT),
+            ]
 
         class INPUT(ctypes.Structure):
             _anonymous_ = ("union",)
             _fields_ = [("type", wintypes.DWORD), ("union", INPUT_UNION)]
 
         def key_event(vk, flags=0):
-            return INPUT(
-                type=INPUT_KEYBOARD,
-                ki=KEYBDINPUT(wVk=vk, wScan=0, dwFlags=flags, time=0, dwExtraInfo=0),
-            )
+            item = INPUT()
+            item.type = INPUT_KEYBOARD
+            item.ki = KEYBDINPUT(wVk=vk, wScan=0, dwFlags=flags, time=0, dwExtraInfo=0)
+            return item
 
         events = (INPUT * 4)(
             key_event(VK_CONTROL),
@@ -669,7 +690,10 @@ class DictationEngine:
 
         user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
         user32.SendInput.restype = wintypes.UINT
+        ctypes.set_last_error(0)
         sent = user32.SendInput(len(events), events, ctypes.sizeof(INPUT))
+        if sent != len(events):
+            log_debug(f"sendinput failed sent={sent} error={ctypes.get_last_error()} input_size={ctypes.sizeof(INPUT)}")
         return sent == len(events)
 
 
