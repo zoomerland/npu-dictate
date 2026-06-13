@@ -1136,6 +1136,7 @@ class VoiceDictationApp:
         self.current_display_status = "Loading models"
         self.last_text_var = tk.StringVar(value="")
         self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
+        self.settings_i18n_widgets = []
         self.progress_running = False
         self.tray_icon = None
         self.recording_started_at = None
@@ -1438,9 +1439,21 @@ class VoiceDictationApp:
                 self.tray_icon.menu = self.build_tray_menu()
             except Exception as exc:
                 log_debug(f"tray menu language error={type(exc).__name__}")
-        if hasattr(self, "settings_window") and self.settings_window.winfo_exists():
-            self.settings_window.title(f"{APP_NAME} {self.t('settings_title')}")
+        self.refresh_settings_window_text()
         self.update_status(self.current_status)
+
+    def refresh_settings_window_text(self):
+        if not hasattr(self, "settings_window") or not self.settings_window.winfo_exists():
+            self.settings_i18n_widgets = []
+            return
+
+        self.settings_window.title(f"{APP_NAME} {self.t('settings_title')}")
+        for widget, key in self.settings_i18n_widgets:
+            try:
+                if widget.winfo_exists():
+                    widget.configure(text=self.t(key))
+            except tk.TclError:
+                pass
 
     def dispatch(self, action):
         self.event_queue.put(("action", action))
@@ -1715,6 +1728,7 @@ class VoiceDictationApp:
 
         win = tk.Toplevel(self.root)
         self.settings_window = win
+        self.settings_i18n_widgets = []
         win.title(f"{APP_NAME} {self.t('settings_title')}")
         win.attributes("-topmost", True)
         win.resizable(True, True)
@@ -1744,6 +1758,25 @@ class VoiceDictationApp:
         append_space = tk.BooleanVar(value=bool(self.cfg.get("append_space", False)))
         start_with_windows = tk.BooleanVar(value=is_startup_enabled())
         dirty = tk.BooleanVar(value=False)
+
+        def remember_i18n(widget, key):
+            self.settings_i18n_widgets.append((widget, key))
+            return widget
+
+        def i18n_label(parent, key, **kwargs):
+            return remember_i18n(ttk.Label(parent, text=self.t(key), **kwargs), key)
+
+        def i18n_button(parent, key, **kwargs):
+            return remember_i18n(ttk.Button(parent, text=self.t(key), **kwargs), key)
+
+        def i18n_checkbutton(parent, key, **kwargs):
+            return remember_i18n(ttk.Checkbutton(parent, text=self.t(key), **kwargs), key)
+
+        def clear_i18n_registry(event):
+            if event.widget == win:
+                self.settings_i18n_widgets = []
+
+        win.bind("<Destroy>", clear_i18n_registry, add="+")
 
         devices = input_devices()
         device_labels = [
@@ -1908,13 +1941,13 @@ class VoiceDictationApp:
         win.protocol("WM_DELETE_WINDOW", close_settings)
 
         row = 0
-        ttk.Label(win, text=self.t("mode")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        i18n_label(win, "mode").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(win, textvariable=mode, values=["hold", "toggle"], state="readonly", width=32, font=settings_font).grid(
             row=row, column=1, sticky="ew", pady=6
         )
 
         row += 1
-        ttk.Label(win, text=self.t("ui_language")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        i18n_label(win, "ui_language").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(
             win,
             textvariable=ui_language,
@@ -1925,7 +1958,7 @@ class VoiceDictationApp:
         ).grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
-        ttk.Label(win, text=self.t("overlay_size")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        i18n_label(win, "overlay_size").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(
             win,
             textvariable=overlay_size,
@@ -1936,7 +1969,7 @@ class VoiceDictationApp:
         ).grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
-        ttk.Label(win, text=self.t("overlay_details")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        i18n_label(win, "overlay_details").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(
             win,
             textvariable=overlay_details,
@@ -1947,7 +1980,7 @@ class VoiceDictationApp:
         ).grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
-        ttk.Label(win, text=self.t("overlay_opacity")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        i18n_label(win, "overlay_opacity").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         opacity_frame = ttk.Frame(win)
         opacity_frame.grid(row=row, column=1, sticky="ew", pady=6)
         opacity_frame.columnconfigure(0, weight=1)
@@ -1961,58 +1994,58 @@ class VoiceDictationApp:
         ttk.Label(opacity_frame, textvariable=overlay_opacity_label, width=5).grid(row=0, column=1, sticky="e")
 
         row += 1
-        ttk.Label(win, text=self.t("dictation_hotkey")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        i18n_label(win, "dictation_hotkey").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         dict_hotkey_frame = ttk.Frame(win)
         dict_hotkey_frame.grid(row=row, column=1, sticky="ew", pady=6)
         dict_hotkey_frame.columnconfigure(0, weight=1)
         dict_hotkey_entry = ttk.Entry(dict_hotkey_frame, textvariable=dict_hotkey, width=36, font=settings_font)
         dict_hotkey_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
-        ttk.Button(
+        i18n_button(
             dict_hotkey_frame,
-            text=self.t("assign"),
+            "assign",
             command=lambda: start_hotkey_capture(dict_hotkey, dict_hotkey_entry),
         ).grid(row=0, column=1, sticky="e")
 
         row += 1
-        ttk.Label(win, text=self.t("overlay_hotkey")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        i18n_label(win, "overlay_hotkey").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         overlay_hotkey_frame = ttk.Frame(win)
         overlay_hotkey_frame.grid(row=row, column=1, sticky="ew", pady=6)
         overlay_hotkey_frame.columnconfigure(0, weight=1)
         overlay_hotkey_entry = ttk.Entry(overlay_hotkey_frame, textvariable=overlay_hotkey, width=36, font=settings_font)
         overlay_hotkey_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
-        ttk.Button(
+        i18n_button(
             overlay_hotkey_frame,
-            text=self.t("assign"),
+            "assign",
             command=lambda: start_hotkey_capture(overlay_hotkey, overlay_hotkey_entry),
         ).grid(row=0, column=1, sticky="e")
 
         row += 1
-        ttk.Label(win, text=self.t("input_device")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        i18n_label(win, "input_device").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Combobox(win, textvariable=selected_device, values=device_labels, state="readonly", width=72, font=settings_font).grid(
             row=row, column=1, sticky="ew", pady=6
         )
 
         row += 1
-        ttk.Label(win, text=self.t("sample_rate")).grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        i18n_label(win, "sample_rate").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         ttk.Entry(win, textvariable=sample_rate, width=36, font=settings_font).grid(row=row, column=1, sticky="w", pady=6)
 
         row += 1
-        ttk.Checkbutton(win, text=self.t("use_punctuation"), variable=use_punctuation).grid(
+        i18n_checkbutton(win, "use_punctuation", variable=use_punctuation).grid(
             row=row, column=1, sticky="w", pady=6
         )
 
         row += 1
-        ttk.Checkbutton(win, text=self.t("paste_into_active_field"), variable=auto_paste).grid(
+        i18n_checkbutton(win, "paste_into_active_field", variable=auto_paste).grid(
             row=row, column=1, sticky="w", pady=6
         )
 
         row += 1
-        ttk.Checkbutton(win, text=self.t("append_trailing_space"), variable=append_space).grid(
+        i18n_checkbutton(win, "append_trailing_space", variable=append_space).grid(
             row=row, column=1, sticky="w", pady=6
         )
 
         row += 1
-        ttk.Checkbutton(win, text=self.t("start_with_windows"), variable=start_with_windows).grid(
+        i18n_checkbutton(win, "start_with_windows", variable=start_with_windows).grid(
             row=row, column=1, sticky="w", pady=6
         )
 
@@ -2024,10 +2057,10 @@ class VoiceDictationApp:
         row += 1
         buttons = ttk.Frame(win)
         buttons.grid(row=row, column=0, columnspan=2, sticky="e", pady=(14, 0))
-        ttk.Button(buttons, text=self.t("hide_overlay"), command=self.hide_overlay).pack(side="left", padx=(0, 10))
-        ttk.Button(buttons, text=self.t("apply"), command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 10))
-        ttk.Button(buttons, text=self.t("save"), command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 10))
-        ttk.Button(buttons, text=self.t("cancel"), command=close_settings).pack(side="left")
+        i18n_button(buttons, "hide_overlay", command=self.hide_overlay).pack(side="left", padx=(0, 10))
+        i18n_button(buttons, "apply", command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 10))
+        i18n_button(buttons, "save", command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 10))
+        i18n_button(buttons, "cancel", command=close_settings).pack(side="left")
 
     def save_settings(self, win, values, close=True):
         values["ui_language"] = normalize_ui_language(values.get("ui_language", "en"))
