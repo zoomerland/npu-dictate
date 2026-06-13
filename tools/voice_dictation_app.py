@@ -93,6 +93,7 @@ def default_config():
         "punct_device": "NPU",
         "auto_paste": True,
         "append_space": True,
+        "start_with_windows": False,
         "overlay_visible": True,
         "overlay_x": None,
         "overlay_y": None,
@@ -116,6 +117,57 @@ def save_config(cfg):
     path = config_path()
     with path.open("w", encoding="utf-8") as file:
         json.dump(cfg, file, ensure_ascii=False, indent=2)
+
+
+def startup_folder():
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    return Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+
+
+def startup_shortcut_path():
+    return startup_folder() / f"{APP_NAME}.lnk"
+
+
+def startup_target_python():
+    venv_pythonw = repo_root() / ".venv" / "Scripts" / "pythonw.exe"
+    if venv_pythonw.exists():
+        return venv_pythonw
+    return Path(sys.executable)
+
+
+def is_startup_enabled():
+    return startup_shortcut_path().exists()
+
+
+def set_startup_enabled(enabled):
+    if os.name != "nt":
+        return False
+
+    shortcut_path = startup_shortcut_path()
+    try:
+        if not enabled:
+            shortcut_path.unlink(missing_ok=True)
+            return True
+
+        import comtypes.client
+
+        shortcut_path.parent.mkdir(parents=True, exist_ok=True)
+        target = startup_target_python()
+        script = repo_root() / "tools" / "voice_dictation_app.py"
+        shell = comtypes.client.CreateObject("WScript.Shell", dynamic=True)
+        shortcut = shell.CreateShortcut(str(shortcut_path))
+        shortcut.TargetPath = str(target)
+        shortcut.Arguments = f'"{script}"'
+        shortcut.WorkingDirectory = str(repo_root())
+        shortcut.IconLocation = str(target)
+        shortcut.Description = APP_NAME
+        shortcut.Save()
+        return True
+    except Exception as exc:
+        log_debug(f"startup shortcut error={type(exc).__name__}")
+        return False
 
 
 def clamp_overlay_opacity(value):
@@ -786,7 +838,7 @@ class DictationEngine:
                     if self.paste_text(final_text):
                         self.set_status("Pasted")
                     else:
-                        self.set_status("Copied")
+                        self.set_status("Copied - paste manually")
                 else:
                     pyperclip.copy(final_text)
                     self.set_status("Copied")
@@ -810,11 +862,16 @@ class DictationEngine:
         if sent:
             return True
 
-        self.keyboard.press(keyboard.Key.ctrl)
-        self.keyboard.press("v")
-        self.keyboard.release("v")
-        self.keyboard.release(keyboard.Key.ctrl)
-        return True
+        try:
+            self.keyboard.press(keyboard.Key.ctrl)
+            self.keyboard.press("v")
+            self.keyboard.release("v")
+            self.keyboard.release(keyboard.Key.ctrl)
+            log_debug("paste fallback=pynput")
+            return True
+        except Exception as exc:
+            log_debug(f"paste failed fallback_error={type(exc).__name__}")
+            return False
 
     def send_ctrl_v(self):
         if os.name != "nt":
@@ -889,6 +946,7 @@ class DictationEngine:
 class VoiceDictationApp:
     def __init__(self):
         self.cfg = load_config()
+        self.cfg["start_with_windows"] = is_startup_enabled()
         self.event_queue = queue.Queue()
         self.root = tk.Tk()
         self.root.title(APP_NAME)
@@ -1307,6 +1365,8 @@ class VoiceDictationApp:
             self.button.configure(text="REC", bg="#b83030", activebackground="#982727")
         elif busy:
             self.button.configure(text="BUSY", bg="#81612b", activebackground="#6d5124")
+        elif status.startswith("Copied - paste"):
+            self.button.configure(text="PASTE", bg="#b85528", activebackground="#98441f")
         else:
             self.button.configure(text="DICT", bg="#2864d8", activebackground="#1f55bd")
         self.update_tray_status()
@@ -1416,6 +1476,7 @@ class VoiceDictationApp:
         use_punctuation = tk.BooleanVar(value=bool(self.cfg.get("use_punctuation", True)))
         auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
         append_space = tk.BooleanVar(value=bool(self.cfg.get("append_space", False)))
+        start_with_windows = tk.BooleanVar(value=is_startup_enabled())
         dirty = tk.BooleanVar(value=False)
 
         devices = input_devices()
@@ -1446,6 +1507,7 @@ class VoiceDictationApp:
             use_punctuation,
             auto_paste,
             append_space,
+            start_with_windows,
         ):
             variable.trace_add("write", mark_dirty)
 
@@ -1543,6 +1605,7 @@ class VoiceDictationApp:
                 "use_punctuation": bool(use_punctuation.get()),
                 "auto_paste": bool(auto_paste.get()),
                 "append_space": bool(append_space.get()),
+                "start_with_windows": bool(start_with_windows.get()),
             }
 
         def apply_settings(close=False):
@@ -1670,6 +1733,11 @@ class VoiceDictationApp:
         )
 
         row += 1
+        ttk.Checkbutton(win, text="Start with Windows", variable=start_with_windows).grid(
+            row=row, column=1, sticky="w", pady=6
+        )
+
+        row += 1
         ttk.Label(win, textvariable=self.last_text_var, wraplength=700, foreground="#555", font=settings_small_font).grid(
             row=row, column=0, columnspan=2, sticky="ew", pady=(12, 6)
         )
@@ -1701,6 +1769,11 @@ class VoiceDictationApp:
         if dictation_hotkey == overlay_hotkey:
             self.update_status("Hotkey conflict")
             return False
+        if bool(values.get("start_with_windows", False)) != is_startup_enabled():
+            if not set_startup_enabled(bool(values.get("start_with_windows", False))):
+                self.update_status("Startup error")
+                return False
+        values["start_with_windows"] = is_startup_enabled()
 
         self.cfg.update(values)
         save_config(self.cfg)

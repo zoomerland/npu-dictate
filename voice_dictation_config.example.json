@@ -10,6 +10,7 @@
   "punct_device": "NPU",
   "auto_paste": true,
   "append_space": true,
+  "start_with_windows": false,
   "overlay_visible": true,
   "overlay_x": null,
   "overlay_y": null,

@@ -31,7 +31,7 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Notepad.
   - Telegram/Slack/Discord-like apps.
   - Office/Word-like editors.
-- [ ] Add a user-visible fallback when paste fails.
+- [x] Add a user-visible fallback when paste fails.
 - [x] Add a small diagnostics view or "copy debug info" action.
 - [ ] Long dictation test: pauses, silence, repeated phrases, and cancellation.
 - [ ] Decide how to handle leading/trailing spaces around inserted text.
@@ -90,7 +90,7 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Open settings.
   - Quit.
   - Show current status.
-- [ ] Add optional startup behavior:
+- [x] Add optional startup behavior:
   - Create/remove Startup folder shortcut for script mode.
   - Revisit after installer packaging.
 
