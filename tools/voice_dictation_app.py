@@ -235,6 +235,11 @@ class ForegroundWindowTracker:
             self.last_target_hwnd = hwnd
 
     def restore_last_target(self):
+        current = self.foreground_hwnd()
+        if self.is_usable_target(current):
+            self.last_target_hwnd = current
+            return True
+
         hwnd = self.last_target_hwnd
         if not self.is_usable_target(hwnd):
             return False
