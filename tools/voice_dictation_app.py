@@ -815,6 +815,7 @@ class VoiceDictationApp:
         self._build_overlay()
         self._position_overlay()
         self.foreground_tracker.make_no_activate(self.root.winfo_id())
+        self._position_overlay()
         self._build_menu()
 
         if not self.cfg.get("overlay_visible", True):
@@ -874,14 +875,48 @@ class VoiceDictationApp:
         self.root.update_idletasks()
         width = self.root.winfo_reqwidth()
         height = self.root.winfo_reqheight()
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
         x = self.cfg.get("overlay_x")
         y = self.cfg.get("overlay_y")
         if x is None or y is None:
-            x = screen_w - width - 32
-            y = screen_h - height - 80
+            left, top, right, bottom = self.virtual_screen_bounds()
+            x = right - width - 32
+            y = bottom - height - 80
+        requested_x = x
+        requested_y = y
+        x, y = self.clamp_overlay_position(x, y, width, height)
+        log_debug(
+            "overlay position "
+            f"requested=({requested_x},{requested_y}) "
+            f"clamped=({x},{y}) "
+            f"size=({width},{height}) "
+            f"bounds={self.virtual_screen_bounds()}"
+        )
         self.root.geometry(f"+{int(x)}+{int(y)}")
+        if self.cfg.get("overlay_x") != x or self.cfg.get("overlay_y") != y:
+            self.cfg["overlay_x"] = x
+            self.cfg["overlay_y"] = y
+            save_config(self.cfg)
+
+    def virtual_screen_bounds(self):
+        if os.name == "nt":
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            left = user32.GetSystemMetrics(76)
+            top = user32.GetSystemMetrics(77)
+            width = user32.GetSystemMetrics(78)
+            height = user32.GetSystemMetrics(79)
+            return left, top, left + width, top + height
+
+        return 0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+
+    def clamp_overlay_position(self, x, y, width=None, height=None):
+        left, top, right, bottom = self.virtual_screen_bounds()
+        width = int(width if width is not None else max(self.root.winfo_width(), self.root.winfo_reqwidth()))
+        height = int(height if height is not None else max(self.root.winfo_height(), self.root.winfo_reqheight()))
+        max_x = max(left, right - width)
+        max_y = max(top, bottom - height)
+        x = min(max(int(x), left), max_x)
+        y = min(max(int(y), top), max_y)
+        return x, y
 
     def _build_menu(self):
         self.menu = tk.Menu(self.root, tearoff=0)
@@ -1022,8 +1057,7 @@ class VoiceDictationApp:
         self.mouse_pressed_widget = None
 
     def move_overlay(self, x, y):
-        x = int(x)
-        y = int(y)
+        x, y = self.clamp_overlay_position(x, y)
         self.root.geometry(f"+{x}+{y}")
         self.cfg["overlay_x"] = x
         self.cfg["overlay_y"] = y
