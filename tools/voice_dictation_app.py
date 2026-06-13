@@ -879,16 +879,6 @@ class VoiceDictationApp:
     def overlay_size_profile(self):
         profiles = {
             "small": {
-                "padx": 6,
-                "pady": 5,
-                "button_width": 6,
-                "button_height": 1,
-                "button_font": ("Segoe UI", 9, "bold"),
-                "status_font": ("Segoe UI", 7),
-                "hotkey_font": ("Segoe UI", 6),
-                "progress_length": 70,
-            },
-            "medium": {
                 "padx": 8,
                 "pady": 7,
                 "button_width": 8,
@@ -898,7 +888,7 @@ class VoiceDictationApp:
                 "hotkey_font": ("Segoe UI", 7),
                 "progress_length": 86,
             },
-            "large": {
+            "medium": {
                 "padx": 10,
                 "pady": 8,
                 "button_width": 10,
@@ -907,6 +897,16 @@ class VoiceDictationApp:
                 "status_font": ("Segoe UI", 9),
                 "hotkey_font": ("Segoe UI", 8),
                 "progress_length": 108,
+            },
+            "large": {
+                "padx": 12,
+                "pady": 10,
+                "button_width": 12,
+                "button_height": 3,
+                "button_font": ("Segoe UI", 12, "bold"),
+                "status_font": ("Segoe UI", 10),
+                "hotkey_font": ("Segoe UI", 9),
+                "progress_length": 128,
             },
         }
         return profiles.get(self.cfg.get("overlay_size", "medium"), profiles["medium"])
