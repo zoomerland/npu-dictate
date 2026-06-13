@@ -82,7 +82,7 @@ def default_config():
         "use_punctuation": True,
         "punct_device": "NPU",
         "auto_paste": True,
-        "append_space": False,
+        "append_space": True,
         "overlay_visible": True,
         "overlay_x": None,
         "overlay_y": None,
@@ -103,6 +103,15 @@ def save_config(cfg):
     path = config_path()
     with path.open("w", encoding="utf-8") as file:
         json.dump(cfg, file, ensure_ascii=False, indent=2)
+
+
+def log_debug(message):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with (repo_root() / "voice_dictation.log").open("a", encoding="utf-8") as file:
+            file.write(f"{timestamp} {message}\n")
+    except OSError:
+        pass
 
 
 def key_to_token(key):
@@ -291,6 +300,65 @@ class ForegroundWindowTracker:
         self.set_window_long(hwnd, self.GWL_EXSTYLE, style)
         flags = self.SWP_NOMOVE | self.SWP_NOSIZE | self.SWP_NOZORDER | self.SWP_FRAMECHANGED
         self.user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, flags)
+
+
+class FocusedInputTracker:
+    TEXT_CONTROL_TYPES = {"EditControl", "DocumentControl", "TextControl"}
+
+    def __init__(self):
+        self.last_input = None
+        self.current_pid = os.getpid()
+        try:
+            import uiautomation as auto
+        except ImportError:
+            self.auto = None
+        else:
+            self.auto = auto
+
+    def observe_focused_input(self):
+        if self.auto is None:
+            return
+
+        try:
+            control = self.auto.GetFocusedControl()
+            control = self.find_text_control(control)
+            if control and int(control.ProcessId) != self.current_pid:
+                self.last_input = control
+        except Exception as exc:
+            log_debug(f"uia observe error={type(exc).__name__}")
+
+    def find_text_control(self, control):
+        for _ in range(6):
+            if control is None:
+                return None
+            if getattr(control, "ControlTypeName", "") in self.TEXT_CONTROL_TYPES:
+                return control
+            try:
+                control = control.GetParentControl()
+            except Exception:
+                return None
+        return None
+
+    def restore_last_input(self):
+        if self.last_input is None:
+            return False
+
+        try:
+            import comtypes
+
+            comtypes.CoInitialize()
+            if int(self.last_input.ProcessId) == self.current_pid:
+                return False
+            self.last_input.SetFocus()
+            log_debug(
+                "uia focus "
+                f"type={getattr(self.last_input, 'ControlTypeName', '')} "
+                f"name={getattr(self.last_input, 'Name', '')!r}"
+            )
+            return True
+        except Exception as exc:
+            log_debug(f"uia focus error={type(exc).__name__}")
+            return False
 
 
 class HotkeyManager:
@@ -543,17 +611,66 @@ class DictationEngine:
 
     def paste_text(self, text):
         pyperclip.copy(text)
-        target_ready = True
+        target_ready = None
         if self.focus_callback:
             target_ready = bool(self.focus_callback())
-        if not target_ready:
-            return False
         time.sleep(0.12)
+
+        sent = self.send_ctrl_v()
+        log_debug(f"paste target_ready={target_ready} send_input={sent}")
+        if sent:
+            return True
+
         self.keyboard.press(keyboard.Key.ctrl)
         self.keyboard.press("v")
         self.keyboard.release("v")
         self.keyboard.release(keyboard.Key.ctrl)
         return True
+
+    def send_ctrl_v(self):
+        if os.name != "nt":
+            return False
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        ULONG_PTR = wintypes.WPARAM
+        INPUT_KEYBOARD = 1
+        KEYEVENTF_KEYUP = 0x0002
+        VK_CONTROL = 0x11
+        VK_V = 0x56
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [
+                ("wVk", wintypes.WORD),
+                ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ULONG_PTR),
+            ]
+
+        class INPUT_UNION(ctypes.Union):
+            _fields_ = [("ki", KEYBDINPUT)]
+
+        class INPUT(ctypes.Structure):
+            _anonymous_ = ("union",)
+            _fields_ = [("type", wintypes.DWORD), ("union", INPUT_UNION)]
+
+        def key_event(vk, flags=0):
+            return INPUT(
+                type=INPUT_KEYBOARD,
+                ki=KEYBDINPUT(wVk=vk, wScan=0, dwFlags=flags, time=0, dwExtraInfo=0),
+            )
+
+        events = (INPUT * 4)(
+            key_event(VK_CONTROL),
+            key_event(VK_V),
+            key_event(VK_V, KEYEVENTF_KEYUP),
+            key_event(VK_CONTROL, KEYEVENTF_KEYUP),
+        )
+
+        user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+        user32.SendInput.restype = wintypes.UINT
+        sent = user32.SendInput(len(events), events, ctypes.sizeof(INPUT))
+        return sent == len(events)
 
 
 class VoiceDictationApp:
@@ -573,6 +690,7 @@ class VoiceDictationApp:
         self.progress_running = False
 
         self.foreground_tracker = ForegroundWindowTracker()
+        self.input_tracker = FocusedInputTracker()
         self.engine = DictationEngine(
             self.cfg,
             self.queue_status,
@@ -701,10 +819,14 @@ class VoiceDictationApp:
 
     def track_foreground(self):
         self.foreground_tracker.observe_foreground()
+        self.input_tracker.observe_focused_input()
         self.root.after(100, self.track_foreground)
 
     def restore_target_window(self):
-        return self.foreground_tracker.restore_last_target()
+        input_restored = self.input_tracker.restore_last_input()
+        window_restored = self.foreground_tracker.restore_last_target()
+        log_debug(f"restore input={input_restored} window={window_restored}")
+        return input_restored or window_restored
 
     def handle_action(self, action):
         if action == "toggle_overlay":

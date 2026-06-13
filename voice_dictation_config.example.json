@@ -9,7 +9,7 @@
   "use_punctuation": true,
   "punct_device": "NPU",
   "auto_paste": true,
-  "append_space": false,
+  "append_space": true,
   "overlay_visible": true,
   "overlay_x": null,
   "overlay_y": null
