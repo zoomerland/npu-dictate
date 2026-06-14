@@ -10,6 +10,8 @@
   "sample_rate": 0,
   "channels": 1,
   "use_punctuation": true,
+  "warmup_models": true,
+  "asr_warmup_buckets": [200, 400, 800, 2400, 3200],
   "compare_asr": false,
   "punct_model": "rupunct-big-openvino-fp16-static128",
   "punct_device": "NPU",

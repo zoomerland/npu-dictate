@@ -108,6 +108,17 @@ class GigaamOpenVinoCtcAsr:
         padded[:, :, :frames] = features
         return padded
 
+    def warmup(self, buckets=None):
+        warmed = []
+        for bucket in tuple(buckets or self.bucket_frames):
+            bucket = int(bucket)
+            compiled = self._compile(bucket)
+            features = np.zeros((1, 64, bucket), dtype=np.float32)
+            feature_lengths = np.array([bucket], dtype=np.int64)
+            compiled({"features": features, "feature_lengths": feature_lengths})
+            warmed.append(bucket)
+        return warmed
+
     def _decode(self, log_probs, encoder_lens):
         batch_tokens = log_probs.argmax(axis=-1)
         results = []

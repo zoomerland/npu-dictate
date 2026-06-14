@@ -55,6 +55,7 @@ TRANSLATIONS = {
         "asr_device": "Speech recognition device",
         "punct_model": "Punctuation model",
         "punct_device": "Punctuation device",
+        "warmup_models": "Warm up models on startup",
         "compare_asr": "Compare ASR CPU/NPU",
         "overlay_size": "Overlay size",
         "overlay_size_small": "Small",
@@ -102,6 +103,7 @@ TRANSLATIONS = {
         "Converting punct": "Converting punct",
         "Loading punct dependencies": "Loading punct dependencies",
         "Loading punct": "Loading punct",
+        "Warming models": "Warming models",
         "Ready": "Ready",
         "Starting": "Starting",
         "Still loading": "Still loading",
@@ -143,6 +145,7 @@ TRANSLATIONS = {
         "asr_device": "Устройство распознавания",
         "punct_model": "Модель пунктуации",
         "punct_device": "Устройство пунктуации",
+        "warmup_models": "Прогревать модели при запуске",
         "compare_asr": "Сравнивать ASR CPU/NPU",
         "overlay_size": "Размер кнопки",
         "overlay_size_small": "Маленькая",
@@ -190,6 +193,7 @@ TRANSLATIONS = {
         "Converting punct": "Конвертация пунктуации",
         "Loading punct dependencies": "Загрузка зависимостей пунктуации",
         "Loading punct": "Запуск пунктуации",
+        "Warming models": "Прогрев моделей",
         "Ready": "Готово",
         "Starting": "Запуск",
         "Still loading": "Еще загружается",
@@ -253,6 +257,7 @@ DEVICE_CHOICES = ("CPU", "GPU", "NPU")
 DEFAULT_ASR_MODEL = "gigaam-v3-ctc-onnx-int8"
 OPENVINO_ASR_MODEL = "gigaam-v3-ctc-openvino-fp32"
 DEFAULT_PUNCT_MODEL = "rupunct-big-openvino-fp16-static128"
+DEFAULT_ASR_WARMUP_BUCKETS = (200, 400, 800, 2400, 3200)
 
 ASR_MODEL_PROFILES = {
     DEFAULT_ASR_MODEL: {
@@ -320,7 +325,28 @@ def normalize_model_config(cfg):
     cfg["asr_device"] = normalize_model_device(ASR_MODEL_PROFILES, cfg["asr_model"], cfg.get("asr_device"))
     cfg["punct_model"] = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
     cfg["punct_device"] = normalize_model_device(PUNCT_MODEL_PROFILES, cfg["punct_model"], cfg.get("punct_device"))
+    cfg["warmup_models"] = bool(cfg.get("warmup_models", True))
+    cfg["asr_warmup_buckets"] = normalize_asr_warmup_buckets(cfg.get("asr_warmup_buckets"))
     return cfg
+
+
+def normalize_asr_warmup_buckets(value):
+    if isinstance(value, str):
+        raw_values = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        raw_values = value
+    else:
+        raw_values = DEFAULT_ASR_WARMUP_BUCKETS
+
+    buckets = []
+    for raw_value in raw_values:
+        try:
+            bucket = int(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if bucket > 0 and bucket not in buckets:
+            buckets.append(bucket)
+    return buckets or list(DEFAULT_ASR_WARMUP_BUCKETS)
 
 
 def input_devices():
@@ -368,6 +394,8 @@ def default_config():
         "sample_rate": 0,
         "channels": 1,
         "use_punctuation": True,
+        "warmup_models": True,
+        "asr_warmup_buckets": list(DEFAULT_ASR_WARMUP_BUCKETS),
         "compare_asr": False,
         "punct_model": DEFAULT_PUNCT_MODEL,
         "punct_device": "NPU",
@@ -1242,6 +1270,43 @@ class DictationEngine:
 
         threading.Thread(target=run_compare, daemon=True).start()
 
+    def _warmup_models(self, asr, punct, cfg):
+        if not cfg.get("warmup_models", True):
+            log_debug("warmup skipped disabled=True")
+            return
+
+        self.set_status("Warming models")
+        if hasattr(asr, "warmup"):
+            buckets = normalize_asr_warmup_buckets(cfg.get("asr_warmup_buckets"))
+            start = time.perf_counter()
+            try:
+                warmed = asr.warmup(buckets)
+                log_debug(
+                    "warmup asr done "
+                    f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} "
+                    f"buckets={','.join(str(bucket) for bucket in warmed)} "
+                    f"seconds={time.perf_counter() - start:.3f}"
+                )
+            except Exception as exc:
+                log_debug(f"warmup asr error type={type(exc).__name__}")
+        else:
+            log_debug(
+                "warmup asr skipped "
+                f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} reason=no-warmup-method"
+            )
+
+        if punct is not None:
+            start = time.perf_counter()
+            try:
+                punct.restore("проверка прогрева модели")
+                log_debug(
+                    "warmup punct done "
+                    f"model={cfg.get('punct_model')} device={cfg.get('punct_device')} "
+                    f"seconds={time.perf_counter() - start:.3f}"
+                )
+            except Exception as exc:
+                log_debug(f"warmup punct error type={type(exc).__name__}")
+
     def _load_models(self):
         try:
             load_start = time.perf_counter()
@@ -1284,6 +1349,8 @@ class DictationEngine:
                     f"model={cfg.get('punct_model')} device={cfg.get('punct_device')} "
                     f"seconds={time.perf_counter() - punct_start:.3f}"
                 )
+
+            self._warmup_models(asr, punct, cfg)
 
             with self.lock:
                 self.asr = asr
@@ -2253,6 +2320,7 @@ class VoiceDictationApp:
         overlay_opacity_label = tk.StringVar()
         sample_rate = tk.StringVar(value=str(self.cfg.get("sample_rate", 0)))
         use_punctuation = tk.BooleanVar(value=bool(self.cfg.get("use_punctuation", True)))
+        warmup_models = tk.BooleanVar(value=bool(self.cfg.get("warmup_models", True)))
         compare_asr = tk.BooleanVar(value=bool(self.cfg.get("compare_asr", False)))
         auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
         use_context = tk.BooleanVar(value=bool(self.cfg.get("use_context", True)))
@@ -2315,6 +2383,7 @@ class VoiceDictationApp:
             selected_device,
             sample_rate,
             use_punctuation,
+            warmup_models,
             compare_asr,
             auto_paste,
             use_context,
@@ -2453,6 +2522,8 @@ class VoiceDictationApp:
                 "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
                 "sample_rate": sample_rate_value,
                 "use_punctuation": bool(use_punctuation.get()),
+                "warmup_models": bool(warmup_models.get()),
+                "asr_warmup_buckets": normalize_asr_warmup_buckets(self.cfg.get("asr_warmup_buckets")),
                 "compare_asr": bool(compare_asr.get()),
                 "auto_paste": bool(auto_paste.get()),
                 "use_context": bool(use_context.get()),
@@ -2537,6 +2608,11 @@ class VoiceDictationApp:
 
         row += 1
         i18n_checkbutton(win, "compare_asr", variable=compare_asr).grid(
+            row=row, column=1, sticky="w", pady=6
+        )
+
+        row += 1
+        i18n_checkbutton(win, "warmup_models", variable=warmup_models).grid(
             row=row, column=1, sticky="w", pady=6
         )
 
