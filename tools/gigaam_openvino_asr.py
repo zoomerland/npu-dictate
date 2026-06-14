@@ -12,7 +12,12 @@ from scipy.signal import resample_poly
 DECODE_SPACE_PATTERN = re.compile(r"\A\s|\s\B|(\s)\b")
 SILENCE_FEATURE_VALUE = float(np.log(1e-9))
 PAD_MODES = {"zero", "silence", "edge", "min"}
-DEFAULT_BUCKET_FRAMES = (400, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2800, 3200, 4000, 4800, 6400)
+DEFAULT_BUCKET_FRAMES = (400, 1000, 1600, 3200)
+GIGAAM_SAMPLE_RATE = 16_000
+GIGAAM_HOP_LENGTH = GIGAAM_SAMPLE_RATE // 100
+GIGAAM_WIN_LENGTH = GIGAAM_SAMPLE_RATE // 50
+DEFAULT_CHUNK_OVERLAP_MS = 350
+DEFAULT_SILENCE_SEARCH_MS = 700
 
 
 class GigaamOpenVinoCtcAsr:
@@ -40,6 +45,7 @@ class GigaamOpenVinoCtcAsr:
         self.compiled = {}
         self.last_bucket = None
         self.last_frames = None
+        self.last_chunks = []
         self.lock = threading.RLock()
 
     @staticmethod
@@ -81,6 +87,9 @@ class GigaamOpenVinoCtcAsr:
     def _features(self, waveform, sample_rate, channel=None):
         audio = self._normalize_waveform(waveform, channel)
         audio = self._resample_to_16k(audio, sample_rate)
+        return self._features_from_16k(audio)
+
+    def _features_from_16k(self, audio):
         waveforms = audio[None, :]
         waveforms_lens = np.array([audio.shape[0]], dtype=np.int64)
         features, features_lens = self.preprocessor(waveforms, waveforms_lens)
@@ -134,6 +143,92 @@ class GigaamOpenVinoCtcAsr:
             warmed.append(bucket)
         return warmed
 
+    @staticmethod
+    def _audio_samples_for_bucket(bucket):
+        return max(GIGAAM_WIN_LENGTH, (int(bucket) - 1) * GIGAAM_HOP_LENGTH + GIGAAM_WIN_LENGTH)
+
+    @staticmethod
+    def _quiet_cut(audio, start, hard_end, search_ms=DEFAULT_SILENCE_SEARCH_MS):
+        frame = max(1, int(0.025 * GIGAAM_SAMPLE_RATE))
+        hop = max(1, int(0.010 * GIGAAM_SAMPLE_RATE))
+        min_chunk = int(0.9 * GIGAAM_SAMPLE_RATE)
+        search_start = max(start + min_chunk, hard_end - int(search_ms * GIGAAM_SAMPLE_RATE / 1000))
+        if search_start + frame >= hard_end:
+            return hard_end
+
+        best_pos = None
+        best_rms = None
+        for pos in range(search_start, hard_end - frame + 1, hop):
+            window = audio[pos : pos + frame]
+            rms = float(np.sqrt(np.mean(window * window))) if window.size else 0.0
+            if best_rms is None or rms < best_rms:
+                best_rms = rms
+                best_pos = pos
+
+        if best_pos is None:
+            return hard_end
+        return min(hard_end, best_pos + frame // 2)
+
+    def _chunk_ranges(self, audio, bucket, overlap_ms=DEFAULT_CHUNK_OVERLAP_MS, prefer_silence=True):
+        max_samples = self._audio_samples_for_bucket(bucket)
+        total = int(audio.shape[0])
+        if total <= max_samples:
+            return [(0, total)]
+
+        overlap_samples = int(max(0, overlap_ms) * GIGAAM_SAMPLE_RATE / 1000)
+        overlap_samples = min(overlap_samples, max_samples // 3)
+        ranges = []
+        start = 0
+        while start < total:
+            hard_end = min(total, start + max_samples)
+            if hard_end >= total:
+                end = total
+            elif prefer_silence:
+                end = self._quiet_cut(audio, start, hard_end)
+            else:
+                end = hard_end
+
+            if end <= start + GIGAAM_WIN_LENGTH:
+                end = hard_end
+
+            ranges.append((start, end))
+            if end >= total:
+                break
+
+            next_start = max(0, end - overlap_samples)
+            if next_start <= start:
+                next_start = min(total, start + max_samples - overlap_samples)
+            start = next_start
+
+        return ranges
+
+    @staticmethod
+    def _token_key(token):
+        return re.sub(r"\W+", "", token.lower())
+
+    @classmethod
+    def _stitch_texts(cls, texts):
+        output = []
+        for text in texts:
+            tokens = [token for token in text.strip().split() if token]
+            if not tokens:
+                continue
+            if not output:
+                output.extend(tokens)
+                continue
+
+            overlap = 0
+            max_overlap = min(8, len(output), len(tokens))
+            output_keys = [cls._token_key(token) for token in output]
+            token_keys = [cls._token_key(token) for token in tokens]
+            for size in range(max_overlap, 0, -1):
+                if output_keys[-size:] == token_keys[:size]:
+                    overlap = size
+                    break
+            output.extend(tokens[overlap:])
+
+        return " ".join(output)
+
     def _decode(self, log_probs, encoder_lens):
         batch_tokens = log_probs.argmax(axis=-1)
         results = []
@@ -168,9 +263,54 @@ class GigaamOpenVinoCtcAsr:
         return self._decode(log_probs, encoder_lens)[0]
 
     def recognize(self, waveform, *, sample_rate=16_000, channel=None, **_kwargs):
+        self.last_chunks = []
         features, features_lens = self._features(waveform, sample_rate, channel)
         return self._recognize_features(features, features_lens, self._bucket_for(features.shape[2]))
 
     def recognize_with_bucket(self, waveform, *, bucket, sample_rate=16_000, channel=None, **_kwargs):
+        self.last_chunks = []
         features, features_lens = self._features(waveform, sample_rate, channel)
         return self._recognize_features(features, features_lens, int(bucket))
+
+    def recognize_chunked(
+        self,
+        waveform,
+        *,
+        bucket=400,
+        overlap_ms=DEFAULT_CHUNK_OVERLAP_MS,
+        sample_rate=16_000,
+        channel=None,
+        prefer_silence=True,
+        **_kwargs,
+    ):
+        audio = self._normalize_waveform(waveform, channel)
+        audio = self._resample_to_16k(audio, sample_rate)
+        bucket = int(bucket)
+        ranges = self._chunk_ranges(audio, bucket, overlap_ms, prefer_silence)
+        texts = []
+        chunks = []
+
+        for index, (start, end) in enumerate(ranges):
+            chunk = np.ascontiguousarray(audio[start:end], dtype=np.float32)
+            if chunk.shape[0] < GIGAAM_WIN_LENGTH:
+                continue
+            features, features_lens = self._features_from_16k(chunk)
+            frames = int(features.shape[2])
+            text = self._recognize_features(features, features_lens, bucket).strip()
+            chunks.append(
+                {
+                    "index": index,
+                    "start_sec": start / GIGAAM_SAMPLE_RATE,
+                    "end_sec": end / GIGAAM_SAMPLE_RATE,
+                    "frames": frames,
+                    "bucket": self.last_bucket,
+                    "text": text,
+                }
+            )
+            if text:
+                texts.append(text)
+
+        self.last_chunks = chunks
+        self.last_bucket = f"chunked:{bucket}x{len(chunks)}"
+        self.last_frames = sum(chunk["frames"] for chunk in chunks)
+        return self._stitch_texts(texts)

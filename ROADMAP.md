@@ -158,6 +158,16 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
 - [x] Keep existing CTC decoder behavior.
 - [x] Run end-to-end GigaAM ASR inference through NPU.
 - [x] Disable the GigaAM INT8/NPU path after it compiled but produced incorrect text.
+- [x] Add experimental chunked NPU ASR:
+  - Use one short static bucket for longer dictation.
+  - Split audio into overlapping chunks.
+  - Log per-chunk timing, frames, bucket, and raw text.
+  - Stitch raw chunk text before punctuation.
+- [ ] Tune chunked NPU ASR quality:
+  - Compare bucket 400 vs 1000.
+  - Tune overlap and silence-biased cut points.
+  - Test fast speech and long dictation from saved WAV files.
+  - Compare against the CPU dynamic-shape baseline.
 - [ ] Benchmark CPU vs NPU:
   - Cold load.
   - Warm inference.

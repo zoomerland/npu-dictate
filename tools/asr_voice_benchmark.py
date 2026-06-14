@@ -133,15 +133,53 @@ def run_openvino(audio, sample_rate, model_dir, device, bucket, pad_mode):
     }
 
 
+def run_openvino_chunked(audio, sample_rate, model_dir, device, bucket, pad_mode, overlap_ms):
+    start = time.perf_counter()
+    asr = GigaamOpenVinoCtcAsr(
+        model_dir,
+        device=device,
+        cache_dir=repo_root() / "models" / "openvino" / "cache" / "asr_gigaam_voice_benchmark",
+        bucket_frames=(bucket,),
+        pad_mode=pad_mode,
+    )
+    load_sec = time.perf_counter() - start
+
+    start = time.perf_counter()
+    text = asr.recognize_chunked(
+        audio,
+        sample_rate=sample_rate,
+        bucket=bucket,
+        overlap_ms=overlap_ms,
+    ).strip()
+    infer_sec = time.perf_counter() - start
+    return {
+        "name": f"openvino_{device.lower()}_fp32_chunked_bucket_{bucket}_{pad_mode}",
+        "actual_bucket": asr.last_bucket,
+        "pad_mode": pad_mode,
+        "chunk_count": len(getattr(asr, "last_chunks", []) or []),
+        "chunks": getattr(asr, "last_chunks", []) or [],
+        "load_sec": load_sec,
+        "infer_sec": infer_sec,
+        "text": text,
+    }
+
+
 def print_result(result, audio_sec):
     speed = audio_sec / result["infer_sec"] if result["infer_sec"] else 0.0
     print(
         f"{result['name']}: load={result['load_sec']:.3f}s "
         f"infer={result['infer_sec']:.3f}s speed={speed:.2f}x"
-        + (f" actual_bucket={result['actual_bucket']}" if "actual_bucket" in result else ""),
+        + (f" actual_bucket={result['actual_bucket']}" if "actual_bucket" in result else "")
+        + (f" chunks={result['chunk_count']}" if "chunk_count" in result else ""),
         flush=True,
     )
     print(f"  {result['text']}", flush=True)
+    for chunk in result.get("chunks", []):
+        print(
+            f"    chunk {chunk['index']}: {chunk['start_sec']:.2f}-{chunk['end_sec']:.2f}s "
+            f"frames={chunk['frames']} bucket={chunk['bucket']} text={chunk['text']}",
+            flush=True,
+        )
 
 
 def main():
@@ -159,7 +197,10 @@ def main():
     parser.add_argument("--sample-rate", type=int, default=int(cfg.get("sample_rate", 0) or 0))
     parser.add_argument("--channels", type=int, default=int(cfg.get("channels", 1) or 1))
     parser.add_argument("--device-index", type=int, default=cfg.get("input_device_index"))
-    parser.add_argument("--buckets", default="400,800,1200,1600,2000,2400,3200,6400")
+    parser.add_argument("--buckets", default="400,1000,1600,3200")
+    parser.add_argument("--chunk-buckets", default="1000")
+    parser.add_argument("--chunk-overlap-ms", type=int, default=350)
+    parser.add_argument("--chunked-openvino", action="store_true")
     parser.add_argument("--openvino-devices", default="NPU")
     parser.add_argument("--pad-modes", default="silence,zero,edge,min")
     parser.add_argument("--cpu-quantizations", default="int8,fp32")
@@ -206,6 +247,28 @@ def main():
                         continue
                     results.append(run_openvino(audio, sample_rate, args.model_dir, device, bucket, pad_mode))
                     print_result(results[-1], audio_sec)
+            if args.chunked_openvino:
+                for raw_bucket in args.chunk_buckets.split(","):
+                    raw_bucket = raw_bucket.strip()
+                    if not raw_bucket:
+                        continue
+                    bucket = int(raw_bucket)
+                    for raw_pad_mode in args.pad_modes.split(","):
+                        pad_mode = raw_pad_mode.strip().lower()
+                        if not pad_mode:
+                            continue
+                        results.append(
+                            run_openvino_chunked(
+                                audio,
+                                sample_rate,
+                                args.model_dir,
+                                device,
+                                bucket,
+                                pad_mode,
+                                args.chunk_overlap_ms,
+                            )
+                        )
+                        print_result(results[-1], audio_sec)
 
     report_path = audio_path.with_suffix(".json")
     with report_path.open("w", encoding="utf-8") as file:

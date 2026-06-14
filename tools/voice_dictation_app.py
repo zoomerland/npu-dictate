@@ -258,9 +258,11 @@ DEVICE_CHOICES = ("CPU", "GPU", "NPU")
 DEFAULT_ASR_MODEL = "gigaam-v3-ctc-onnx-int8"
 OPENVINO_ASR_MODEL = "gigaam-v3-ctc-openvino-fp32"
 DEFAULT_PUNCT_MODEL = "rupunct-big-openvino-fp16-static128"
-DEFAULT_ASR_BUCKET_FRAMES = (400, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2800, 3200, 4000, 4800, 6400)
+DEFAULT_ASR_BUCKET_FRAMES = (400, 1000, 1600, 3200)
 DEFAULT_ASR_WARMUP_BUCKETS = DEFAULT_ASR_BUCKET_FRAMES
 DEFAULT_ASR_RETRY_BUCKETS = (1600, 3200)
+DEFAULT_ASR_CHUNK_BUCKET = 1000
+DEFAULT_ASR_CHUNK_OVERLAP_MS = 350
 ASR_PAD_MODES = {"zero", "silence", "edge", "min"}
 
 ASR_MODEL_PROFILES = {
@@ -329,6 +331,9 @@ def normalize_model_config(cfg):
     cfg["asr_device"] = normalize_model_device(ASR_MODEL_PROFILES, cfg["asr_model"], cfg.get("asr_device"))
     cfg["asr_pad_mode"] = normalize_asr_pad_mode(cfg.get("asr_pad_mode"))
     cfg["asr_bucket_frames"] = normalize_asr_bucket_frames(cfg.get("asr_bucket_frames"))
+    cfg["asr_chunked"] = bool(cfg.get("asr_chunked", False))
+    cfg["asr_chunk_bucket"] = normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket"))
+    cfg["asr_chunk_overlap_ms"] = normalize_asr_chunk_overlap_ms(cfg.get("asr_chunk_overlap_ms"))
     cfg["punct_model"] = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
     cfg["punct_device"] = normalize_model_device(PUNCT_MODEL_PROFILES, cfg["punct_model"], cfg.get("punct_device"))
     cfg["warmup_models"] = bool(cfg.get("warmup_models", True))
@@ -355,6 +360,22 @@ def normalize_asr_retry_buckets(value):
     return normalize_bucket_list(value, DEFAULT_ASR_RETRY_BUCKETS)
 
 
+def normalize_asr_chunk_bucket(value):
+    try:
+        bucket = int(value)
+    except (TypeError, ValueError):
+        bucket = DEFAULT_ASR_CHUNK_BUCKET
+    return bucket if bucket > 0 else DEFAULT_ASR_CHUNK_BUCKET
+
+
+def normalize_asr_chunk_overlap_ms(value):
+    try:
+        overlap_ms = int(value)
+    except (TypeError, ValueError):
+        overlap_ms = DEFAULT_ASR_CHUNK_OVERLAP_MS
+    return max(0, min(1500, overlap_ms))
+
+
 def normalize_bucket_list(value, default):
     if isinstance(value, str):
         raw_values = value.split(",")
@@ -375,6 +396,9 @@ def normalize_bucket_list(value, default):
 
 
 def active_asr_warmup_buckets(asr, cfg):
+    if cfg.get("asr_chunked", False) and hasattr(asr, "recognize_chunked"):
+        return [normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket"))]
+
     buckets = normalize_asr_warmup_buckets(cfg.get("asr_warmup_buckets"))
     if cfg.get("asr_retry_fragmented", True):
         buckets.extend(
@@ -434,6 +458,9 @@ def default_config():
         "asr_device": "CPU",
         "asr_pad_mode": "zero",
         "asr_bucket_frames": list(DEFAULT_ASR_BUCKET_FRAMES),
+        "asr_chunked": False,
+        "asr_chunk_bucket": DEFAULT_ASR_CHUNK_BUCKET,
+        "asr_chunk_overlap_ms": DEFAULT_ASR_CHUNK_OVERLAP_MS,
         "input_device_index": choose_default_device_index(),
         "sample_rate": 0,
         "channels": 1,
@@ -695,6 +722,24 @@ def asr_bucket_label(asr):
 
 def asr_pad_mode_label(asr):
     return str(getattr(asr, "pad_mode", "none"))
+
+
+def should_use_chunked_asr(asr, cfg):
+    return bool(cfg.get("asr_chunked", False)) and hasattr(asr, "recognize_chunked")
+
+
+def log_asr_chunks(asr):
+    chunks = getattr(asr, "last_chunks", None) or []
+    for chunk in chunks:
+        log_debug(
+            "asr chunk "
+            f"index={chunk.get('index')} "
+            f"start={chunk.get('start_sec', 0.0):.2f}s "
+            f"end={chunk.get('end_sec', 0.0):.2f}s "
+            f"frames={chunk.get('frames')} "
+            f"bucket={chunk.get('bucket')} "
+            f"text={chunk.get('text')!r}"
+        )
 
 
 def asr_fragmentation_score(text):
@@ -1282,6 +1327,10 @@ class DictationEngine:
             reload_asr = (
                 old_cfg.get("asr_model") != cfg.get("asr_model")
                 or old_cfg.get("asr_device") != cfg.get("asr_device")
+                or old_cfg.get("asr_pad_mode") != cfg.get("asr_pad_mode")
+                or old_cfg.get("asr_bucket_frames") != cfg.get("asr_bucket_frames")
+                or old_cfg.get("asr_chunked") != cfg.get("asr_chunked")
+                or old_cfg.get("asr_chunk_bucket") != cfg.get("asr_chunk_bucket")
             )
             self.cfg = cfg
             if reload_asr:
@@ -1652,20 +1701,31 @@ class DictationEngine:
 
             self.set_status("Transcribing")
             start = time.perf_counter()
-            raw_result = self.asr.recognize(audio, sample_rate=sample_rate)
+            asr_mode = "chunked" if should_use_chunked_asr(self.asr, cfg) else "full"
+            if asr_mode == "chunked":
+                raw_result = self.asr.recognize_chunked(
+                    audio,
+                    sample_rate=sample_rate,
+                    bucket=normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket")),
+                    overlap_ms=normalize_asr_chunk_overlap_ms(cfg.get("asr_chunk_overlap_ms")),
+                )
+                log_asr_chunks(self.asr)
+            else:
+                raw_result = self.asr.recognize(audio, sample_rate=sample_rate)
             raw_text = result_to_text(raw_result).strip()
             asr_bucket = asr_bucket_label(self.asr)
             asr_pad_mode = asr_pad_mode_label(self.asr)
             asr_sec = time.perf_counter() - start
-            raw_text, asr_bucket, retry_results = self._retry_fragmented_asr(
-                audio,
-                sample_rate,
-                raw_text,
-                asr_bucket,
-                cfg,
-            )
-            if retry_results:
-                asr_sec = time.perf_counter() - start
+            if asr_mode == "full":
+                raw_text, asr_bucket, retry_results = self._retry_fragmented_asr(
+                    audio,
+                    sample_rate,
+                    raw_text,
+                    asr_bucket,
+                    cfg,
+                )
+                if retry_results:
+                    asr_sec = time.perf_counter() - start
             self._compare_asr_async(audio, sample_rate, duration, raw_text, asr_sec, cfg)
 
             final_text = raw_text
@@ -1701,7 +1761,7 @@ class DictationEngine:
             if final_text:
                 log_debug(
                     "dictation result "
-                    f"audio={duration:.2f}s asr_bucket={asr_bucket} asr_pad={asr_pad_mode} "
+                    f"audio={duration:.2f}s asr_mode={asr_mode} asr_bucket={asr_bucket} asr_pad={asr_pad_mode} "
                     f"audio_path={str(debug_audio_path) if debug_audio_path else 'none'} "
                     f"raw={raw_text!r} final={final_text!r} "
                     f"context_chars={len(context) if 'context' in locals() else 0}"
