@@ -19,7 +19,7 @@ class GigaamOpenVinoCtcAsr:
         device="NPU",
         model_filename="v3_ctc.onnx",
         cache_dir=None,
-        bucket_frames=(200, 400, 800, 2400, 3200, 6400),
+        bucket_frames=(400, 2400, 3200, 6400),
     ):
         self.model_dir = Path(model_dir)
         self.device = device

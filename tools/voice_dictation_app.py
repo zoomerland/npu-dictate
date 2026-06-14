@@ -257,7 +257,7 @@ DEVICE_CHOICES = ("CPU", "GPU", "NPU")
 DEFAULT_ASR_MODEL = "gigaam-v3-ctc-onnx-int8"
 OPENVINO_ASR_MODEL = "gigaam-v3-ctc-openvino-fp32"
 DEFAULT_PUNCT_MODEL = "rupunct-big-openvino-fp16-static128"
-DEFAULT_ASR_WARMUP_BUCKETS = (200, 400, 800, 2400, 3200)
+DEFAULT_ASR_WARMUP_BUCKETS = (400, 2400, 3200)
 
 ASR_MODEL_PROFILES = {
     DEFAULT_ASR_MODEL: {
@@ -347,6 +347,16 @@ def normalize_asr_warmup_buckets(value):
         if bucket > 0 and bucket not in buckets:
             buckets.append(bucket)
     return buckets or list(DEFAULT_ASR_WARMUP_BUCKETS)
+
+
+def active_asr_warmup_buckets(asr, cfg):
+    buckets = normalize_asr_warmup_buckets(cfg.get("asr_warmup_buckets"))
+    active_buckets = getattr(asr, "bucket_frames", None)
+    if not active_buckets:
+        return buckets
+    active_buckets = set(int(bucket) for bucket in active_buckets)
+    filtered = [bucket for bucket in buckets if bucket in active_buckets]
+    return filtered or [bucket for bucket in DEFAULT_ASR_WARMUP_BUCKETS if bucket in active_buckets]
 
 
 def input_devices():
@@ -1284,7 +1294,7 @@ class DictationEngine:
 
         self.set_status("Warming models")
         if hasattr(asr, "warmup"):
-            buckets = normalize_asr_warmup_buckets(cfg.get("asr_warmup_buckets"))
+            buckets = active_asr_warmup_buckets(asr, cfg)
             start = time.perf_counter()
             try:
                 warmed = asr.warmup(buckets)
