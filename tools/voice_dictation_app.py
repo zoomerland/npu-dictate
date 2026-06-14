@@ -51,6 +51,10 @@ TRANSLATIONS = {
         "mode_hold": "Hold to talk",
         "mode_toggle": "Toggle",
         "ui_language": "Interface language",
+        "asr_model": "Speech recognition model",
+        "asr_device": "Speech recognition device",
+        "punct_model": "Punctuation model",
+        "punct_device": "Punctuation device",
         "overlay_size": "Overlay size",
         "overlay_size_small": "Small",
         "overlay_size_medium": "Medium",
@@ -132,6 +136,10 @@ TRANSLATIONS = {
         "mode_hold": "Удерживать",
         "mode_toggle": "Нажать старт/стоп",
         "ui_language": "Язык интерфейса",
+        "asr_model": "Модель распознавания речи",
+        "asr_device": "Устройство распознавания",
+        "punct_model": "Модель пунктуации",
+        "punct_device": "Устройство пунктуации",
         "overlay_size": "Размер кнопки",
         "overlay_size_small": "Маленькая",
         "overlay_size_medium": "Средняя",
@@ -235,6 +243,70 @@ def default_punct_model_dir():
     return repo_root() / "models" / "openvino" / "RUPunct_big_fp16_static128"
 
 
+DEVICE_CHOICES = ("CPU", "GPU", "NPU")
+DEFAULT_ASR_MODEL = "gigaam-v3-ctc-onnx-int8"
+DEFAULT_PUNCT_MODEL = "rupunct-big-openvino-fp16-static128"
+
+ASR_MODEL_PROFILES = {
+    DEFAULT_ASR_MODEL: {
+        "label": "GigaAM v3 CTC (ONNX INT8)",
+        "onnx_asr_name": "gigaam-v3-ctc",
+        "quantization": "int8",
+        "model_dir": asr_model_dir,
+        "devices": ("CPU",),
+        "default_device": "CPU",
+    },
+}
+
+PUNCT_MODEL_PROFILES = {
+    DEFAULT_PUNCT_MODEL: {
+        "label": "RUPunct big (OpenVINO FP16 static 128)",
+        "model_dir": default_punct_model_dir,
+        "devices": ("NPU",),
+        "default_device": "NPU",
+    },
+}
+
+
+def normalize_model_id(profiles, value, default):
+    return value if value in profiles else default
+
+
+def model_profile(profiles, value, default):
+    return profiles[normalize_model_id(profiles, value, default)]
+
+
+def model_labels(profiles):
+    return [profile["label"] for profile in profiles.values()]
+
+
+def model_label(profiles, value, default):
+    return model_profile(profiles, value, default)["label"]
+
+
+def model_id_from_label(profiles, label, default):
+    for model_id, profile in profiles.items():
+        if profile["label"] == label:
+            return model_id
+    return default
+
+
+def normalize_model_device(profiles, model_id, device):
+    profile = model_profile(profiles, model_id, next(iter(profiles)))
+    device = str(device or "").upper()
+    if device in profile["devices"]:
+        return device
+    return profile.get("default_device") or profile["devices"][0]
+
+
+def normalize_model_config(cfg):
+    cfg["asr_model"] = normalize_model_id(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
+    cfg["asr_device"] = normalize_model_device(ASR_MODEL_PROFILES, cfg["asr_model"], cfg.get("asr_device"))
+    cfg["punct_model"] = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
+    cfg["punct_device"] = normalize_model_device(PUNCT_MODEL_PROFILES, cfg["punct_model"], cfg.get("punct_device"))
+    return cfg
+
+
 def input_devices():
     devices = []
     for index, info in enumerate(sd.query_devices()):
@@ -274,10 +346,13 @@ def default_config():
         "mode": "hold",
         "dictation_hotkey": "f8",
         "overlay_hotkey": "ctrl+alt+shift+d",
+        "asr_model": DEFAULT_ASR_MODEL,
+        "asr_device": "CPU",
         "input_device_index": choose_default_device_index(),
         "sample_rate": 0,
         "channels": 1,
         "use_punctuation": True,
+        "punct_model": DEFAULT_PUNCT_MODEL,
         "punct_device": "NPU",
         "auto_paste": True,
         "use_context": True,
@@ -300,7 +375,7 @@ def load_config():
         with path.open("r", encoding="utf-8") as file:
             loaded = json.load(file)
         cfg.update(loaded)
-    return cfg
+    return normalize_model_config(cfg)
 
 
 def save_config(cfg):
@@ -1038,8 +1113,15 @@ class DictationEngine:
         self.keyboard = keyboard.Controller()
 
     def update_config(self, cfg):
+        cfg = normalize_model_config(cfg)
         with self.lock:
+            old_cfg = self.cfg
             self.cfg = cfg
+            if (
+                old_cfg.get("punct_model") != cfg.get("punct_model")
+                or old_cfg.get("punct_device") != cfg.get("punct_device")
+            ):
+                self.punct = None
 
     def set_status(self, status):
         self.status_callback(status)
@@ -1054,14 +1136,24 @@ class DictationEngine:
         try:
             load_start = time.perf_counter()
             log_debug("load start")
+            asr_profile = model_profile(ASR_MODEL_PROFILES, self.cfg.get("asr_model"), DEFAULT_ASR_MODEL)
             ensure_asr_model(self.set_status)
             self.set_status("Loading ASR")
             asr_start = time.perf_counter()
-            asr = onnx_asr.load_model("gigaam-v3-ctc", asr_model_dir(), quantization="int8")
-            log_debug(f"load asr done seconds={time.perf_counter() - asr_start:.3f}")
+            asr = onnx_asr.load_model(
+                asr_profile["onnx_asr_name"],
+                asr_profile["model_dir"](),
+                quantization=asr_profile["quantization"],
+            )
+            log_debug(
+                "load asr done "
+                f"model={self.cfg.get('asr_model')} device={self.cfg.get('asr_device')} "
+                f"seconds={time.perf_counter() - asr_start:.3f}"
+            )
 
             punct = None
             if self.cfg.get("use_punctuation", True):
+                punct_profile = model_profile(PUNCT_MODEL_PROFILES, self.cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
                 self.set_status("Loading punct")
                 log_debug("load punct import start")
                 from rupunct_restore import RUPunctRestorer
@@ -1072,11 +1164,15 @@ class DictationEngine:
                 log_debug("load punct ensure done")
                 punct_start = time.perf_counter()
                 punct = RUPunctRestorer(
-                    default_punct_model_dir(),
+                    punct_profile["model_dir"](),
                     self.cfg.get("punct_device", "NPU"),
                     cache_dir=repo_root() / "models" / "openvino" / "cache",
                 )
-                log_debug(f"load punct done seconds={time.perf_counter() - punct_start:.3f}")
+                log_debug(
+                    "load punct done "
+                    f"model={self.cfg.get('punct_model')} device={self.cfg.get('punct_device')} "
+                    f"seconds={time.perf_counter() - punct_start:.3f}"
+                )
 
             with self.lock:
                 self.asr = asr
@@ -1199,11 +1295,12 @@ class DictationEngine:
             punct_sec = 0.0
             if raw_text and self.cfg.get("use_punctuation", True):
                 if self.punct is None:
+                    punct_profile = model_profile(PUNCT_MODEL_PROFILES, self.cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
                     from rupunct_restore import RUPunctRestorer
 
                     ensure_punct_model(self.set_status)
                     self.punct = RUPunctRestorer(
-                        default_punct_model_dir(),
+                        punct_profile["model_dir"](),
                         self.cfg.get("punct_device", "NPU"),
                         cache_dir=repo_root() / "models" / "openvino" / "cache",
                     )
@@ -2004,7 +2101,7 @@ class VoiceDictationApp:
         win.attributes("-topmost", True)
         win.resizable(True, True)
         win.configure(padx=24, pady=20)
-        win.minsize(780, 560)
+        win.minsize(860, 700)
         win.columnconfigure(1, weight=1)
 
         settings_font = ("Segoe UI", 12)
@@ -2017,6 +2114,20 @@ class VoiceDictationApp:
 
         mode = tk.StringVar(value=self.choice_label("mode", self.cfg.get("mode", "hold")))
         ui_language = tk.StringVar(value=UI_LANGUAGE_NAMES[normalize_ui_language(self.cfg.get("ui_language", "en"))])
+        asr_model = tk.StringVar(value=model_label(ASR_MODEL_PROFILES, self.cfg.get("asr_model"), DEFAULT_ASR_MODEL))
+        asr_device = tk.StringVar(
+            value=normalize_model_device(ASR_MODEL_PROFILES, self.cfg.get("asr_model"), self.cfg.get("asr_device"))
+        )
+        punct_model = tk.StringVar(
+            value=model_label(PUNCT_MODEL_PROFILES, self.cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
+        )
+        punct_device = tk.StringVar(
+            value=normalize_model_device(
+                PUNCT_MODEL_PROFILES,
+                self.cfg.get("punct_model"),
+                self.cfg.get("punct_device"),
+            )
+        )
         dict_hotkey = tk.StringVar(value=self.cfg.get("dictation_hotkey", "f8"))
         overlay_hotkey = tk.StringVar(value=self.cfg.get("overlay_hotkey", "ctrl+alt+shift+d"))
         overlay_size = tk.StringVar(value=self.choice_label("overlay_size", self.cfg.get("overlay_size", "medium")))
@@ -2074,6 +2185,10 @@ class VoiceDictationApp:
         for variable in (
             mode,
             ui_language,
+            asr_model,
+            asr_device,
+            punct_model,
+            punct_device,
             dict_hotkey,
             overlay_hotkey,
             overlay_size,
@@ -2094,6 +2209,26 @@ class VoiceDictationApp:
 
         overlay_opacity.trace_add("write", update_opacity_label)
         update_opacity_label()
+
+        def create_device_selector(parent, model_var, device_var, profiles, default_model):
+            frame = ttk.Frame(parent)
+            buttons = {}
+            for column, device in enumerate(DEVICE_CHOICES):
+                button = ttk.Radiobutton(frame, text=device, value=device, variable=device_var)
+                button.grid(row=0, column=column, sticky="w", padx=(0, 18))
+                buttons[device] = button
+
+            def refresh_devices(*_):
+                model_id = model_id_from_label(profiles, model_var.get(), default_model)
+                supported = set(model_profile(profiles, model_id, default_model)["devices"])
+                if device_var.get() not in supported:
+                    device_var.set(normalize_model_device(profiles, model_id, device_var.get()))
+                for device, button in buttons.items():
+                    button.configure(state="normal" if device in supported else "disabled")
+
+            model_var.trace_add("write", refresh_devices)
+            refresh_devices()
+            return frame
 
         capture_state = {
             "variable": None,
@@ -2174,6 +2309,18 @@ class VoiceDictationApp:
             return {
                 "mode": self.choice_value("mode", mode.get(), "hold"),
                 "ui_language": normalize_ui_language(UI_LANGUAGE_BY_NAME.get(ui_language.get(), "en")),
+                "asr_model": model_id_from_label(ASR_MODEL_PROFILES, asr_model.get(), DEFAULT_ASR_MODEL),
+                "asr_device": normalize_model_device(
+                    ASR_MODEL_PROFILES,
+                    model_id_from_label(ASR_MODEL_PROFILES, asr_model.get(), DEFAULT_ASR_MODEL),
+                    asr_device.get(),
+                ),
+                "punct_model": model_id_from_label(PUNCT_MODEL_PROFILES, punct_model.get(), DEFAULT_PUNCT_MODEL),
+                "punct_device": normalize_model_device(
+                    PUNCT_MODEL_PROFILES,
+                    model_id_from_label(PUNCT_MODEL_PROFILES, punct_model.get(), DEFAULT_PUNCT_MODEL),
+                    punct_device.get(),
+                ),
                 "dictation_hotkey": dict_hotkey.get(),
                 "overlay_hotkey": overlay_hotkey.get(),
                 "overlay_size": self.choice_value("overlay_size", overlay_size.get(), "medium"),
@@ -2241,6 +2388,48 @@ class VoiceDictationApp:
             width=32,
             font=settings_font,
         ).grid(row=row, column=1, sticky="ew", pady=6)
+
+        row += 1
+        i18n_label(win, "asr_model").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Combobox(
+            win,
+            textvariable=asr_model,
+            values=model_labels(ASR_MODEL_PROFILES),
+            state="readonly",
+            width=42,
+            font=settings_font,
+        ).grid(row=row, column=1, sticky="ew", pady=6)
+
+        row += 1
+        i18n_label(win, "asr_device").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        create_device_selector(
+            win,
+            asr_model,
+            asr_device,
+            ASR_MODEL_PROFILES,
+            DEFAULT_ASR_MODEL,
+        ).grid(row=row, column=1, sticky="w", pady=6)
+
+        row += 1
+        i18n_label(win, "punct_model").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        ttk.Combobox(
+            win,
+            textvariable=punct_model,
+            values=model_labels(PUNCT_MODEL_PROFILES),
+            state="readonly",
+            width=42,
+            font=settings_font,
+        ).grid(row=row, column=1, sticky="ew", pady=6)
+
+        row += 1
+        i18n_label(win, "punct_device").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        create_device_selector(
+            win,
+            punct_model,
+            punct_device,
+            PUNCT_MODEL_PROFILES,
+            DEFAULT_PUNCT_MODEL,
+        ).grid(row=row, column=1, sticky="w", pady=6)
 
         row += 1
         i18n_label(win, "overlay_size").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
@@ -2356,6 +2545,18 @@ class VoiceDictationApp:
 
     def save_settings(self, win, values, close=True):
         values["ui_language"] = normalize_ui_language(values.get("ui_language", "en"))
+        values["asr_model"] = normalize_model_id(ASR_MODEL_PROFILES, values.get("asr_model"), DEFAULT_ASR_MODEL)
+        values["asr_device"] = normalize_model_device(ASR_MODEL_PROFILES, values["asr_model"], values.get("asr_device"))
+        values["punct_model"] = normalize_model_id(
+            PUNCT_MODEL_PROFILES,
+            values.get("punct_model"),
+            DEFAULT_PUNCT_MODEL,
+        )
+        values["punct_device"] = normalize_model_device(
+            PUNCT_MODEL_PROFILES,
+            values["punct_model"],
+            values.get("punct_device"),
+        )
         values["dictation_hotkey"] = values["dictation_hotkey"].lower().strip()
         values["overlay_hotkey"] = values["overlay_hotkey"].lower().strip()
         if values.get("overlay_size") not in {"small", "medium", "large"}:
@@ -2380,7 +2581,9 @@ class VoiceDictationApp:
                 return False
         values["start_with_windows"] = is_startup_enabled()
 
-        self.cfg.update(values)
+        next_cfg = dict(self.cfg)
+        next_cfg.update(values)
+        self.cfg = normalize_model_config(next_cfg)
         save_config(self.cfg)
         self.hotkeys.update_config(self.cfg)
         self.engine.update_config(self.cfg)

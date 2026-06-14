@@ -172,7 +172,9 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
 - [ ] Document what currently runs on NPU and what still runs on CPU.
 - [ ] Provide CPU fallback for systems without NPU.
 - [ ] Make CPU-only mode obvious in settings and documentation.
-- [ ] Add device selector per model: Auto / CPU / GPU / NPU.
+- [x] Add ASR and punctuation model selectors for the currently supported local profiles.
+- [x] Show CPU / GPU / NPU availability per selected model and disable unsupported devices.
+- [ ] Add real fallback profiles after each model/device combination is tested.
 - [ ] Add startup hardware capability checks.
 - [ ] Document tested Intel NPU devices.
 
