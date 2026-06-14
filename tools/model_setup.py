@@ -2,6 +2,7 @@ from pathlib import Path
 
 
 ASR_MODEL_NAME = "gigaam-v3-ctc"
+ASR_MODEL_REPO = "istupakov/gigaam-v3-onnx"
 PUNCT_MODEL_NAME = "RUPunct/RUPunct_big"
 PUNCT_MAX_LEN = 128
 
@@ -33,6 +34,12 @@ def asr_model_ready():
     return all((model_dir / name).exists() for name in required)
 
 
+def asr_openvino_model_ready():
+    model_dir = asr_model_dir()
+    required = ("config.json", "v3_ctc.onnx", "v3_vocab.txt")
+    return all((model_dir / name).exists() for name in required)
+
+
 def punct_model_ready():
     model_dir = punct_model_dir()
     required = ("config.json", "openvino_model.xml", "openvino_model.bin", "tokenizer.json")
@@ -49,6 +56,20 @@ def ensure_asr_model(status_callback=None):
     asr_model_dir().parent.mkdir(parents=True, exist_ok=True)
     onnx_asr.load_model(ASR_MODEL_NAME, asr_model_dir(), quantization="int8")
     return asr_model_dir()
+
+
+def ensure_asr_openvino_model(status_callback=None):
+    if asr_openvino_model_ready():
+        return asr_model_dir()
+
+    emit(status_callback, "Downloading ASR NPU")
+    from huggingface_hub import hf_hub_download
+
+    model_dir = asr_model_dir()
+    model_dir.mkdir(parents=True, exist_ok=True)
+    for filename in ("config.json", "v3_vocab.txt", "v3_ctc.onnx"):
+        hf_hub_download(ASR_MODEL_REPO, filename, local_dir=model_dir)
+    return model_dir
 
 
 def ensure_punct_model(status_callback=None, max_len=PUNCT_MAX_LEN):

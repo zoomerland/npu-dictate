@@ -18,7 +18,7 @@ import pyperclip
 import sounddevice as sd
 from pynput import keyboard
 
-from model_setup import ensure_asr_model, ensure_punct_model
+from model_setup import ensure_asr_model, ensure_asr_openvino_model, ensure_punct_model
 
 try:
     import pystray
@@ -95,6 +95,7 @@ TRANSLATIONS = {
         "error": "Error",
         "Loading models": "Loading models",
         "Downloading ASR": "Downloading ASR",
+        "Downloading ASR NPU": "Downloading ASR NPU",
         "Loading ASR": "Loading ASR",
         "Downloading punct": "Downloading punct",
         "Converting punct": "Converting punct",
@@ -180,6 +181,7 @@ TRANSLATIONS = {
         "error": "Ошибка",
         "Loading models": "Загрузка моделей",
         "Downloading ASR": "Загрузка ASR",
+        "Downloading ASR NPU": "Загрузка ASR NPU",
         "Loading ASR": "Запуск ASR",
         "Downloading punct": "Загрузка пунктуации",
         "Converting punct": "Конвертация пунктуации",
@@ -245,16 +247,26 @@ def default_punct_model_dir():
 
 DEVICE_CHOICES = ("CPU", "GPU", "NPU")
 DEFAULT_ASR_MODEL = "gigaam-v3-ctc-onnx-int8"
+OPENVINO_ASR_MODEL = "gigaam-v3-ctc-openvino-fp32"
 DEFAULT_PUNCT_MODEL = "rupunct-big-openvino-fp16-static128"
 
 ASR_MODEL_PROFILES = {
     DEFAULT_ASR_MODEL: {
         "label": "GigaAM v3 CTC (ONNX INT8)",
+        "backend": "onnx_asr",
         "onnx_asr_name": "gigaam-v3-ctc",
         "quantization": "int8",
         "model_dir": asr_model_dir,
         "devices": ("CPU",),
         "default_device": "CPU",
+    },
+    OPENVINO_ASR_MODEL: {
+        "label": "GigaAM v3 CTC (OpenVINO FP32)",
+        "backend": "openvino_ctc",
+        "model_file": "v3_ctc.onnx",
+        "model_dir": asr_model_dir,
+        "devices": ("CPU", "NPU"),
+        "default_device": "NPU",
     },
 }
 
@@ -1114,14 +1126,24 @@ class DictationEngine:
 
     def update_config(self, cfg):
         cfg = normalize_model_config(cfg)
+        reload_asr = False
         with self.lock:
             old_cfg = self.cfg
+            reload_asr = (
+                old_cfg.get("asr_model") != cfg.get("asr_model")
+                or old_cfg.get("asr_device") != cfg.get("asr_device")
+            )
             self.cfg = cfg
+            if reload_asr:
+                self.asr = None
+                self.loaded = False
             if (
                 old_cfg.get("punct_model") != cfg.get("punct_model")
                 or old_cfg.get("punct_device") != cfg.get("punct_device")
             ):
                 self.punct = None
+        if reload_asr:
+            self.load_async()
 
     def set_status(self, status):
         self.status_callback(status)
@@ -1136,24 +1158,36 @@ class DictationEngine:
         try:
             load_start = time.perf_counter()
             log_debug("load start")
-            asr_profile = model_profile(ASR_MODEL_PROFILES, self.cfg.get("asr_model"), DEFAULT_ASR_MODEL)
-            ensure_asr_model(self.set_status)
+            cfg = dict(self.cfg)
+            asr_profile = model_profile(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
             self.set_status("Loading ASR")
             asr_start = time.perf_counter()
-            asr = onnx_asr.load_model(
-                asr_profile["onnx_asr_name"],
-                asr_profile["model_dir"](),
-                quantization=asr_profile["quantization"],
-            )
+            if asr_profile["backend"] == "openvino_ctc":
+                ensure_asr_openvino_model(self.set_status)
+                from gigaam_openvino_asr import GigaamOpenVinoCtcAsr
+
+                asr = GigaamOpenVinoCtcAsr(
+                    asr_profile["model_dir"](),
+                    device=cfg.get("asr_device", asr_profile["default_device"]),
+                    model_filename=asr_profile["model_file"],
+                    cache_dir=repo_root() / "models" / "openvino" / "cache" / "asr_gigaam",
+                )
+            else:
+                ensure_asr_model(self.set_status)
+                asr = onnx_asr.load_model(
+                    asr_profile["onnx_asr_name"],
+                    asr_profile["model_dir"](),
+                    quantization=asr_profile["quantization"],
+                )
             log_debug(
                 "load asr done "
-                f"model={self.cfg.get('asr_model')} device={self.cfg.get('asr_device')} "
+                f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} "
                 f"seconds={time.perf_counter() - asr_start:.3f}"
             )
 
             punct = None
-            if self.cfg.get("use_punctuation", True):
-                punct_profile = model_profile(PUNCT_MODEL_PROFILES, self.cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
+            if cfg.get("use_punctuation", True):
+                punct_profile = model_profile(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
                 self.set_status("Loading punct")
                 log_debug("load punct import start")
                 from rupunct_restore import RUPunctRestorer
@@ -1165,12 +1199,12 @@ class DictationEngine:
                 punct_start = time.perf_counter()
                 punct = RUPunctRestorer(
                     punct_profile["model_dir"](),
-                    self.cfg.get("punct_device", "NPU"),
+                    cfg.get("punct_device", "NPU"),
                     cache_dir=repo_root() / "models" / "openvino" / "cache",
                 )
                 log_debug(
                     "load punct done "
-                    f"model={self.cfg.get('punct_model')} device={self.cfg.get('punct_device')} "
+                    f"model={cfg.get('punct_model')} device={cfg.get('punct_device')} "
                     f"seconds={time.perf_counter() - punct_start:.3f}"
                 )
 

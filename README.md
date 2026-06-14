@@ -62,10 +62,15 @@ This is intentionally treated as a mainstream/weak NPU baseline. If the app is u
 
 Preliminary local measurements:
 
-- GigaAM v3 CTC ASR currently runs on CPU.
-  - 2 seconds of audio: about 0.15 seconds after warmup.
-  - 4 seconds of audio: about 0.24 seconds after warmup.
-  - 8 seconds of audio: about 0.40 seconds after warmup.
+- GigaAM v3 CTC ASR has two local profiles.
+  - `onnx-asr` INT8 CPU profile:
+    - 2 seconds of audio: about 0.15 seconds after warmup.
+    - 4 seconds of audio: about 0.24 seconds after warmup.
+    - 8 seconds of audio: about 0.40 seconds after warmup.
+  - OpenVINO FP32 NPU profile:
+    - First run for a new static bucket can spend tens of seconds compiling and caching the model.
+    - Warm 8-second inference on the test sample is about 0.08-0.14 seconds.
+    - Output is close to the CPU path, but minor recognition differences are still expected and need more testing.
 - RUPunct punctuation restoration runs through OpenVINO and already works on NPU.
   - Warm NPU inference is around 20-30 ms for short dictation chunks.
   - Earlier OpenVINO CPU measurements were roughly 130 ms for comparable chunks.
@@ -73,7 +78,8 @@ Preliminary local measurements:
 Current NPU status:
 
 - RUPunct: end-to-end OpenVINO/NPU inference is implemented and tested.
-- GigaAM ASR: the ONNX encoder has been compile-tested on NPU with static input shapes, but the app does not yet run ASR inference through NPU. A dedicated OpenVINO/NPU wrapper and benchmark are planned.
+- GigaAM ASR: an OpenVINO/NPU CTC wrapper is implemented for the non-quantized `v3_ctc.onnx` model with static-shape buckets and OpenVINO cache.
+- GigaAM INT8 ONNX is intentionally not exposed for NPU because it compiled but produced incorrect text during local testing.
 
 The app must support CPU-only machines. NPU acceleration is a feature, not a hard requirement. Settings now expose separate ASR and punctuation model profiles, with CPU / GPU / NPU choices disabled until that exact model/device path is implemented and tested.
 

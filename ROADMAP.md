@@ -154,9 +154,10 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
 
 - [x] RUPunct OpenVINO static model runs on NPU.
 - [x] GigaAM ONNX can compile on NPU with static input shapes.
-- [ ] Build an OpenVINO/NPU GigaAM encoder wrapper.
-- [ ] Keep existing CTC decoder behavior.
-- [ ] Run end-to-end GigaAM ASR inference through NPU.
+- [x] Build an OpenVINO/NPU GigaAM CTC wrapper.
+- [x] Keep existing CTC decoder behavior.
+- [x] Run end-to-end GigaAM ASR inference through NPU.
+- [x] Disable the GigaAM INT8/NPU path after it compiled but produced incorrect text.
 - [ ] Benchmark CPU vs NPU:
   - Cold load.
   - Warm inference.
