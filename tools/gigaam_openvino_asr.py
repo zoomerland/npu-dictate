@@ -12,7 +12,7 @@ from scipy.signal import resample_poly
 DECODE_SPACE_PATTERN = re.compile(r"\A\s|\s\B|(\s)\b")
 SILENCE_FEATURE_VALUE = float(np.log(1e-9))
 PAD_MODES = {"zero", "silence", "edge", "min"}
-DEFAULT_BUCKET_FRAMES = (400, 1000, 1600, 3200)
+DEFAULT_BUCKET_FRAMES = (400, 800, 1000, 1600, 3200)
 GIGAAM_SAMPLE_RATE = 16_000
 GIGAAM_HOP_LENGTH = GIGAAM_SAMPLE_RATE // 100
 GIGAAM_WIN_LENGTH = GIGAAM_SAMPLE_RATE // 50
@@ -85,9 +85,12 @@ class GigaamOpenVinoCtcAsr:
         return resample_poly(audio, 16_000 // divisor, sample_rate // divisor).astype(np.float32)
 
     def _features(self, waveform, sample_rate, channel=None):
-        audio = self._normalize_waveform(waveform, channel)
-        audio = self._resample_to_16k(audio, sample_rate)
+        audio = self.audio_16k(waveform, sample_rate, channel)
         return self._features_from_16k(audio)
+
+    def audio_16k(self, waveform, sample_rate=16_000, channel=None):
+        audio = self._normalize_waveform(waveform, channel)
+        return self._resample_to_16k(audio, sample_rate)
 
     def _features_from_16k(self, audio):
         waveforms = audio[None, :]
@@ -229,6 +232,10 @@ class GigaamOpenVinoCtcAsr:
 
         return " ".join(output)
 
+    @staticmethod
+    def _join_texts(texts):
+        return " ".join(text.strip() for text in texts if text.strip())
+
     def _decode(self, log_probs, encoder_lens):
         batch_tokens = log_probs.argmax(axis=-1)
         results = []
@@ -314,3 +321,38 @@ class GigaamOpenVinoCtcAsr:
         self.last_bucket = f"chunked:{bucket}x{len(chunks)}"
         self.last_frames = sum(chunk["frames"] for chunk in chunks)
         return self._stitch_texts(texts)
+
+    def recognize_segments_16k(self, audio, segments, *, bucket=800):
+        audio = np.ascontiguousarray(audio, dtype=np.float32)
+        bucket = int(bucket)
+        texts = []
+        chunks = []
+
+        for index, (start, end) in enumerate(segments):
+            start = max(0, int(start))
+            end = min(int(end), int(audio.shape[0]))
+            if end <= start:
+                continue
+            segment = np.ascontiguousarray(audio[start:end], dtype=np.float32)
+            if segment.shape[0] < GIGAAM_WIN_LENGTH:
+                continue
+            features, features_lens = self._features_from_16k(segment)
+            frames = int(features.shape[2])
+            text = self._recognize_features(features, features_lens, bucket).strip()
+            chunks.append(
+                {
+                    "index": index,
+                    "start_sec": start / GIGAAM_SAMPLE_RATE,
+                    "end_sec": end / GIGAAM_SAMPLE_RATE,
+                    "frames": frames,
+                    "bucket": self.last_bucket,
+                    "text": text,
+                }
+            )
+            if text:
+                texts.append(text)
+
+        self.last_chunks = chunks
+        self.last_bucket = f"vad:{bucket}x{len(chunks)}"
+        self.last_frames = sum(chunk["frames"] for chunk in chunks)
+        return self._join_texts(texts)

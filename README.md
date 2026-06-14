@@ -72,6 +72,7 @@ Preliminary local measurements:
     - The app can warm common ASR buckets at startup (`warmup_models`, `asr_warmup_buckets`) so real dictation uses already-compiled paths.
     - Current NPU buckets use a small static-shape grid (`asr_bucket_frames`).
     - Experimental chunked NPU ASR (`asr_chunked`) splits longer dictation into short static bucket runs, then stitches chunk text before punctuation.
+    - Experimental VAD-segmented NPU ASR (`asr_vad_segments`) uses Silero VAD to cut audio on speech boundaries, then runs each segment through one warmed NPU bucket.
     - Fragmented NPU ASR output can trigger an experimental NPU-only retry through alternate buckets (`asr_retry_fragmented`, `asr_retry_buckets`).
     - Static feature padding is tunable (`asr_pad_mode`); the current default is `zero`, which best matched the CPU baseline on the reference voice sample.
     - Warm 8-second inference on the test sample is about 0.08-0.14 seconds.
@@ -84,7 +85,7 @@ Current NPU status:
 
 - RUPunct: end-to-end OpenVINO/NPU inference is implemented and tested.
 - GigaAM ASR: an OpenVINO/NPU CTC wrapper is implemented for the non-quantized `v3_ctc.onnx` model with static-shape buckets and OpenVINO cache.
-- CPU ASR uses ONNX Runtime with a dynamic time axis (`seq_len`), while the NPU path uses static OpenVINO shapes. The chunked NPU mode is a practical approximation: short fixed-shape windows, optional overlap, then text stitching.
+- CPU ASR uses ONNX Runtime with a dynamic time axis (`seq_len`), while the NPU path uses static OpenVINO shapes. The chunked and VAD-segmented NPU modes are practical approximations: short fixed-shape windows, optional speech-boundary splitting, then text stitching.
 - GigaAM INT8 ONNX is intentionally not exposed for NPU because it compiled but produced incorrect text during local testing.
 
 The app must support CPU-only machines. NPU acceleration is a feature, not a hard requirement. Settings now expose separate ASR and punctuation model profiles, with CPU / GPU / NPU choices disabled until that exact model/device path is implemented and tested.

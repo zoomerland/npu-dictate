@@ -163,8 +163,13 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Split audio into overlapping chunks.
   - Log per-chunk timing, frames, bucket, and raw text.
   - Stitch raw chunk text before punctuation.
+- [x] Add experimental VAD-segmented NPU ASR:
+  - Use Silero VAD to split audio on speech boundaries.
+  - Run speech segments through one warmed NPU bucket.
+  - Keep VAD loading lazy so app startup is not blocked by the segmenter.
 - [ ] Tune chunked NPU ASR quality:
   - Compare bucket 400 vs 1000.
+  - Compare VAD bucket 800 vs fixed chunk buckets.
   - Tune overlap and silence-biased cut points.
   - Test fast speech and long dictation from saved WAV files.
   - Compare against the CPU dynamic-shape baseline.

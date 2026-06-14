@@ -258,11 +258,14 @@ DEVICE_CHOICES = ("CPU", "GPU", "NPU")
 DEFAULT_ASR_MODEL = "gigaam-v3-ctc-onnx-int8"
 OPENVINO_ASR_MODEL = "gigaam-v3-ctc-openvino-fp32"
 DEFAULT_PUNCT_MODEL = "rupunct-big-openvino-fp16-static128"
-DEFAULT_ASR_BUCKET_FRAMES = (400, 1000, 1600, 3200)
+DEFAULT_ASR_BUCKET_FRAMES = (400, 800, 1000, 1600, 3200)
 DEFAULT_ASR_WARMUP_BUCKETS = DEFAULT_ASR_BUCKET_FRAMES
 DEFAULT_ASR_RETRY_BUCKETS = (1600, 3200)
-DEFAULT_ASR_CHUNK_BUCKET = 1000
+DEFAULT_ASR_CHUNK_BUCKET = 800
 DEFAULT_ASR_CHUNK_OVERLAP_MS = 350
+DEFAULT_ASR_VAD_MAX_SPEECH_S = 7.5
+DEFAULT_ASR_VAD_MIN_SILENCE_MS = 100
+DEFAULT_ASR_VAD_SPEECH_PAD_MS = 100
 ASR_PAD_MODES = {"zero", "silence", "edge", "min"}
 
 ASR_MODEL_PROFILES = {
@@ -334,6 +337,25 @@ def normalize_model_config(cfg):
     cfg["asr_chunked"] = bool(cfg.get("asr_chunked", False))
     cfg["asr_chunk_bucket"] = normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket"))
     cfg["asr_chunk_overlap_ms"] = normalize_asr_chunk_overlap_ms(cfg.get("asr_chunk_overlap_ms"))
+    cfg["asr_vad_segments"] = bool(cfg.get("asr_vad_segments", False))
+    cfg["asr_vad_max_speech_s"] = normalize_float(
+        cfg.get("asr_vad_max_speech_s"),
+        DEFAULT_ASR_VAD_MAX_SPEECH_S,
+        1.0,
+        30.0,
+    )
+    cfg["asr_vad_min_silence_ms"] = normalize_int(
+        cfg.get("asr_vad_min_silence_ms"),
+        DEFAULT_ASR_VAD_MIN_SILENCE_MS,
+        20,
+        2000,
+    )
+    cfg["asr_vad_speech_pad_ms"] = normalize_int(
+        cfg.get("asr_vad_speech_pad_ms"),
+        DEFAULT_ASR_VAD_SPEECH_PAD_MS,
+        0,
+        1000,
+    )
     cfg["punct_model"] = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
     cfg["punct_device"] = normalize_model_device(PUNCT_MODEL_PROFILES, cfg["punct_model"], cfg.get("punct_device"))
     cfg["warmup_models"] = bool(cfg.get("warmup_models", True))
@@ -376,6 +398,22 @@ def normalize_asr_chunk_overlap_ms(value):
     return max(0, min(1500, overlap_ms))
 
 
+def normalize_int(value, default, min_value, max_value):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        value = default
+    return max(min_value, min(max_value, value))
+
+
+def normalize_float(value, default, min_value, max_value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        value = default
+    return max(min_value, min(max_value, value))
+
+
 def normalize_bucket_list(value, default):
     if isinstance(value, str):
         raw_values = value.split(",")
@@ -396,7 +434,10 @@ def normalize_bucket_list(value, default):
 
 
 def active_asr_warmup_buckets(asr, cfg):
-    if cfg.get("asr_chunked", False) and hasattr(asr, "recognize_chunked"):
+    if (
+        (cfg.get("asr_chunked", False) and hasattr(asr, "recognize_chunked"))
+        or (cfg.get("asr_vad_segments", False) and hasattr(asr, "recognize_segments_16k"))
+    ):
         return [normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket"))]
 
     buckets = normalize_asr_warmup_buckets(cfg.get("asr_warmup_buckets"))
@@ -461,6 +502,10 @@ def default_config():
         "asr_chunked": False,
         "asr_chunk_bucket": DEFAULT_ASR_CHUNK_BUCKET,
         "asr_chunk_overlap_ms": DEFAULT_ASR_CHUNK_OVERLAP_MS,
+        "asr_vad_segments": False,
+        "asr_vad_max_speech_s": DEFAULT_ASR_VAD_MAX_SPEECH_S,
+        "asr_vad_min_silence_ms": DEFAULT_ASR_VAD_MIN_SILENCE_MS,
+        "asr_vad_speech_pad_ms": DEFAULT_ASR_VAD_SPEECH_PAD_MS,
         "input_device_index": choose_default_device_index(),
         "sample_rate": 0,
         "channels": 1,
@@ -726,6 +771,53 @@ def asr_pad_mode_label(asr):
 
 def should_use_chunked_asr(asr, cfg):
     return bool(cfg.get("asr_chunked", False)) and hasattr(asr, "recognize_chunked")
+
+
+def should_use_vad_asr(asr, vad, cfg):
+    return (
+        bool(cfg.get("asr_vad_segments", False))
+        and vad is not None
+        and hasattr(asr, "recognize_segments_16k")
+        and hasattr(asr, "audio_16k")
+    )
+
+
+def vad_options(cfg):
+    return {
+        "max_speech_duration_s": normalize_float(
+            cfg.get("asr_vad_max_speech_s"),
+            DEFAULT_ASR_VAD_MAX_SPEECH_S,
+            1.0,
+            30.0,
+        ),
+        "min_silence_duration_ms": normalize_int(
+            cfg.get("asr_vad_min_silence_ms"),
+            DEFAULT_ASR_VAD_MIN_SILENCE_MS,
+            20,
+            2000,
+        ),
+        "speech_pad_ms": normalize_int(
+            cfg.get("asr_vad_speech_pad_ms"),
+            DEFAULT_ASR_VAD_SPEECH_PAD_MS,
+            0,
+            1000,
+        ),
+    }
+
+
+def vad_segment_ranges(vad, audio16, cfg):
+    waveforms = audio16[None, :]
+    waveforms_len = np.array([len(audio16)], dtype=np.int64)
+    return list(next(vad.segment_batch(waveforms, waveforms_len, 16_000, **vad_options(cfg))))
+
+
+def log_vad_segments(segments):
+    for index, (start, end) in enumerate(segments):
+        log_debug(
+            "asr vad segment "
+            f"index={index} start={start / 16000:.2f}s end={end / 16000:.2f}s "
+            f"duration={(end - start) / 16000:.2f}s samples={end - start}"
+        )
 
 
 def log_asr_chunks(asr):
@@ -1306,6 +1398,7 @@ class DictationEngine:
         self.asr = None
         self.compare_asr = None
         self.compare_asr_signature = None
+        self.vad = None
         self.punct = None
         self.loaded = False
         self.loading = False
@@ -1331,10 +1424,15 @@ class DictationEngine:
                 or old_cfg.get("asr_bucket_frames") != cfg.get("asr_bucket_frames")
                 or old_cfg.get("asr_chunked") != cfg.get("asr_chunked")
                 or old_cfg.get("asr_chunk_bucket") != cfg.get("asr_chunk_bucket")
+                or old_cfg.get("asr_vad_segments") != cfg.get("asr_vad_segments")
+                or old_cfg.get("asr_vad_max_speech_s") != cfg.get("asr_vad_max_speech_s")
+                or old_cfg.get("asr_vad_min_silence_ms") != cfg.get("asr_vad_min_silence_ms")
+                or old_cfg.get("asr_vad_speech_pad_ms") != cfg.get("asr_vad_speech_pad_ms")
             )
             self.cfg = cfg
             if reload_asr:
                 self.asr = None
+                self.vad = None
                 self.compare_asr = None
                 self.compare_asr_signature = None
                 self.loaded = False
@@ -1401,6 +1499,19 @@ class DictationEngine:
                     f"model={model_id} device={device} seconds={time.perf_counter() - start:.3f}"
                 )
             return self.compare_asr
+
+    def _get_vad(self):
+        with self.lock:
+            if self.vad is not None:
+                return self.vad
+
+        start = time.perf_counter()
+        vad = onnx_asr.load_vad("silero")
+        log_debug(f"load asr vad done model=silero seconds={time.perf_counter() - start:.3f}")
+        with self.lock:
+            if self.vad is None:
+                self.vad = vad
+            return self.vad
 
     def _compare_asr_async(self, audio, sample_rate, duration, active_text, active_sec, cfg):
         if not cfg.get("compare_asr", False):
@@ -1701,8 +1812,21 @@ class DictationEngine:
 
             self.set_status("Transcribing")
             start = time.perf_counter()
-            asr_mode = "chunked" if should_use_chunked_asr(self.asr, cfg) else "full"
-            if asr_mode == "chunked":
+            vad = self._get_vad() if cfg.get("asr_vad_segments", False) else None
+            asr_mode = "vad" if should_use_vad_asr(self.asr, vad, cfg) else (
+                "chunked" if should_use_chunked_asr(self.asr, cfg) else "full"
+            )
+            if asr_mode == "vad":
+                audio16 = self.asr.audio_16k(audio, sample_rate=sample_rate)
+                segments = vad_segment_ranges(vad, audio16, cfg)
+                log_vad_segments(segments)
+                raw_result = self.asr.recognize_segments_16k(
+                    audio16,
+                    segments,
+                    bucket=normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket")),
+                )
+                log_asr_chunks(self.asr)
+            elif asr_mode == "chunked":
                 raw_result = self.asr.recognize_chunked(
                     audio,
                     sample_rate=sample_rate,
