@@ -1344,8 +1344,12 @@ class DictationEngine:
                 start = time.perf_counter()
                 context = self.recording_context or self.context_before_cursor()
                 if context:
-                    restored = self.punct.restore(f"{context} {raw_text}".strip())
-                    final_text = inserted_text_from_context(raw_text, restored, context)
+                    if hasattr(self.punct, "restore_inserted"):
+                        final_text = self.punct.restore_inserted(context, raw_text)
+                        final_text = adjust_inserted_casing(raw_text, final_text, context)
+                    else:
+                        restored = self.punct.restore(f"{context} {raw_text}".strip())
+                        final_text = inserted_text_from_context(raw_text, restored, context)
                 else:
                     final_text = self.punct.restore(raw_text)
                     final_text = adjust_inserted_casing(raw_text, final_text)

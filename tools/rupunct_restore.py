@@ -25,6 +25,7 @@ PUNCT = {
 }
 
 SENTENCE_END = {"PERIOD", "QUESTION", "VOSKL", "MNOGOTOCHIE", "QUESTIONVOSKL"}
+CLAUSE_SUFFIXES = {"COMMA", "DVOETOCHIE", "TIRE", "PERIODCOMMA"}
 
 
 def split_label(label):
@@ -57,6 +58,14 @@ def cleanup(text):
     return text.strip()
 
 
+def text_ends_sentence(text):
+    return bool(re.search("[.!?\u2026]+[\"')\\]]*$", str(text or "").rstrip()))
+
+
+def text_has_trailing_punctuation(text):
+    return bool(re.search(r"[^\w\s]+$", str(text or "").rstrip(), flags=re.UNICODE))
+
+
 class RUPunctRestorer:
     def __init__(self, model_dir, device="NPU", max_len=128, cache_dir=None):
         self.model_dir = Path(model_dir)
@@ -79,7 +88,7 @@ class RUPunctRestorer:
         model = self.core.read_model(str(self.model_dir / "openvino_model.xml"))
         self.compiled = self.core.compile_model(model, device)
 
-    def restore(self, text):
+    def _predict_groups(self, text):
         encoded = self.tokenizer(
             text,
             return_offsets_mapping=True,
@@ -122,17 +131,64 @@ class RUPunctRestorer:
 
         if current:
             groups.append(current)
+        return groups
 
+    def _render_groups(self, text, groups, prev_suffix=None, first_index=0):
         pieces = []
-        prev_suffix = None
         for index, group in enumerate(groups):
             word = text[group["start"] : group["end"]].strip()
+            if not word:
+                continue
             mode, suffix = split_label(group["label"])
             score = sum(group["scores"]) / len(group["scores"])
-            pieces.append(apply_case(word, mode, index, prev_suffix, score) + PUNCT.get(suffix, ""))
+            pieces.append(apply_case(word, mode, first_index + index, prev_suffix, score) + PUNCT.get(suffix, ""))
             prev_suffix = suffix
 
         return cleanup(" ".join(pieces))
+
+    def restore(self, text):
+        groups = self._predict_groups(text)
+        return self._render_groups(text, groups)
+
+    def restore_inserted(self, context, raw_text):
+        context = str(context or "").strip()
+        raw_text = str(raw_text or "").strip()
+        if not context:
+            return self.restore(raw_text)
+        if not raw_text:
+            return ""
+
+        combined = f"{context} {raw_text}"
+        boundary = len(context) + 1
+        groups = self._predict_groups(combined)
+
+        prev_suffix = None
+        last_context_suffix = None
+        inserted_groups = []
+        for group in groups:
+            mode, suffix = split_label(group["label"])
+            if group["end"] <= boundary:
+                prev_suffix = suffix
+                last_context_suffix = suffix
+                continue
+            if group["start"] < boundary:
+                group = dict(group)
+                group["start"] = boundary
+            inserted_groups.append(group)
+
+        if text_ends_sentence(context):
+            prev_suffix = "PERIOD"
+
+        prefix = ""
+        if (
+            last_context_suffix in CLAUSE_SUFFIXES
+            and not text_has_trailing_punctuation(context)
+        ):
+            prefix = PUNCT.get(last_context_suffix, "")
+
+        first_index = 0 if not context else 1
+        rendered = self._render_groups(combined, inserted_groups, prev_suffix=prev_suffix, first_index=first_index)
+        return cleanup(f"{prefix} {rendered}" if prefix else rendered)
 
 
 def default_model_dir():
