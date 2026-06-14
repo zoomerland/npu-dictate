@@ -313,6 +313,7 @@ DEFAULT_ASR_CHUNK_OVERLAP_MS = 350
 DEFAULT_ASR_VAD_MAX_SPEECH_S = 7.5
 DEFAULT_ASR_VAD_MIN_SILENCE_MS = 100
 DEFAULT_ASR_VAD_SPEECH_PAD_MS = 300
+DEFAULT_ASR_VAD_FIRST_PAD_MS = 500
 ASR_PAD_MODES = {"zero", "silence", "edge", "min"}
 
 ASR_MODEL_PROFILES = {
@@ -402,6 +403,12 @@ def normalize_model_config(cfg):
         DEFAULT_ASR_VAD_SPEECH_PAD_MS,
         0,
         1000,
+    )
+    cfg["asr_vad_first_pad_ms"] = normalize_int(
+        cfg.get("asr_vad_first_pad_ms"),
+        DEFAULT_ASR_VAD_FIRST_PAD_MS,
+        0,
+        2000,
     )
     cfg["punct_model"] = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
     cfg["punct_device"] = normalize_model_device(PUNCT_MODEL_PROFILES, cfg["punct_model"], cfg.get("punct_device"))
@@ -553,6 +560,7 @@ def default_config():
         "asr_vad_max_speech_s": DEFAULT_ASR_VAD_MAX_SPEECH_S,
         "asr_vad_min_silence_ms": DEFAULT_ASR_VAD_MIN_SILENCE_MS,
         "asr_vad_speech_pad_ms": DEFAULT_ASR_VAD_SPEECH_PAD_MS,
+        "asr_vad_first_pad_ms": DEFAULT_ASR_VAD_FIRST_PAD_MS,
         "input_device_index": choose_default_device_index(),
         "sample_rate": 0,
         "channels": 1,
@@ -862,6 +870,15 @@ def vad_segment_ranges(vad, audio16, cfg):
         end = max(0, min(audio_len, int(end)))
         if end > start:
             segments.append((start, end))
+    if segments:
+        first_pad = int(normalize_int(
+            cfg.get("asr_vad_first_pad_ms"),
+            DEFAULT_ASR_VAD_FIRST_PAD_MS,
+            0,
+            2000,
+        ) * 16)
+        start, end = segments[0]
+        segments[0] = (max(0, start - first_pad), end)
     return segments
 
 
