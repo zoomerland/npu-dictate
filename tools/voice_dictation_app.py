@@ -99,6 +99,7 @@ TRANSLATIONS = {
         "Loading ASR": "Loading ASR",
         "Downloading punct": "Downloading punct",
         "Converting punct": "Converting punct",
+        "Loading punct dependencies": "Loading punct dependencies",
         "Loading punct": "Loading punct",
         "Ready": "Ready",
         "Starting": "Starting",
@@ -185,6 +186,7 @@ TRANSLATIONS = {
         "Loading ASR": "Запуск ASR",
         "Downloading punct": "Загрузка пунктуации",
         "Converting punct": "Конвертация пунктуации",
+        "Loading punct dependencies": "Загрузка зависимостей пунктуации",
         "Loading punct": "Запуск пунктуации",
         "Ready": "Готово",
         "Starting": "Запуск",
@@ -1188,11 +1190,12 @@ class DictationEngine:
             punct = None
             if cfg.get("use_punctuation", True):
                 punct_profile = model_profile(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
-                self.set_status("Loading punct")
+                self.set_status("Loading punct dependencies")
                 log_debug("load punct import start")
                 from rupunct_restore import RUPunctRestorer
                 log_debug("load punct import done")
 
+                self.set_status("Loading punct")
                 log_debug("load punct ensure start")
                 ensure_punct_model(self.set_status)
                 log_debug("load punct ensure done")
@@ -2247,6 +2250,7 @@ class VoiceDictationApp:
         def create_device_selector(parent, model_var, device_var, profiles, default_model):
             frame = ttk.Frame(parent)
             buttons = {}
+            state = {"model_id": None}
             for column, device in enumerate(DEVICE_CHOICES):
                 button = ttk.Radiobutton(frame, text=device, value=device, variable=device_var)
                 button.grid(row=0, column=column, sticky="w", padx=(0, 18))
@@ -2254,9 +2258,13 @@ class VoiceDictationApp:
 
             def refresh_devices(*_):
                 model_id = model_id_from_label(profiles, model_var.get(), default_model)
-                supported = set(model_profile(profiles, model_id, default_model)["devices"])
-                if device_var.get() not in supported:
+                profile = model_profile(profiles, model_id, default_model)
+                supported = set(profile["devices"])
+                if state["model_id"] is not None and state["model_id"] != model_id:
+                    device_var.set(profile.get("default_device") or profile["devices"][0])
+                elif device_var.get() not in supported:
                     device_var.set(normalize_model_device(profiles, model_id, device_var.get()))
+                state["model_id"] = model_id
                 for device, button in buttons.items():
                     button.configure(state="normal" if device in supported else "disabled")
 
