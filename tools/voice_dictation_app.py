@@ -16,6 +16,7 @@ import numpy as np
 import onnx_asr
 import pyperclip
 import sounddevice as sd
+import soundfile as sf
 from pynput import keyboard
 
 from model_setup import ensure_asr_model, ensure_asr_openvino_model, ensure_punct_model
@@ -258,6 +259,7 @@ DEFAULT_ASR_MODEL = "gigaam-v3-ctc-onnx-int8"
 OPENVINO_ASR_MODEL = "gigaam-v3-ctc-openvino-fp32"
 DEFAULT_PUNCT_MODEL = "rupunct-big-openvino-fp16-static128"
 DEFAULT_ASR_WARMUP_BUCKETS = (400, 2400, 3200)
+ASR_PAD_MODES = {"zero", "silence", "edge", "min"}
 
 ASR_MODEL_PROFILES = {
     DEFAULT_ASR_MODEL: {
@@ -323,11 +325,17 @@ def normalize_model_device(profiles, model_id, device):
 def normalize_model_config(cfg):
     cfg["asr_model"] = normalize_model_id(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
     cfg["asr_device"] = normalize_model_device(ASR_MODEL_PROFILES, cfg["asr_model"], cfg.get("asr_device"))
+    cfg["asr_pad_mode"] = normalize_asr_pad_mode(cfg.get("asr_pad_mode"))
     cfg["punct_model"] = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
     cfg["punct_device"] = normalize_model_device(PUNCT_MODEL_PROFILES, cfg["punct_model"], cfg.get("punct_device"))
     cfg["warmup_models"] = bool(cfg.get("warmup_models", True))
     cfg["asr_warmup_buckets"] = normalize_asr_warmup_buckets(cfg.get("asr_warmup_buckets"))
     return cfg
+
+
+def normalize_asr_pad_mode(value):
+    value = str(value or "zero").strip().lower()
+    return value if value in ASR_PAD_MODES else "zero"
 
 
 def normalize_asr_warmup_buckets(value):
@@ -400,10 +408,12 @@ def default_config():
         "overlay_hotkey": "ctrl+alt+shift+d",
         "asr_model": DEFAULT_ASR_MODEL,
         "asr_device": "CPU",
+        "asr_pad_mode": "zero",
         "input_device_index": choose_default_device_index(),
         "sample_rate": 0,
         "channels": 1,
         "use_punctuation": True,
+        "save_debug_audio": False,
         "warmup_models": True,
         "asr_warmup_buckets": list(DEFAULT_ASR_WARMUP_BUCKETS),
         "compare_asr": False,
@@ -437,6 +447,20 @@ def save_config(cfg):
     path = config_path()
     with path.open("w", encoding="utf-8") as file:
         json.dump(cfg, file, ensure_ascii=False, indent=2)
+
+
+def debug_dictation_dir():
+    return repo_root() / "recordings" / "debug_dictation"
+
+
+def save_debug_audio(audio, sample_rate):
+    debug_dir = debug_dictation_dir()
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    milliseconds = int((time.time() % 1) * 1000)
+    path = debug_dir / f"dictation_{timestamp}_{milliseconds:03d}.wav"
+    sf.write(path, audio, int(sample_rate), subtype="PCM_16")
+    return path
 
 
 def normalize_ui_language(value):
@@ -640,6 +664,10 @@ def result_to_text(result):
 def asr_bucket_label(asr):
     bucket = getattr(asr, "last_bucket", None)
     return str(bucket) if bucket is not None else "none"
+
+
+def asr_pad_mode_label(asr):
+    return str(getattr(asr, "pad_mode", "none"))
 
 
 def normalize_punctuation_context(text, max_chars=320):
@@ -1207,17 +1235,19 @@ class DictationEngine:
         self.loading = True
         threading.Thread(target=self._load_models, daemon=True).start()
 
-    def _load_asr_profile(self, model_id, device, status_callback=None):
+    def _load_asr_profile(self, model_id, device, status_callback=None, cfg=None):
         profile = model_profile(ASR_MODEL_PROFILES, model_id, DEFAULT_ASR_MODEL)
         if profile["backend"] == "openvino_ctc":
             ensure_asr_openvino_model(status_callback)
             from gigaam_openvino_asr import GigaamOpenVinoCtcAsr
 
+            cfg = cfg or self.cfg
             return GigaamOpenVinoCtcAsr(
                 profile["model_dir"](),
                 device=device,
                 model_filename=profile["model_file"],
                 cache_dir=repo_root() / "models" / "openvino" / "cache" / "asr_gigaam",
+                pad_mode=normalize_asr_pad_mode(cfg.get("asr_pad_mode")),
             )
 
         ensure_asr_model(status_callback)
@@ -1336,6 +1366,7 @@ class DictationEngine:
                 cfg.get("asr_model"),
                 cfg.get("asr_device", asr_profile["default_device"]),
                 self.set_status,
+                cfg,
             )
             log_debug(
                 "load asr done "
@@ -1481,11 +1512,20 @@ class DictationEngine:
                 self.set_status("Too short")
                 return
 
+            debug_audio_path = None
+            if cfg.get("save_debug_audio", False):
+                try:
+                    debug_audio_path = save_debug_audio(audio, sample_rate)
+                    log_debug(f"debug audio saved path={debug_audio_path}")
+                except Exception as exc:
+                    log_debug(f"debug audio save error type={type(exc).__name__}")
+
             self.set_status("Transcribing")
             start = time.perf_counter()
             raw_result = self.asr.recognize(audio, sample_rate=sample_rate)
             raw_text = result_to_text(raw_result).strip()
             asr_bucket = asr_bucket_label(self.asr)
+            asr_pad_mode = asr_pad_mode_label(self.asr)
             asr_sec = time.perf_counter() - start
             self._compare_asr_async(audio, sample_rate, duration, raw_text, asr_sec, cfg)
 
@@ -1522,7 +1562,8 @@ class DictationEngine:
             if final_text:
                 log_debug(
                     "dictation result "
-                    f"audio={duration:.2f}s asr_bucket={asr_bucket} "
+                    f"audio={duration:.2f}s asr_bucket={asr_bucket} asr_pad={asr_pad_mode} "
+                    f"audio_path={str(debug_audio_path) if debug_audio_path else 'none'} "
                     f"raw={raw_text!r} final={final_text!r} "
                     f"context_chars={len(context) if 'context' in locals() else 0}"
                 )

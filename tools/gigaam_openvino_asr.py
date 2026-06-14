@@ -10,6 +10,8 @@ from scipy.signal import resample_poly
 
 
 DECODE_SPACE_PATTERN = re.compile(r"\A\s|\s\B|(\s)\b")
+SILENCE_FEATURE_VALUE = float(np.log(1e-9))
+PAD_MODES = {"zero", "silence", "edge", "min"}
 
 
 class GigaamOpenVinoCtcAsr:
@@ -20,11 +22,13 @@ class GigaamOpenVinoCtcAsr:
         model_filename="v3_ctc.onnx",
         cache_dir=None,
         bucket_frames=(400, 2400, 3200, 6400),
+        pad_mode="zero",
     ):
         self.model_dir = Path(model_dir)
         self.device = device
         self.model_path = self.model_dir / model_filename
         self.bucket_frames = tuple(sorted(int(value) for value in bucket_frames))
+        self.pad_mode = pad_mode if pad_mode in PAD_MODES else "zero"
         self.core = ov.Core()
         if cache_dir is not None:
             Path(cache_dir).mkdir(parents=True, exist_ok=True)
@@ -99,12 +103,21 @@ class GigaamOpenVinoCtcAsr:
             self.compiled[bucket] = compiled
             return compiled
 
-    @staticmethod
-    def _pad_features(features, bucket):
+    def _pad_features(self, features, bucket):
         frames = features.shape[2]
         if frames == bucket:
             return features
-        padded = np.zeros((features.shape[0], features.shape[1], bucket), dtype=np.float32)
+        if self.pad_mode == "zero":
+            pad_value = 0.0
+        elif self.pad_mode == "edge" and frames > 0:
+            padded = np.repeat(features[:, :, -1:], bucket, axis=2)
+            padded[:, :, :frames] = features
+            return padded
+        elif self.pad_mode == "min":
+            pad_value = float(features.min()) if frames > 0 else SILENCE_FEATURE_VALUE
+        else:
+            pad_value = SILENCE_FEATURE_VALUE
+        padded = np.full((features.shape[0], features.shape[1], bucket), pad_value, dtype=np.float32)
         padded[:, :, :frames] = features
         return padded
 

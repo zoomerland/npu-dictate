@@ -92,29 +92,30 @@ def load_audio(path):
     return normalize_audio(audio), sample_rate
 
 
-def run_cpu(audio, sample_rate, model_dir):
+def run_cpu(audio, sample_rate, model_dir, quantization):
     start = time.perf_counter()
-    asr = onnx_asr.load_model("gigaam-v3-ctc", model_dir, quantization="int8")
+    asr = onnx_asr.load_model("gigaam-v3-ctc", model_dir, quantization=None if quantization == "fp32" else quantization)
     load_sec = time.perf_counter() - start
 
     start = time.perf_counter()
     text = result_to_text(asr.recognize(audio, sample_rate=sample_rate)).strip()
     infer_sec = time.perf_counter() - start
     return {
-        "name": "cpu_int8",
+        "name": f"onnx_cpu_{quantization}",
         "load_sec": load_sec,
         "infer_sec": infer_sec,
         "text": text,
     }
 
 
-def run_npu(audio, sample_rate, model_dir, bucket):
+def run_openvino(audio, sample_rate, model_dir, device, bucket, pad_mode):
     start = time.perf_counter()
     asr = GigaamOpenVinoCtcAsr(
         model_dir,
-        device="NPU",
+        device=device,
         cache_dir=repo_root() / "models" / "openvino" / "cache" / "asr_gigaam_voice_benchmark",
         bucket_frames=(bucket,),
+        pad_mode=pad_mode,
     )
     load_sec = time.perf_counter() - start
 
@@ -123,8 +124,9 @@ def run_npu(audio, sample_rate, model_dir, bucket):
     infer_sec = time.perf_counter() - start
     actual_bucket = asr.last_bucket
     return {
-        "name": f"npu_fp32_bucket_{bucket}",
+        "name": f"openvino_{device.lower()}_fp32_bucket_{bucket}_{pad_mode}",
         "actual_bucket": actual_bucket,
+        "pad_mode": pad_mode,
         "load_sec": load_sec,
         "infer_sec": infer_sec,
         "text": text,
@@ -157,8 +159,12 @@ def main():
     parser.add_argument("--sample-rate", type=int, default=int(cfg.get("sample_rate", 0) or 0))
     parser.add_argument("--channels", type=int, default=int(cfg.get("channels", 1) or 1))
     parser.add_argument("--device-index", type=int, default=cfg.get("input_device_index"))
-    parser.add_argument("--buckets", default="800,1200,1600,2400,3200")
+    parser.add_argument("--buckets", default="400,800,1200,1600,2000,2400,3200,6400")
+    parser.add_argument("--openvino-devices", default="NPU")
+    parser.add_argument("--pad-modes", default="silence,zero,edge,min")
+    parser.add_argument("--cpu-quantizations", default="int8,fp32")
     parser.add_argument("--skip-cpu", action="store_true")
+    parser.add_argument("--skip-openvino", action="store_true")
     parser.add_argument("--recordings-dir", type=Path, default=default_recordings_dir())
     parser.add_argument("--model-dir", type=Path, default=default_model_dir())
     args = parser.parse_args()
@@ -177,16 +183,29 @@ def main():
 
     results = []
     if not args.skip_cpu:
-        results.append(run_cpu(audio, sample_rate, args.model_dir))
-        print_result(results[-1], audio_sec)
+        for raw_quantization in args.cpu_quantizations.split(","):
+            quantization = raw_quantization.strip().lower()
+            if not quantization:
+                continue
+            results.append(run_cpu(audio, sample_rate, args.model_dir, quantization))
+            print_result(results[-1], audio_sec)
 
-    for raw_bucket in args.buckets.split(","):
-        raw_bucket = raw_bucket.strip()
-        if not raw_bucket:
-            continue
-        bucket = int(raw_bucket)
-        results.append(run_npu(audio, sample_rate, args.model_dir, bucket))
-        print_result(results[-1], audio_sec)
+    if not args.skip_openvino:
+        for raw_device in args.openvino_devices.split(","):
+            device = raw_device.strip().upper()
+            if not device:
+                continue
+            for raw_bucket in args.buckets.split(","):
+                raw_bucket = raw_bucket.strip()
+                if not raw_bucket:
+                    continue
+                bucket = int(raw_bucket)
+                for raw_pad_mode in args.pad_modes.split(","):
+                    pad_mode = raw_pad_mode.strip().lower()
+                    if not pad_mode:
+                        continue
+                    results.append(run_openvino(audio, sample_rate, args.model_dir, device, bucket, pad_mode))
+                    print_result(results[-1], audio_sec)
 
     report_path = audio_path.with_suffix(".json")
     with report_path.open("w", encoding="utf-8") as file:
