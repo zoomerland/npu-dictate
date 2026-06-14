@@ -10,6 +10,7 @@
   "sample_rate": 0,
   "channels": 1,
   "use_punctuation": true,
+  "compare_asr": false,
   "punct_model": "rupunct-big-openvino-fp16-static128",
   "punct_device": "NPU",
   "auto_paste": true,

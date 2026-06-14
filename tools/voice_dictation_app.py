@@ -55,6 +55,7 @@ TRANSLATIONS = {
         "asr_device": "Speech recognition device",
         "punct_model": "Punctuation model",
         "punct_device": "Punctuation device",
+        "compare_asr": "Compare ASR CPU/NPU",
         "overlay_size": "Overlay size",
         "overlay_size_small": "Small",
         "overlay_size_medium": "Medium",
@@ -142,6 +143,7 @@ TRANSLATIONS = {
         "asr_device": "Устройство распознавания",
         "punct_model": "Модель пунктуации",
         "punct_device": "Устройство пунктуации",
+        "compare_asr": "Сравнивать ASR CPU/NPU",
         "overlay_size": "Размер кнопки",
         "overlay_size_small": "Маленькая",
         "overlay_size_medium": "Средняя",
@@ -366,6 +368,7 @@ def default_config():
         "sample_rate": 0,
         "channels": 1,
         "use_punctuation": True,
+        "compare_asr": False,
         "punct_model": DEFAULT_PUNCT_MODEL,
         "punct_device": "NPU",
         "auto_paste": True,
@@ -1114,6 +1117,8 @@ class DictationEngine:
         self.focus_callback = focus_callback
         self.context_callback = context_callback
         self.asr = None
+        self.compare_asr = None
+        self.compare_asr_signature = None
         self.punct = None
         self.loaded = False
         self.loading = False
@@ -1124,6 +1129,7 @@ class DictationEngine:
         self.audio_blocks = []
         self.recording_context = ""
         self.lock = threading.RLock()
+        self.compare_lock = threading.RLock()
         self.keyboard = keyboard.Controller()
 
     def update_config(self, cfg):
@@ -1138,6 +1144,8 @@ class DictationEngine:
             self.cfg = cfg
             if reload_asr:
                 self.asr = None
+                self.compare_asr = None
+                self.compare_asr_signature = None
                 self.loaded = False
             if (
                 old_cfg.get("punct_model") != cfg.get("punct_model")
@@ -1156,6 +1164,84 @@ class DictationEngine:
         self.loading = True
         threading.Thread(target=self._load_models, daemon=True).start()
 
+    def _load_asr_profile(self, model_id, device, status_callback=None):
+        profile = model_profile(ASR_MODEL_PROFILES, model_id, DEFAULT_ASR_MODEL)
+        if profile["backend"] == "openvino_ctc":
+            ensure_asr_openvino_model(status_callback)
+            from gigaam_openvino_asr import GigaamOpenVinoCtcAsr
+
+            return GigaamOpenVinoCtcAsr(
+                profile["model_dir"](),
+                device=device,
+                model_filename=profile["model_file"],
+                cache_dir=repo_root() / "models" / "openvino" / "cache" / "asr_gigaam",
+            )
+
+        ensure_asr_model(status_callback)
+        return onnx_asr.load_model(
+            profile["onnx_asr_name"],
+            profile["model_dir"](),
+            quantization=profile["quantization"],
+        )
+
+    def _compare_target(self, cfg):
+        active_model = normalize_model_id(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
+        if active_model == DEFAULT_ASR_MODEL:
+            target_model = OPENVINO_ASR_MODEL
+            target_device = normalize_model_device(ASR_MODEL_PROFILES, target_model, "NPU")
+        else:
+            target_model = DEFAULT_ASR_MODEL
+            target_profile = model_profile(ASR_MODEL_PROFILES, target_model, DEFAULT_ASR_MODEL)
+            target_device = target_profile["default_device"]
+        return target_model, target_device
+
+    def _get_compare_asr(self, model_id, device):
+        signature = (model_id, device)
+        with self.compare_lock:
+            if self.compare_asr is None or self.compare_asr_signature != signature:
+                start = time.perf_counter()
+                self.compare_asr = self._load_asr_profile(model_id, device)
+                self.compare_asr_signature = signature
+                log_debug(
+                    "asr compare load done "
+                    f"model={model_id} device={device} seconds={time.perf_counter() - start:.3f}"
+                )
+            return self.compare_asr
+
+    def _compare_asr_async(self, audio, sample_rate, duration, active_text, active_sec, cfg):
+        if not cfg.get("compare_asr", False):
+            return
+
+        active_model = normalize_model_id(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
+        active_device = normalize_model_device(ASR_MODEL_PROFILES, active_model, cfg.get("asr_device"))
+        compare_model, compare_device = self._compare_target(cfg)
+        if (compare_model, compare_device) == (active_model, active_device):
+            return
+
+        audio = np.array(audio, dtype=np.float32, copy=True)
+
+        def run_compare():
+            try:
+                compare_asr = self._get_compare_asr(compare_model, compare_device)
+                start = time.perf_counter()
+                compare_result = compare_asr.recognize(audio, sample_rate=sample_rate)
+                compare_text = result_to_text(compare_result).strip()
+                compare_sec = time.perf_counter() - start
+                log_debug(
+                    "asr compare "
+                    f"audio={duration:.2f}s "
+                    f"active_model={active_model} active_device={active_device} active_sec={active_sec:.3f} "
+                    f"compare_model={compare_model} compare_device={compare_device} compare_sec={compare_sec:.3f} "
+                    f"active_raw={active_text!r} compare_raw={compare_text!r}"
+                )
+            except Exception as exc:
+                log_debug(
+                    "asr compare error "
+                    f"compare_model={compare_model} compare_device={compare_device} type={type(exc).__name__}"
+                )
+
+        threading.Thread(target=run_compare, daemon=True).start()
+
     def _load_models(self):
         try:
             load_start = time.perf_counter()
@@ -1164,23 +1250,11 @@ class DictationEngine:
             asr_profile = model_profile(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
             self.set_status("Loading ASR")
             asr_start = time.perf_counter()
-            if asr_profile["backend"] == "openvino_ctc":
-                ensure_asr_openvino_model(self.set_status)
-                from gigaam_openvino_asr import GigaamOpenVinoCtcAsr
-
-                asr = GigaamOpenVinoCtcAsr(
-                    asr_profile["model_dir"](),
-                    device=cfg.get("asr_device", asr_profile["default_device"]),
-                    model_filename=asr_profile["model_file"],
-                    cache_dir=repo_root() / "models" / "openvino" / "cache" / "asr_gigaam",
-                )
-            else:
-                ensure_asr_model(self.set_status)
-                asr = onnx_asr.load_model(
-                    asr_profile["onnx_asr_name"],
-                    asr_profile["model_dir"](),
-                    quantization=asr_profile["quantization"],
-                )
+            asr = self._load_asr_profile(
+                cfg.get("asr_model"),
+                cfg.get("asr_device", asr_profile["default_device"]),
+                self.set_status,
+            )
             log_debug(
                 "load asr done "
                 f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} "
@@ -1303,6 +1377,7 @@ class DictationEngine:
         with self.lock:
             blocks = self.audio_blocks
             sample_rate = self.sample_rate
+            cfg = dict(self.cfg)
             self.transcribing = True
 
         try:
@@ -1327,18 +1402,19 @@ class DictationEngine:
             raw_result = self.asr.recognize(audio, sample_rate=sample_rate)
             raw_text = result_to_text(raw_result).strip()
             asr_sec = time.perf_counter() - start
+            self._compare_asr_async(audio, sample_rate, duration, raw_text, asr_sec, cfg)
 
             final_text = raw_text
             punct_sec = 0.0
-            if raw_text and self.cfg.get("use_punctuation", True):
+            if raw_text and cfg.get("use_punctuation", True):
                 if self.punct is None:
-                    punct_profile = model_profile(PUNCT_MODEL_PROFILES, self.cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
+                    punct_profile = model_profile(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
                     from rupunct_restore import RUPunctRestorer
 
                     ensure_punct_model(self.set_status)
                     self.punct = RUPunctRestorer(
                         punct_profile["model_dir"](),
-                        self.cfg.get("punct_device", "NPU"),
+                        cfg.get("punct_device", "NPU"),
                         cache_dir=repo_root() / "models" / "openvino" / "cache",
                     )
                 start = time.perf_counter()
@@ -1355,7 +1431,7 @@ class DictationEngine:
                     final_text = adjust_inserted_casing(raw_text, final_text)
                 punct_sec = time.perf_counter() - start
 
-            if self.cfg.get("append_space", False) and final_text:
+            if cfg.get("append_space", False) and final_text:
                 final_text = final_text.rstrip() + " "
 
             if final_text:
@@ -1365,7 +1441,7 @@ class DictationEngine:
                     f"context_chars={len(context) if 'context' in locals() else 0}"
                 )
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
-                if self.cfg.get("auto_paste", True):
+                if cfg.get("auto_paste", True):
                     if self.paste_text(final_text):
                         self.set_status("Pasted")
                     else:
@@ -2177,6 +2253,7 @@ class VoiceDictationApp:
         overlay_opacity_label = tk.StringVar()
         sample_rate = tk.StringVar(value=str(self.cfg.get("sample_rate", 0)))
         use_punctuation = tk.BooleanVar(value=bool(self.cfg.get("use_punctuation", True)))
+        compare_asr = tk.BooleanVar(value=bool(self.cfg.get("compare_asr", False)))
         auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
         use_context = tk.BooleanVar(value=bool(self.cfg.get("use_context", True)))
         append_space = tk.BooleanVar(value=bool(self.cfg.get("append_space", False)))
@@ -2238,6 +2315,7 @@ class VoiceDictationApp:
             selected_device,
             sample_rate,
             use_punctuation,
+            compare_asr,
             auto_paste,
             use_context,
             append_space,
@@ -2375,6 +2453,7 @@ class VoiceDictationApp:
                 "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
                 "sample_rate": sample_rate_value,
                 "use_punctuation": bool(use_punctuation.get()),
+                "compare_asr": bool(compare_asr.get()),
                 "auto_paste": bool(auto_paste.get()),
                 "use_context": bool(use_context.get()),
                 "append_space": bool(append_space.get()),
@@ -2455,6 +2534,11 @@ class VoiceDictationApp:
             ASR_MODEL_PROFILES,
             DEFAULT_ASR_MODEL,
         ).grid(row=row, column=1, sticky="w", pady=6)
+
+        row += 1
+        i18n_checkbutton(win, "compare_asr", variable=compare_asr).grid(
+            row=row, column=1, sticky="w", pady=6
+        )
 
         row += 1
         i18n_label(win, "punct_model").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
