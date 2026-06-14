@@ -258,7 +258,8 @@ DEVICE_CHOICES = ("CPU", "GPU", "NPU")
 DEFAULT_ASR_MODEL = "gigaam-v3-ctc-onnx-int8"
 OPENVINO_ASR_MODEL = "gigaam-v3-ctc-openvino-fp32"
 DEFAULT_PUNCT_MODEL = "rupunct-big-openvino-fp16-static128"
-DEFAULT_ASR_WARMUP_BUCKETS = (400, 2400, 3200)
+DEFAULT_ASR_BUCKET_FRAMES = (400, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2800, 3200, 4000, 4800, 6400)
+DEFAULT_ASR_WARMUP_BUCKETS = DEFAULT_ASR_BUCKET_FRAMES
 DEFAULT_ASR_RETRY_BUCKETS = (1600, 3200)
 ASR_PAD_MODES = {"zero", "silence", "edge", "min"}
 
@@ -327,6 +328,7 @@ def normalize_model_config(cfg):
     cfg["asr_model"] = normalize_model_id(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
     cfg["asr_device"] = normalize_model_device(ASR_MODEL_PROFILES, cfg["asr_model"], cfg.get("asr_device"))
     cfg["asr_pad_mode"] = normalize_asr_pad_mode(cfg.get("asr_pad_mode"))
+    cfg["asr_bucket_frames"] = normalize_asr_bucket_frames(cfg.get("asr_bucket_frames"))
     cfg["punct_model"] = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
     cfg["punct_device"] = normalize_model_device(PUNCT_MODEL_PROFILES, cfg["punct_model"], cfg.get("punct_device"))
     cfg["warmup_models"] = bool(cfg.get("warmup_models", True))
@@ -343,6 +345,10 @@ def normalize_asr_pad_mode(value):
 
 def normalize_asr_warmup_buckets(value):
     return normalize_bucket_list(value, DEFAULT_ASR_WARMUP_BUCKETS)
+
+
+def normalize_asr_bucket_frames(value):
+    return normalize_bucket_list(value, DEFAULT_ASR_BUCKET_FRAMES)
 
 
 def normalize_asr_retry_buckets(value):
@@ -427,6 +433,7 @@ def default_config():
         "asr_model": DEFAULT_ASR_MODEL,
         "asr_device": "CPU",
         "asr_pad_mode": "zero",
+        "asr_bucket_frames": list(DEFAULT_ASR_BUCKET_FRAMES),
         "input_device_index": choose_default_device_index(),
         "sample_rate": 0,
         "channels": 1,
@@ -1311,6 +1318,7 @@ class DictationEngine:
                 device=device,
                 model_filename=profile["model_file"],
                 cache_dir=repo_root() / "models" / "openvino" / "cache" / "asr_gigaam",
+                bucket_frames=normalize_asr_bucket_frames(cfg.get("asr_bucket_frames")),
                 pad_mode=normalize_asr_pad_mode(cfg.get("asr_pad_mode")),
             )
 
@@ -2714,6 +2722,7 @@ class VoiceDictationApp:
                 "sample_rate": sample_rate_value,
                 "use_punctuation": bool(use_punctuation.get()),
                 "warmup_models": bool(warmup_models.get()),
+                "asr_bucket_frames": normalize_asr_bucket_frames(self.cfg.get("asr_bucket_frames")),
                 "asr_warmup_buckets": normalize_asr_warmup_buckets(self.cfg.get("asr_warmup_buckets")),
                 "compare_asr": bool(compare_asr.get()),
                 "auto_paste": bool(auto_paste.get()),

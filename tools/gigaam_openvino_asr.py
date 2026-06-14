@@ -12,6 +12,7 @@ from scipy.signal import resample_poly
 DECODE_SPACE_PATTERN = re.compile(r"\A\s|\s\B|(\s)\b")
 SILENCE_FEATURE_VALUE = float(np.log(1e-9))
 PAD_MODES = {"zero", "silence", "edge", "min"}
+DEFAULT_BUCKET_FRAMES = (400, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2800, 3200, 4000, 4800, 6400)
 
 
 class GigaamOpenVinoCtcAsr:
@@ -21,7 +22,7 @@ class GigaamOpenVinoCtcAsr:
         device="NPU",
         model_filename="v3_ctc.onnx",
         cache_dir=None,
-        bucket_frames=(400, 2400, 3200, 6400),
+        bucket_frames=DEFAULT_BUCKET_FRAMES,
         pad_mode="zero",
     ):
         self.model_dir = Path(model_dir)
