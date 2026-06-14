@@ -627,6 +627,11 @@ def result_to_text(result):
     return str(result)
 
 
+def asr_bucket_label(asr):
+    bucket = getattr(asr, "last_bucket", None)
+    return str(bucket) if bucket is not None else "none"
+
+
 def normalize_punctuation_context(text, max_chars=320):
     text = re.sub(r"\s+", " ", str(text or ""))
     if not text.strip():
@@ -1254,12 +1259,14 @@ class DictationEngine:
                 start = time.perf_counter()
                 compare_result = compare_asr.recognize(audio, sample_rate=sample_rate)
                 compare_text = result_to_text(compare_result).strip()
+                compare_bucket = asr_bucket_label(compare_asr)
                 compare_sec = time.perf_counter() - start
                 log_debug(
                     "asr compare "
                     f"audio={duration:.2f}s "
                     f"active_model={active_model} active_device={active_device} active_sec={active_sec:.3f} "
-                    f"compare_model={compare_model} compare_device={compare_device} compare_sec={compare_sec:.3f} "
+                    f"compare_model={compare_model} compare_device={compare_device} "
+                    f"compare_bucket={compare_bucket} compare_sec={compare_sec:.3f} "
                     f"active_raw={active_text!r} compare_raw={compare_text!r}"
                 )
             except Exception as exc:
@@ -1468,6 +1475,7 @@ class DictationEngine:
             start = time.perf_counter()
             raw_result = self.asr.recognize(audio, sample_rate=sample_rate)
             raw_text = result_to_text(raw_result).strip()
+            asr_bucket = asr_bucket_label(self.asr)
             asr_sec = time.perf_counter() - start
             self._compare_asr_async(audio, sample_rate, duration, raw_text, asr_sec, cfg)
 
@@ -1504,6 +1512,7 @@ class DictationEngine:
             if final_text:
                 log_debug(
                     "dictation result "
+                    f"audio={duration:.2f}s asr_bucket={asr_bucket} "
                     f"raw={raw_text!r} final={final_text!r} "
                     f"context_chars={len(context) if 'context' in locals() else 0}"
                 )
