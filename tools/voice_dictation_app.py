@@ -242,6 +242,53 @@ def repo_root():
     return Path(__file__).resolve().parents[1]
 
 
+class FileTime(ctypes.Structure):
+    _fields_ = [
+        ("dwLowDateTime", wintypes.DWORD),
+        ("dwHighDateTime", wintypes.DWORD),
+    ]
+
+
+def filetime_to_int(value):
+    return (int(value.dwHighDateTime) << 32) | int(value.dwLowDateTime)
+
+
+def system_cpu_times():
+    if platform.system() != "Windows":
+        return None
+    idle = FileTime()
+    kernel = FileTime()
+    user = FileTime()
+    if not ctypes.windll.kernel32.GetSystemTimes(
+        ctypes.byref(idle),
+        ctypes.byref(kernel),
+        ctypes.byref(user),
+    ):
+        return None
+    return filetime_to_int(idle), filetime_to_int(kernel), filetime_to_int(user)
+
+
+def cpu_load_percent(start, end):
+    if not start or not end:
+        return None
+    idle_delta = int(end[0]) - int(start[0])
+    kernel_delta = int(end[1]) - int(start[1])
+    user_delta = int(end[2]) - int(start[2])
+    total_delta = kernel_delta + user_delta
+    if total_delta <= 0:
+        return None
+    load = (1.0 - (idle_delta / total_delta)) * 100.0
+    return max(0.0, min(100.0, load))
+
+
+def format_percent(value):
+    return "none" if value is None else f"{value:.1f}"
+
+
+def format_seconds(value):
+    return "none" if value is None else f"{value:.2f}"
+
+
 def config_path():
     return repo_root() / "voice_dictation_config.json"
 
@@ -265,7 +312,7 @@ DEFAULT_ASR_CHUNK_BUCKET = 800
 DEFAULT_ASR_CHUNK_OVERLAP_MS = 350
 DEFAULT_ASR_VAD_MAX_SPEECH_S = 7.5
 DEFAULT_ASR_VAD_MIN_SILENCE_MS = 100
-DEFAULT_ASR_VAD_SPEECH_PAD_MS = 100
+DEFAULT_ASR_VAD_SPEECH_PAD_MS = 300
 ASR_PAD_MODES = {"zero", "silence", "edge", "min"}
 
 ASR_MODEL_PROFILES = {
@@ -808,7 +855,14 @@ def vad_options(cfg):
 def vad_segment_ranges(vad, audio16, cfg):
     waveforms = audio16[None, :]
     waveforms_len = np.array([len(audio16)], dtype=np.int64)
-    return list(next(vad.segment_batch(waveforms, waveforms_len, 16_000, **vad_options(cfg))))
+    audio_len = len(audio16)
+    segments = []
+    for start, end in next(vad.segment_batch(waveforms, waveforms_len, 16_000, **vad_options(cfg))):
+        start = max(0, min(audio_len, int(start)))
+        end = max(0, min(audio_len, int(end)))
+        if end > start:
+            segments.append((start, end))
+    return segments
 
 
 def log_vad_segments(segments):
@@ -1407,6 +1461,14 @@ class DictationEngine:
         self.stream = None
         self.sample_rate = None
         self.audio_blocks = []
+        self.audio_callback_count = 0
+        self.audio_callback_statuses = []
+        self.audio_last_callback_perf = None
+        self.audio_max_callback_gap = 0.0
+        self.recording_cpu_start = None
+        self.recording_cpu_end = None
+        self.recording_wall_start = None
+        self.recording_wall_end = None
         self.recording_context = ""
         self.lock = threading.RLock()
         self.compare_lock = threading.RLock()
@@ -1724,6 +1786,14 @@ class DictationEngine:
             channels = int(self.cfg.get("channels") or 1)
             self.sample_rate = self.resolve_sample_rate()
             self.audio_blocks = []
+            self.audio_callback_count = 0
+            self.audio_callback_statuses = []
+            self.audio_last_callback_perf = None
+            self.audio_max_callback_gap = 0.0
+            self.recording_cpu_start = system_cpu_times()
+            self.recording_cpu_end = None
+            self.recording_wall_start = time.perf_counter()
+            self.recording_wall_end = None
             self.recording_context = self.context_before_cursor()
 
             self.stream = sd.InputStream(
@@ -1744,6 +1814,8 @@ class DictationEngine:
             stream = self.stream
             self.stream = None
             self.recording = False
+            self.recording_cpu_end = system_cpu_times()
+            self.recording_wall_end = time.perf_counter()
 
         if stream:
             stream.stop()
@@ -1774,8 +1846,17 @@ class DictationEngine:
         self.set_status("Ready" if self.loaded else "Starting")
 
     def _audio_callback(self, indata, frames, time_info, status):
+        now = time.perf_counter()
+        if self.audio_last_callback_perf is not None:
+            self.audio_max_callback_gap = max(self.audio_max_callback_gap, now - self.audio_last_callback_perf)
+        self.audio_last_callback_perf = now
+        self.audio_callback_count += 1
         if status:
-            self.set_status(str(status))
+            status_text = str(status)
+            if len(self.audio_callback_statuses) < 12:
+                self.audio_callback_statuses.append(status_text)
+            log_debug(f"audio callback status={status_text}")
+            self.set_status(status_text)
         self.audio_blocks.append(indata.copy())
 
     def _transcribe_recording(self):
@@ -1783,6 +1864,13 @@ class DictationEngine:
             blocks = self.audio_blocks
             sample_rate = self.sample_rate
             cfg = dict(self.cfg)
+            audio_callback_count = self.audio_callback_count
+            audio_callback_statuses = list(self.audio_callback_statuses)
+            audio_max_callback_gap = self.audio_max_callback_gap
+            recording_cpu_start = self.recording_cpu_start
+            recording_cpu_end = self.recording_cpu_end
+            recording_wall_start = self.recording_wall_start
+            recording_wall_end = self.recording_wall_end
             self.transcribing = True
 
         try:
@@ -1798,6 +1886,19 @@ class DictationEngine:
 
             audio = np.ascontiguousarray(audio, dtype=np.float32)
             duration = len(audio) / sample_rate if sample_rate else 0.0
+            recording_cpu = cpu_load_percent(recording_cpu_start, recording_cpu_end)
+            recording_wall = (
+                recording_wall_end - recording_wall_start
+                if recording_wall_start is not None and recording_wall_end is not None
+                else None
+            )
+            log_debug(
+                "recording stats "
+                f"audio={duration:.2f}s wall={format_seconds(recording_wall)}s "
+                f"callbacks={audio_callback_count} max_callback_gap={audio_max_callback_gap:.3f}s "
+                f"cpu_load={format_percent(recording_cpu)} "
+                f"statuses={';'.join(audio_callback_statuses) if audio_callback_statuses else 'none'}"
+            )
             if duration < 0.25:
                 self.set_status("Too short")
                 return
@@ -1812,6 +1913,7 @@ class DictationEngine:
 
             self.set_status("Transcribing")
             start = time.perf_counter()
+            asr_cpu_start = system_cpu_times()
             vad = self._get_vad() if cfg.get("asr_vad_segments", False) else None
             asr_mode = "vad" if should_use_vad_asr(self.asr, vad, cfg) else (
                 "chunked" if should_use_chunked_asr(self.asr, cfg) else "full"
@@ -1840,6 +1942,7 @@ class DictationEngine:
             asr_bucket = asr_bucket_label(self.asr)
             asr_pad_mode = asr_pad_mode_label(self.asr)
             asr_sec = time.perf_counter() - start
+            asr_cpu_load = cpu_load_percent(asr_cpu_start, system_cpu_times())
             if asr_mode == "full":
                 raw_text, asr_bucket, retry_results = self._retry_fragmented_asr(
                     audio,
@@ -1886,6 +1989,9 @@ class DictationEngine:
                 log_debug(
                     "dictation result "
                     f"audio={duration:.2f}s asr_mode={asr_mode} asr_bucket={asr_bucket} asr_pad={asr_pad_mode} "
+                    f"record_cpu={format_percent(recording_cpu)} asr_cpu={format_percent(asr_cpu_load)} "
+                    f"callbacks={audio_callback_count} max_callback_gap={audio_max_callback_gap:.3f}s "
+                    f"statuses={';'.join(audio_callback_statuses) if audio_callback_statuses else 'none'} "
                     f"audio_path={str(debug_audio_path) if debug_audio_path else 'none'} "
                     f"raw={raw_text!r} final={final_text!r} "
                     f"context_chars={len(context) if 'context' in locals() else 0}"

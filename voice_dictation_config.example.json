@@ -14,7 +14,7 @@
   "asr_vad_segments": false,
   "asr_vad_max_speech_s": 7.5,
   "asr_vad_min_silence_ms": 100,
-  "asr_vad_speech_pad_ms": 100,
+  "asr_vad_speech_pad_ms": 300,
   "input_device_index": null,
   "sample_rate": 0,
   "channels": 1,
