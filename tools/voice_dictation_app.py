@@ -259,6 +259,7 @@ DEFAULT_ASR_MODEL = "gigaam-v3-ctc-onnx-int8"
 OPENVINO_ASR_MODEL = "gigaam-v3-ctc-openvino-fp32"
 DEFAULT_PUNCT_MODEL = "rupunct-big-openvino-fp16-static128"
 DEFAULT_ASR_WARMUP_BUCKETS = (400, 2400, 3200)
+DEFAULT_ASR_RETRY_BUCKETS = (1600, 3200)
 ASR_PAD_MODES = {"zero", "silence", "edge", "min"}
 
 ASR_MODEL_PROFILES = {
@@ -330,6 +331,8 @@ def normalize_model_config(cfg):
     cfg["punct_device"] = normalize_model_device(PUNCT_MODEL_PROFILES, cfg["punct_model"], cfg.get("punct_device"))
     cfg["warmup_models"] = bool(cfg.get("warmup_models", True))
     cfg["asr_warmup_buckets"] = normalize_asr_warmup_buckets(cfg.get("asr_warmup_buckets"))
+    cfg["asr_retry_fragmented"] = bool(cfg.get("asr_retry_fragmented", True))
+    cfg["asr_retry_buckets"] = normalize_asr_retry_buckets(cfg.get("asr_retry_buckets"))
     return cfg
 
 
@@ -339,12 +342,20 @@ def normalize_asr_pad_mode(value):
 
 
 def normalize_asr_warmup_buckets(value):
+    return normalize_bucket_list(value, DEFAULT_ASR_WARMUP_BUCKETS)
+
+
+def normalize_asr_retry_buckets(value):
+    return normalize_bucket_list(value, DEFAULT_ASR_RETRY_BUCKETS)
+
+
+def normalize_bucket_list(value, default):
     if isinstance(value, str):
         raw_values = value.split(",")
     elif isinstance(value, (list, tuple)):
         raw_values = value
     else:
-        raw_values = DEFAULT_ASR_WARMUP_BUCKETS
+        raw_values = default
 
     buckets = []
     for raw_value in raw_values:
@@ -354,15 +365,22 @@ def normalize_asr_warmup_buckets(value):
             continue
         if bucket > 0 and bucket not in buckets:
             buckets.append(bucket)
-    return buckets or list(DEFAULT_ASR_WARMUP_BUCKETS)
+    return buckets or list(default)
 
 
 def active_asr_warmup_buckets(asr, cfg):
     buckets = normalize_asr_warmup_buckets(cfg.get("asr_warmup_buckets"))
+    if cfg.get("asr_retry_fragmented", True):
+        buckets.extend(
+            bucket
+            for bucket in normalize_asr_retry_buckets(cfg.get("asr_retry_buckets"))
+            if bucket not in buckets
+        )
     active_buckets = getattr(asr, "bucket_frames", None)
     if not active_buckets:
         return buckets
     active_buckets = set(int(bucket) for bucket in active_buckets)
+    active_buckets.update(normalize_asr_retry_buckets(cfg.get("asr_retry_buckets")))
     filtered = [bucket for bucket in buckets if bucket in active_buckets]
     return filtered or [bucket for bucket in DEFAULT_ASR_WARMUP_BUCKETS if bucket in active_buckets]
 
@@ -416,6 +434,8 @@ def default_config():
         "save_debug_audio": False,
         "warmup_models": True,
         "asr_warmup_buckets": list(DEFAULT_ASR_WARMUP_BUCKETS),
+        "asr_retry_fragmented": True,
+        "asr_retry_buckets": list(DEFAULT_ASR_RETRY_BUCKETS),
         "compare_asr": False,
         "punct_model": DEFAULT_PUNCT_MODEL,
         "punct_device": "NPU",
@@ -668,6 +688,50 @@ def asr_bucket_label(asr):
 
 def asr_pad_mode_label(asr):
     return str(getattr(asr, "pad_mode", "none"))
+
+
+def asr_fragmentation_score(text):
+    tokens = re.findall(r"[A-Za-zА-Яа-яЁё]+", str(text or ""))
+    short_run = 0
+    max_short_run = 0
+    single_count = 0
+    short_count = 0
+    for token in tokens:
+        length = len(token)
+        if length == 1:
+            single_count += 1
+        if length <= 2:
+            short_count += 1
+        if length <= 3:
+            short_run += 1
+            max_short_run = max(max_short_run, short_run)
+        else:
+            short_run = 0
+
+    total = max(len(tokens), 1)
+    score = max_short_run * 3.0 + single_count * 2.5 + (short_count / total) * 4.0
+    return {
+        "score": score,
+        "tokens": len(tokens),
+        "single_count": single_count,
+        "short_count": short_count,
+        "max_short_run": max_short_run,
+    }
+
+
+def should_retry_fragmented_asr(score):
+    return score["tokens"] >= 8 and (
+        score["max_short_run"] >= 6
+        or (score["max_short_run"] >= 5 and score["single_count"] >= 4)
+    )
+
+
+def asr_score_is_better(candidate, best):
+    if candidate["max_short_run"] != best["max_short_run"]:
+        return candidate["max_short_run"] < best["max_short_run"]
+    if candidate["single_count"] != best["single_count"]:
+        return candidate["single_count"] < best["single_count"]
+    return candidate["score"] < best["score"]
 
 
 def normalize_punctuation_context(text, max_chars=320):
@@ -1317,6 +1381,64 @@ class DictationEngine:
 
         threading.Thread(target=run_compare, daemon=True).start()
 
+    def _retry_fragmented_asr(self, audio, sample_rate, raw_text, raw_bucket, cfg):
+        if not cfg.get("asr_retry_fragmented", True):
+            return raw_text, raw_bucket, []
+        if not hasattr(self.asr, "recognize_with_bucket"):
+            return raw_text, raw_bucket, []
+
+        best_text = raw_text
+        best_bucket = raw_bucket
+        best_score = asr_fragmentation_score(raw_text)
+        if not should_retry_fragmented_asr(best_score):
+            return raw_text, raw_bucket, []
+
+        retry_results = [
+            {
+                "bucket": raw_bucket,
+                "score": best_score,
+                "selected": False,
+                "text": raw_text,
+            }
+        ]
+        for bucket in normalize_asr_retry_buckets(cfg.get("asr_retry_buckets")):
+            if str(bucket) == str(raw_bucket):
+                continue
+            try:
+                start = time.perf_counter()
+                candidate_result = self.asr.recognize_with_bucket(audio, sample_rate=sample_rate, bucket=bucket)
+                candidate_text = result_to_text(candidate_result).strip()
+                candidate_bucket = asr_bucket_label(self.asr)
+                candidate_score = asr_fragmentation_score(candidate_text)
+                retry_results.append(
+                    {
+                        "bucket": candidate_bucket,
+                        "score": candidate_score,
+                        "seconds": time.perf_counter() - start,
+                        "selected": False,
+                        "text": candidate_text,
+                    }
+                )
+                if candidate_text and asr_score_is_better(candidate_score, best_score):
+                    best_text = candidate_text
+                    best_bucket = candidate_bucket
+                    best_score = candidate_score
+            except Exception as exc:
+                log_debug(f"asr retry error bucket={bucket} type={type(exc).__name__}")
+
+        for result in retry_results:
+            result["selected"] = str(result["bucket"]) == str(best_bucket) and result["text"] == best_text
+            score = result["score"]
+            log_debug(
+                "asr retry candidate "
+                f"bucket={result['bucket']} selected={result['selected']} "
+                f"score={score['score']:.3f} max_short_run={score['max_short_run']} "
+                f"single_count={score['single_count']} short_count={score['short_count']} "
+                f"seconds={result.get('seconds', 0.0):.3f} "
+                f"text={result['text']!r}"
+            )
+        return best_text, best_bucket, retry_results
+
     def _warmup_models(self, asr, punct, cfg):
         if not cfg.get("warmup_models", True):
             log_debug("warmup skipped disabled=True")
@@ -1527,6 +1649,15 @@ class DictationEngine:
             asr_bucket = asr_bucket_label(self.asr)
             asr_pad_mode = asr_pad_mode_label(self.asr)
             asr_sec = time.perf_counter() - start
+            raw_text, asr_bucket, retry_results = self._retry_fragmented_asr(
+                audio,
+                sample_rate,
+                raw_text,
+                asr_bucket,
+                cfg,
+            )
+            if retry_results:
+                asr_sec = time.perf_counter() - start
             self._compare_asr_async(audio, sample_rate, duration, raw_text, asr_sec, cfg)
 
             final_text = raw_text

@@ -14,6 +14,8 @@
   "save_debug_audio": false,
   "warmup_models": true,
   "asr_warmup_buckets": [400, 2400, 3200],
+  "asr_retry_fragmented": true,
+  "asr_retry_buckets": [1600, 3200],
   "compare_asr": false,
   "punct_model": "rupunct-big-openvino-fp16-static128",
   "punct_device": "NPU",

@@ -71,6 +71,7 @@ Preliminary local measurements:
     - First run for a new static bucket can spend tens of seconds compiling and caching the model.
     - The app can warm common ASR buckets at startup (`warmup_models`, `asr_warmup_buckets`) so real dictation uses already-compiled paths.
     - Current NPU buckets favor recognition quality over the smallest possible padding: `400`, `2400`, `3200`, `6400`.
+    - Fragmented NPU ASR output can trigger an experimental NPU-only retry through alternate buckets (`asr_retry_fragmented`, `asr_retry_buckets`).
     - Static feature padding is tunable (`asr_pad_mode`); the current default is `zero`, which best matched the CPU baseline on the reference voice sample.
     - Warm 8-second inference on the test sample is about 0.08-0.14 seconds.
     - Output is close to the CPU path, but minor recognition differences are still expected and need more testing.

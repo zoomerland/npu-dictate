@@ -38,6 +38,7 @@ class GigaamOpenVinoCtcAsr:
         self.vocab, self.blank_idx = self._load_vocab(self.model_dir / "v3_vocab.txt")
         self.compiled = {}
         self.last_bucket = None
+        self.last_frames = None
         self.lock = threading.RLock()
 
     @staticmethod
@@ -149,14 +150,26 @@ class GigaamOpenVinoCtcAsr:
             results.append(text)
         return results
 
-    def recognize(self, waveform, *, sample_rate=16_000, channel=None, **_kwargs):
-        features, features_lens = self._features(waveform, sample_rate, channel)
+    def _recognize_features(self, features, features_lens, bucket):
+        bucket = int(bucket)
         frames = features.shape[2]
-        bucket = self._bucket_for(frames)
+        if frames > bucket:
+            step = bucket
+            bucket = ((int(frames) + step - 1) // step) * step
         self.last_bucket = bucket
+        self.last_frames = frames
+        frames = features.shape[2]
         compiled = self._compile(bucket)
         features = self._pad_features(features, bucket)
         outputs = compiled({"features": features, "feature_lengths": features_lens})
         log_probs = outputs[compiled.output("log_probs")]
         encoder_lens = (features_lens - 1) // 4 + 1
         return self._decode(log_probs, encoder_lens)[0]
+
+    def recognize(self, waveform, *, sample_rate=16_000, channel=None, **_kwargs):
+        features, features_lens = self._features(waveform, sample_rate, channel)
+        return self._recognize_features(features, features_lens, self._bucket_for(features.shape[2]))
+
+    def recognize_with_bucket(self, waveform, *, bucket, sample_rate=16_000, channel=None, **_kwargs):
+        features, features_lens = self._features(waveform, sample_rate, channel)
+        return self._recognize_features(features, features_lens, int(bucket))
