@@ -19,7 +19,7 @@ class GigaamOpenVinoCtcAsr:
         device="NPU",
         model_filename="v3_ctc.onnx",
         cache_dir=None,
-        bucket_frames=(200, 400, 800, 1600, 3200, 6400),
+        bucket_frames=(200, 400, 800, 2400, 3200, 6400),
     ):
         self.model_dir = Path(model_dir)
         self.device = device
@@ -33,6 +33,7 @@ class GigaamOpenVinoCtcAsr:
         self.preprocessor = GigaamPreprocessorNumpy("gigaam_v3")
         self.vocab, self.blank_idx = self._load_vocab(self.model_dir / "v3_vocab.txt")
         self.compiled = {}
+        self.last_bucket = None
         self.lock = threading.RLock()
 
     @staticmethod
@@ -128,6 +129,7 @@ class GigaamOpenVinoCtcAsr:
         features, features_lens = self._features(waveform, sample_rate, channel)
         frames = features.shape[2]
         bucket = self._bucket_for(frames)
+        self.last_bucket = bucket
         compiled = self._compile(bucket)
         features = self._pad_features(features, bucket)
         outputs = compiled({"features": features, "feature_lengths": features_lens})

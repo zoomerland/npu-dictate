@@ -121,8 +121,10 @@ def run_npu(audio, sample_rate, model_dir, bucket):
     start = time.perf_counter()
     text = asr.recognize(audio, sample_rate=sample_rate).strip()
     infer_sec = time.perf_counter() - start
+    actual_bucket = asr.last_bucket
     return {
         "name": f"npu_fp32_bucket_{bucket}",
+        "actual_bucket": actual_bucket,
         "load_sec": load_sec,
         "infer_sec": infer_sec,
         "text": text,
@@ -133,7 +135,8 @@ def print_result(result, audio_sec):
     speed = audio_sec / result["infer_sec"] if result["infer_sec"] else 0.0
     print(
         f"{result['name']}: load={result['load_sec']:.3f}s "
-        f"infer={result['infer_sec']:.3f}s speed={speed:.2f}x",
+        f"infer={result['infer_sec']:.3f}s speed={speed:.2f}x"
+        + (f" actual_bucket={result['actual_bucket']}" if "actual_bucket" in result else ""),
         flush=True,
     )
     print(f"  {result['text']}", flush=True)
