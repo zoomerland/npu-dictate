@@ -364,7 +364,7 @@ class GigaamOpenVinoCtcAsr:
         self.last_frames = sum(chunk["frames"] for chunk in chunks)
         return self._stitch_texts(texts)
 
-    def recognize_segments_16k(self, audio, segments, *, bucket=800):
+    def recognize_segments_16k(self, audio, segments, *, bucket=800, stitch=False):
         audio = np.ascontiguousarray(audio, dtype=np.float32)
         bucket = int(bucket)
         texts = []
@@ -398,4 +398,6 @@ class GigaamOpenVinoCtcAsr:
         self.last_chunks = chunks
         self.last_bucket = f"vad:{bucket}x{len(chunks)}"
         self.last_frames = sum(chunk["frames"] for chunk in chunks)
+        if stitch:
+            return self._stitch_texts(texts)
         return self._join_texts(texts)

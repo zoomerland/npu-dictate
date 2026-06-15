@@ -60,6 +60,19 @@ CONFIGS = {
         "model_filename": "v3_ctc.int8.onnx",
         "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
     },
+    "nncf_int8_lowload_s3_b400": {
+        "bucket": 400,
+        "first_pad_ms": 500,
+        "model_filename": "../gigaam-v3-ctc-openvino-int8/v3_ctc_bucket400_nncf_int8.xml",
+        "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
+    },
+    "nncf_int8_stitch_s3_b400": {
+        "bucket": 400,
+        "first_pad_ms": 500,
+        "model_filename": "../gigaam-v3-ctc-openvino-int8/v3_ctc_bucket400_nncf_int8.xml",
+        "stitch": True,
+        "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
+    },
     "hybrid_repair_s3_b400": {
         "bucket": 400,
         "first_pad_ms": 500,
@@ -361,7 +374,7 @@ def main():
             if config.get("hard_split"):
                 segments = hard_split_segments(segments, bucket, config.get("overlap_ms", 0))
             start = time.perf_counter()
-            text = asr.recognize_segments_16k(audio16, segments, bucket=bucket).strip()
+            text = asr.recognize_segments_16k(audio16, segments, bucket=bucket, stitch=bool(config.get("stitch"))).strip()
             seconds = time.perf_counter() - start
             chunks = list(getattr(asr, "last_chunks", []))
             repair = None
