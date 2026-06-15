@@ -47,6 +47,7 @@ class GigaamOpenVinoCtcAsr:
         self.compiled = {}
         self.last_bucket = None
         self.last_frames = None
+        self.last_metrics = {}
         self.last_chunks = []
         self.lock = threading.RLock()
 
@@ -258,6 +259,40 @@ class GigaamOpenVinoCtcAsr:
             results.append(text)
         return results
 
+    def _metrics(self, log_probs, encoder_lens):
+        tokens = log_probs.argmax(axis=-1)
+        metrics = []
+        for batch_index in range(log_probs.shape[0]):
+            length = int(encoder_lens[batch_index])
+            if length <= 0:
+                metrics.append(
+                    {
+                        "encoder_len": 0,
+                        "blank_ratio": 1.0,
+                        "repeat_ratio": 0.0,
+                        "mean_best": 0.0,
+                        "mean_margin": 0.0,
+                    }
+                )
+                continue
+
+            batch_log_probs = log_probs[batch_index, :length, :]
+            batch_tokens = tokens[batch_index, :length]
+            top2 = np.partition(batch_log_probs, -2, axis=-1)[:, -2:]
+            best = top2[:, 1]
+            second = top2[:, 0]
+            repeats = batch_tokens[1:] == batch_tokens[:-1]
+            metrics.append(
+                {
+                    "encoder_len": length,
+                    "blank_ratio": float(np.mean(batch_tokens == self.blank_idx)),
+                    "repeat_ratio": float(np.mean(repeats)) if repeats.size else 0.0,
+                    "mean_best": float(np.mean(best)),
+                    "mean_margin": float(np.mean(best - second)),
+                }
+            )
+        return metrics
+
     def _recognize_features(self, features, features_lens, bucket):
         bucket = int(bucket)
         frames = features.shape[2]
@@ -272,6 +307,7 @@ class GigaamOpenVinoCtcAsr:
         outputs = compiled({"features": features, "feature_lengths": features_lens})
         log_probs = outputs[compiled.output("log_probs")]
         encoder_lens = (features_lens - 1) // 4 + 1
+        self.last_metrics = self._metrics(log_probs, encoder_lens)[0]
         return self._decode(log_probs, encoder_lens)[0]
 
     def recognize(self, waveform, *, sample_rate=16_000, channel=None, **_kwargs):
@@ -316,6 +352,7 @@ class GigaamOpenVinoCtcAsr:
                     "end_sec": end / GIGAAM_SAMPLE_RATE,
                     "frames": frames,
                     "bucket": self.last_bucket,
+                    "metrics": dict(self.last_metrics),
                     "text": text,
                 }
             )
@@ -351,6 +388,7 @@ class GigaamOpenVinoCtcAsr:
                     "end_sec": end / GIGAAM_SAMPLE_RATE,
                     "frames": frames,
                     "bucket": self.last_bucket,
+                    "metrics": dict(self.last_metrics),
                     "text": text,
                 }
             )

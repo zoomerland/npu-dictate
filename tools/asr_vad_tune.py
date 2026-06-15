@@ -54,6 +54,24 @@ CONFIGS = {
         "first_pad_ms": 500,
         "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
     },
+    "int8_lowload_s3_b400": {
+        "bucket": 400,
+        "first_pad_ms": 500,
+        "model_filename": "v3_ctc.int8.onnx",
+        "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
+    },
+    "hybrid_repair_s3_b400": {
+        "bucket": 400,
+        "first_pad_ms": 500,
+        "cpu_repair_min_chunks": 2,
+        "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
+    },
+    "int8_pad300_first500_b800": {
+        "bucket": 800,
+        "first_pad_ms": 500,
+        "model_filename": "v3_ctc.int8.onnx",
+        "vad": {"max_speech_duration_s": 7.5, "min_silence_duration_ms": 100, "speech_pad_ms": 300},
+    },
     "lowload_s5_b600": {
         "bucket": 600,
         "first_pad_ms": 500,
@@ -253,6 +271,10 @@ def device_config_key(device_config):
     return tuple(sorted((str(key), value) for key, value in (device_config or {}).items()))
 
 
+def model_filename_key(config):
+    return str(config.get("model_filename") or "v3_ctc.onnx")
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -285,21 +307,29 @@ def main():
 
     vad = onnx_asr.load_vad("silero")
     asr_keys = sorted(
-        {(CONFIGS[name]["bucket"], device_config_key(CONFIGS[name].get("device_config"))) for name in config_names}
+        {
+            (
+                CONFIGS[name]["bucket"],
+                device_config_key(CONFIGS[name].get("device_config")),
+                model_filename_key(CONFIGS[name]),
+            )
+            for name in config_names
+        }
     )
     asrs = {}
-    for bucket, config_key in asr_keys:
+    for bucket, config_key, model_filename in asr_keys:
         device_config = dict(config_key)
         asr = GigaamOpenVinoCtcAsr(
             args.model_dir,
             device=args.device,
+            model_filename=model_filename,
             cache_dir=repo_root() / "models" / "openvino" / "cache" / "asr_gigaam_vad_tune",
             bucket_frames=(bucket,),
             pad_mode=args.pad_mode,
             device_config=device_config,
         )
         asr.warmup([bucket])
-        asrs[(bucket, config_key)] = asr
+        asrs[(bucket, config_key, model_filename)] = asr
 
     cpu = None
     if args.cpu_baseline:
@@ -313,6 +343,7 @@ def main():
         print(f"{path.name} audio={audio_sec:.2f}s", flush=True)
 
         item = {"file": str(path), "audio_sec": audio_sec, "results": []}
+        cpu_text = None
         if cpu is not None:
             start = time.perf_counter()
             cpu_text = result_to_text(cpu.recognize(audio16, sample_rate=16_000)).strip()
@@ -324,7 +355,8 @@ def main():
             config = CONFIGS[name]
             bucket = config["bucket"]
             config_key = device_config_key(config.get("device_config"))
-            asr = asrs[(bucket, config_key)]
+            model_filename = model_filename_key(config)
+            asr = asrs[(bucket, config_key, model_filename)]
             segments = vad_segments(vad, audio16, config["vad"], config["first_pad_ms"])
             if config.get("hard_split"):
                 segments = hard_split_segments(segments, bucket, config.get("overlap_ms", 0))
@@ -332,6 +364,17 @@ def main():
             text = asr.recognize_segments_16k(audio16, segments, bucket=bucket).strip()
             seconds = time.perf_counter() - start
             chunks = list(getattr(asr, "last_chunks", []))
+            repair = None
+            repair_min_chunks = int(config.get("cpu_repair_min_chunks") or 0)
+            if repair_min_chunks and len(chunks) >= repair_min_chunks:
+                if cpu is None:
+                    raise SystemExit(f"{name} requires --cpu-baseline for CPU repair.")
+                repair_start = time.perf_counter()
+                repair_text = result_to_text(cpu.recognize(audio16, sample_rate=16_000)).strip()
+                repair_sec = time.perf_counter() - repair_start
+                repair = {"seconds": repair_sec, "reason": f"chunks>={repair_min_chunks}", "npu_text": text}
+                text = repair_text
+                seconds += repair_sec
             segment_rows = [
                 {"start_sec": start / 16_000, "end_sec": end / 16_000, "duration_sec": (end - start) / 16_000}
                 for start, end in segments
@@ -341,9 +384,11 @@ def main():
                     "config": name,
                     "bucket": bucket,
                     "device_config": dict(config_key),
+                    "model_filename": model_filename,
                     "seconds": seconds,
                     "segments": segment_rows,
                     "chunks": chunks,
+                    "repair": repair,
                     "text": text,
                 }
             )
@@ -352,6 +397,8 @@ def main():
             config_text = " ".join(f"{key}={value}" for key, value in config_key)
             config_suffix = f" {config_text}" if config_text else ""
             print(f"{name}: {seconds:.3f}s n={len(segments)}{config_suffix} [{segment_text}]", flush=True)
+            if repair:
+                print(f"  repair: {repair['reason']} +{repair['seconds']:.3f}s", flush=True)
             if chunk_text:
                 print(f"  chunks: {chunk_text}", flush=True)
             print(f"  {text}", flush=True)
