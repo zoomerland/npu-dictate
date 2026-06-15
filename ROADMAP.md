@@ -167,6 +167,12 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Use Silero VAD to split audio on speech boundaries.
   - Run speech segments through one warmed NPU bucket.
   - Keep VAD loading lazy so app startup is not blocked by the segmenter.
+- [x] Bring saved-sample NPU ASR output close to the CPU baseline:
+  - Use the OpenVINO NNCF INT8 bucket-400 ASR profile on NPU.
+  - Use VAD segmentation, overlap-aware stitching, fuzzy duplicate trimming, and final ASR artifact cleanup.
+  - Reference report: 46 saved dictation WAV files, 36 exact CPU/NPU text matches.
+  - Average CPU/NPU text diff: 0.0021; maximum diff: 0.0185; no samples above 0.02.
+  - Treat the remaining mismatches as minor recognition variants unless live testing shows a real regression.
 - [ ] Tune chunked NPU ASR quality:
   - Compare bucket 400 vs 1000.
   - Compare VAD bucket 800 vs fixed chunk buckets.
