@@ -19,6 +19,7 @@
   "input_device_index": null,
   "sample_rate": 0,
   "channels": 1,
+  "audio_pre_roll_ms": 700,
   "use_punctuation": true,
   "save_debug_audio": false,
   "warmup_models": true,
