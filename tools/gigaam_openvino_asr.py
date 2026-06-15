@@ -228,6 +228,63 @@ class GigaamOpenVinoCtcAsr:
         common = sum(1 for a, b in zip(left_key, right_key) if a == b)
         return common / max(len(left_key), len(right_key)) >= 0.7
 
+    @staticmethod
+    def _is_prefix_fragment(fragment, full_token):
+        fragment_key = GigaamOpenVinoCtcAsr._token_key(fragment)
+        full_key = GigaamOpenVinoCtcAsr._token_key(full_token)
+        if len(fragment_key) < 2 or len(fragment_key) >= len(full_key):
+            return False
+        if not full_key.startswith(fragment_key):
+            return False
+        return len(fragment_key) <= max(4, int(len(full_key) * 0.75))
+
+    @staticmethod
+    def _is_suffix_fragment(fragment, full_token):
+        fragment_key = GigaamOpenVinoCtcAsr._token_key(fragment)
+        full_key = GigaamOpenVinoCtcAsr._token_key(full_token)
+        if len(fragment_key) < 3 or len(fragment_key) >= len(full_key):
+            return False
+        if full_key.endswith(fragment_key):
+            return True
+        if len(fragment_key) > 6 or len(full_key) - len(fragment_key) < 3:
+            return False
+        common = 0
+        for left, right in zip(reversed(fragment_key), reversed(full_key)):
+            if left != right:
+                break
+            common += 1
+        return common >= 3
+
+    @classmethod
+    def _trim_boundary_fragment(cls, output, tokens):
+        if not output or not tokens:
+            return
+
+        last_key = cls._token_key(output[-1])
+        first_key = cls._token_key(tokens[0])
+        if not last_key or not first_key:
+            return
+
+        if cls._is_prefix_fragment(output[-1], tokens[0]):
+            output.pop()
+            return
+
+        if cls._is_suffix_fragment(tokens[0], output[-1]):
+            del tokens[0]
+            return
+
+        if len(first_key) >= 3 and last_key.startswith(first_key) and 0 < len(last_key) - len(first_key) <= 2:
+            output.pop()
+            return
+
+        if (
+            len(output) >= 2
+            and len(tokens) >= 2
+            and cls._similar_token(output[-2], tokens[0])
+            and cls._is_prefix_fragment(output[-1], tokens[1])
+        ):
+            output.pop()
+
     @classmethod
     def _stitch_texts(cls, texts, fuzzy=False):
         output = []
@@ -238,6 +295,11 @@ class GigaamOpenVinoCtcAsr:
             if not output:
                 output.extend(tokens)
                 continue
+
+            if fuzzy:
+                cls._trim_boundary_fragment(output, tokens)
+                if not tokens:
+                    continue
 
             overlap = 0
             max_overlap = min(8, len(output), len(tokens))
@@ -251,7 +313,7 @@ class GigaamOpenVinoCtcAsr:
                     break
             if fuzzy and overlap == 0:
                 for offset in range(1, min(3, len(tokens))):
-                    if any(len(cls._token_key(token)) > 2 for token in tokens[:offset]):
+                    if any(len(cls._token_key(token)) > 3 for token in tokens[:offset]):
                         continue
                     shifted_max = min(8, len(output), len(tokens) - offset)
                     for size in range(shifted_max, 0, -1):
