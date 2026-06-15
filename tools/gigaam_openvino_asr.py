@@ -18,6 +18,16 @@ GIGAAM_HOP_LENGTH = GIGAAM_SAMPLE_RATE // 100
 GIGAAM_WIN_LENGTH = GIGAAM_SAMPLE_RATE // 50
 DEFAULT_CHUNK_OVERLAP_MS = 350
 DEFAULT_SILENCE_SEARCH_MS = 700
+ASR_CLEANUP_REPLACEMENTS = (
+    (re.compile(r"\b(?:\u0446\u0435\u043f\u0443|\u0446\u0435\u043f\u043f\u0443)\b", re.IGNORECASE), "\u0446\u043f\u0443"),
+    (re.compile(r"\b(?:\u0438\u043d\u043f\u0443|\u043e\u043d\u043f\u043e\u0443|\u043d\u043f\u043e\u0443)\b", re.IGNORECASE), "\u043d\u043f\u0443"),
+    (re.compile(r"\b(?:\u0432\u0438\u043d\u0434\u043e\u0443|\u0432\u0438\u043d\u0434\u043e\u0443\u0441)\b", re.IGNORECASE), "\u0432\u0438\u043d\u0434\u043e\u0432\u0441"),
+    (re.compile(r"\b\u043f\u0443\u043d\u043a\u0442\u0430\u0442\u043e\u0440\b", re.IGNORECASE), "\u043f\u0443\u043d\u043a\u0442\u0443\u0430\u0442\u043e\u0440"),
+    (re.compile(r"\b\u043f\u0443\u043d\u043a\u0442\u0430\u0442\u043e\u0440\u0430\b", re.IGNORECASE), "\u043f\u0443\u043d\u043a\u0442\u0443\u0430\u0442\u043e\u0440\u0430"),
+    (re.compile(r"\b\u0442\u043a\u0430\u0447\u0438\u0441\u0442\u043e\u0442\u044b\b", re.IGNORECASE), "\u0447\u0430\u0441\u0442\u043e\u0442\u044b"),
+    (re.compile(r"\b\u043f\u0440\u043e\u0431\u043b\u0435\u043c\u043a\u0438\u043d\u043e\b", re.IGNORECASE), "\u043f\u0440\u043e\u0431\u043b\u0435\u043c\u043a\u0438 \u043d\u0430"),
+    (re.compile(r"^\u0443\s+(?=\u0432\u043e\u0442\b)", re.IGNORECASE), ""),
+)
 
 
 class GigaamOpenVinoCtcAsr:
@@ -407,6 +417,15 @@ class GigaamOpenVinoCtcAsr:
             )
         return metrics
 
+    @staticmethod
+    def _cleanup_text(text):
+        text = str(text or "").strip()
+        if not text:
+            return ""
+        for pattern, replacement in ASR_CLEANUP_REPLACEMENTS:
+            text = pattern.sub(replacement, text)
+        return re.sub(r"\s+", " ", text).strip()
+
     def _recognize_features(self, features, features_lens, bucket):
         bucket = int(bucket)
         frames = features.shape[2]
@@ -422,7 +441,7 @@ class GigaamOpenVinoCtcAsr:
         log_probs = outputs[compiled.output("log_probs")]
         encoder_lens = (features_lens - 1) // 4 + 1
         self.last_metrics = self._metrics(log_probs, encoder_lens)[0]
-        return self._decode(log_probs, encoder_lens)[0]
+        return self._cleanup_text(self._decode(log_probs, encoder_lens)[0])
 
     def recognize(self, waveform, *, sample_rate=16_000, channel=None, **_kwargs):
         self.last_chunks = []
