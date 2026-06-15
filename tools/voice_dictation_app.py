@@ -1510,6 +1510,7 @@ class DictationEngine:
         self.audio_blocks = []
         self.audio_callback_count = 0
         self.audio_callback_statuses = []
+        self.audio_first_callback_perf = None
         self.audio_last_callback_perf = None
         self.audio_max_callback_gap = 0.0
         self.recording_cpu_start = None
@@ -1839,13 +1840,14 @@ class DictationEngine:
             self.audio_blocks = []
             self.audio_callback_count = 0
             self.audio_callback_statuses = []
+            self.audio_first_callback_perf = None
             self.audio_last_callback_perf = None
             self.audio_max_callback_gap = 0.0
             self.recording_cpu_start = system_cpu_times()
             self.recording_cpu_end = None
             self.recording_wall_start = time.perf_counter()
             self.recording_wall_end = None
-            self.recording_context = self.context_before_cursor()
+            self.recording_context = ""
 
             self.stream = sd.InputStream(
                 samplerate=self.sample_rate,
@@ -1857,6 +1859,12 @@ class DictationEngine:
             self.stream.start()
             self.recording = True
             self.set_status("Recording")
+
+        context = self.context_before_cursor()
+        if context:
+            with self.lock:
+                if self.recording:
+                    self.recording_context = context
 
     def stop_recording(self):
         with self.lock:
@@ -1898,6 +1906,8 @@ class DictationEngine:
 
     def _audio_callback(self, indata, frames, time_info, status):
         now = time.perf_counter()
+        if self.audio_first_callback_perf is None:
+            self.audio_first_callback_perf = now
         if self.audio_last_callback_perf is not None:
             self.audio_max_callback_gap = max(self.audio_max_callback_gap, now - self.audio_last_callback_perf)
         self.audio_last_callback_perf = now
@@ -1917,6 +1927,7 @@ class DictationEngine:
             cfg = dict(self.cfg)
             audio_callback_count = self.audio_callback_count
             audio_callback_statuses = list(self.audio_callback_statuses)
+            audio_first_callback_perf = self.audio_first_callback_perf
             audio_max_callback_gap = self.audio_max_callback_gap
             recording_cpu_start = self.recording_cpu_start
             recording_cpu_end = self.recording_cpu_end
@@ -1943,9 +1954,15 @@ class DictationEngine:
                 if recording_wall_start is not None and recording_wall_end is not None
                 else None
             )
+            first_callback_delay = (
+                audio_first_callback_perf - recording_wall_start
+                if audio_first_callback_perf is not None and recording_wall_start is not None
+                else None
+            )
             log_debug(
                 "recording stats "
                 f"audio={duration:.2f}s wall={format_seconds(recording_wall)}s "
+                f"first_callback={format_seconds(first_callback_delay)}s "
                 f"callbacks={audio_callback_count} max_callback_gap={audio_max_callback_gap:.3f}s "
                 f"cpu_load={format_percent(recording_cpu)} "
                 f"statuses={';'.join(audio_callback_statuses) if audio_callback_statuses else 'none'}"
