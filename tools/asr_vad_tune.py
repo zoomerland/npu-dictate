@@ -73,6 +73,15 @@ CONFIGS = {
         "stitch": True,
         "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
     },
+    "nncf_int8_fuzzy_s3_b400": {
+        "bucket": 400,
+        "first_pad_ms": 500,
+        "model_filename": "../gigaam-v3-ctc-openvino-int8/v3_ctc_bucket400_nncf_int8.xml",
+        "stitch": True,
+        "fuzzy_stitch": True,
+        "min_segment_ms": 450,
+        "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
+    },
     "hybrid_repair_s3_b400": {
         "bucket": 400,
         "first_pad_ms": 500,
@@ -189,6 +198,13 @@ def hard_split_segments(segments, bucket, overlap_ms):
                 break
             cursor = max(cursor + 1, chunk_end - overlap_samples)
     return split
+
+
+def filter_short_segments(segments, min_segment_ms):
+    min_samples = int(max(0, min_segment_ms) * 16)
+    if min_samples <= 0:
+        return segments
+    return [(start, end) for start, end in segments if end - start >= min_samples]
 
 
 def result_to_text(result):
@@ -371,10 +387,17 @@ def main():
             model_filename = model_filename_key(config)
             asr = asrs[(bucket, config_key, model_filename)]
             segments = vad_segments(vad, audio16, config["vad"], config["first_pad_ms"])
+            segments = filter_short_segments(segments, config.get("min_segment_ms", 0))
             if config.get("hard_split"):
                 segments = hard_split_segments(segments, bucket, config.get("overlap_ms", 0))
             start = time.perf_counter()
-            text = asr.recognize_segments_16k(audio16, segments, bucket=bucket, stitch=bool(config.get("stitch"))).strip()
+            text = asr.recognize_segments_16k(
+                audio16,
+                segments,
+                bucket=bucket,
+                stitch=bool(config.get("stitch")),
+                fuzzy_stitch=bool(config.get("fuzzy_stitch")),
+            ).strip()
             seconds = time.perf_counter() - start
             chunks = list(getattr(asr, "last_chunks", []))
             repair = None

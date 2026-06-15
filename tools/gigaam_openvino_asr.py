@@ -215,8 +215,21 @@ class GigaamOpenVinoCtcAsr:
     def _token_key(token):
         return re.sub(r"\W+", "", token.lower())
 
+    @staticmethod
+    def _similar_token(left, right):
+        left_key = GigaamOpenVinoCtcAsr._token_key(left)
+        right_key = GigaamOpenVinoCtcAsr._token_key(right)
+        if not left_key or not right_key:
+            return False
+        if left_key == right_key:
+            return True
+        if len(left_key) < 5 or len(right_key) < 5:
+            return False
+        common = sum(1 for a, b in zip(left_key, right_key) if a == b)
+        return common / max(len(left_key), len(right_key)) >= 0.7
+
     @classmethod
-    def _stitch_texts(cls, texts):
+    def _stitch_texts(cls, texts, fuzzy=False):
         output = []
         for text in texts:
             tokens = [token for token in text.strip().split() if token]
@@ -231,7 +244,9 @@ class GigaamOpenVinoCtcAsr:
             output_keys = [cls._token_key(token) for token in output]
             token_keys = [cls._token_key(token) for token in tokens]
             for size in range(max_overlap, 0, -1):
-                if output_keys[-size:] == token_keys[:size]:
+                if output_keys[-size:] == token_keys[:size] or (
+                    fuzzy and all(cls._similar_token(left, right) for left, right in zip(output[-size:], tokens[:size]))
+                ):
                     overlap = size
                     break
             output.extend(tokens[overlap:])
@@ -364,7 +379,7 @@ class GigaamOpenVinoCtcAsr:
         self.last_frames = sum(chunk["frames"] for chunk in chunks)
         return self._stitch_texts(texts)
 
-    def recognize_segments_16k(self, audio, segments, *, bucket=800, stitch=False):
+    def recognize_segments_16k(self, audio, segments, *, bucket=800, stitch=False, fuzzy_stitch=False):
         audio = np.ascontiguousarray(audio, dtype=np.float32)
         bucket = int(bucket)
         texts = []
@@ -399,5 +414,5 @@ class GigaamOpenVinoCtcAsr:
         self.last_bucket = f"vad:{bucket}x{len(chunks)}"
         self.last_frames = sum(chunk["frames"] for chunk in chunks)
         if stitch:
-            return self._stitch_texts(texts)
+            return self._stitch_texts(texts, fuzzy=fuzzy_stitch)
         return self._join_texts(texts)
