@@ -249,6 +249,20 @@ class GigaamOpenVinoCtcAsr:
                 ):
                     overlap = size
                     break
+            if fuzzy and overlap == 0:
+                for offset in range(1, min(3, len(tokens))):
+                    if any(len(cls._token_key(token)) > 2 for token in tokens[:offset]):
+                        continue
+                    shifted_max = min(8, len(output), len(tokens) - offset)
+                    for size in range(shifted_max, 0, -1):
+                        if all(
+                            cls._similar_token(left, right)
+                            for left, right in zip(output[-size:], tokens[offset : offset + size])
+                        ):
+                            overlap = offset + size
+                            break
+                    if overlap:
+                        break
             output.extend(tokens[overlap:])
 
         return " ".join(output)

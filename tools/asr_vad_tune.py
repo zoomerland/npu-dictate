@@ -82,6 +82,15 @@ CONFIGS = {
         "min_segment_ms": 450,
         "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
     },
+    "nncf_int8_calib96_fuzzy_s3_b400": {
+        "bucket": 400,
+        "first_pad_ms": 500,
+        "model_filename": "../gigaam-v3-ctc-openvino-int8-calib96/v3_ctc_bucket400_nncf_int8.xml",
+        "stitch": True,
+        "fuzzy_stitch": True,
+        "min_segment_ms": 450,
+        "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
+    },
     "hybrid_repair_s3_b400": {
         "bucket": 400,
         "first_pad_ms": 500,
