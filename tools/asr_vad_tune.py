@@ -37,6 +37,21 @@ CONFIGS = {
         "first_pad_ms": 500,
         "vad": {"max_speech_duration_s": 9.5, "min_silence_duration_ms": 100, "speech_pad_ms": 300},
     },
+    "lowload_s3_b400": {
+        "bucket": 400,
+        "first_pad_ms": 500,
+        "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
+    },
+    "lowload_s5_b600": {
+        "bucket": 600,
+        "first_pad_ms": 500,
+        "vad": {"max_speech_duration_s": 5.5, "min_silence_duration_ms": 100, "speech_pad_ms": 250},
+    },
+    "lowload_s6_b800": {
+        "bucket": 800,
+        "first_pad_ms": 500,
+        "vad": {"max_speech_duration_s": 6.5, "min_silence_duration_ms": 100, "speech_pad_ms": 250},
+    },
 }
 
 
@@ -253,6 +268,7 @@ def main():
             start = time.perf_counter()
             text = asrs[bucket].recognize_segments_16k(audio16, segments, bucket=bucket).strip()
             seconds = time.perf_counter() - start
+            chunks = list(getattr(asrs[bucket], "last_chunks", []))
             segment_rows = [
                 {"start_sec": start / 16_000, "end_sec": end / 16_000, "duration_sec": (end - start) / 16_000}
                 for start, end in segments
@@ -263,11 +279,15 @@ def main():
                     "bucket": bucket,
                     "seconds": seconds,
                     "segments": segment_rows,
+                    "chunks": chunks,
                     "text": text,
                 }
             )
             segment_text = ", ".join(f"{row['start_sec']:.2f}-{row['end_sec']:.2f}" for row in segment_rows)
+            chunk_text = ", ".join(f"{chunk['frames']}->{chunk['bucket']}" for chunk in chunks)
             print(f"{name}: {seconds:.3f}s n={len(segments)} [{segment_text}]", flush=True)
+            if chunk_text:
+                print(f"  chunks: {chunk_text}", flush=True)
             print(f"  {text}", flush=True)
 
         report.append(item)
