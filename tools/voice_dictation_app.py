@@ -304,6 +304,7 @@ def default_punct_model_dir():
 DEVICE_CHOICES = ("CPU", "GPU", "NPU")
 DEFAULT_ASR_MODEL = "gigaam-v3-ctc-onnx-int8"
 OPENVINO_ASR_MODEL = "gigaam-v3-ctc-openvino-fp32"
+OPENVINO_ASR_NNCF_INT8_MODEL = "gigaam-v3-ctc-openvino-nncf-int8-b400"
 DEFAULT_PUNCT_MODEL = "rupunct-big-openvino-fp16-static128"
 DEFAULT_ASR_BUCKET_FRAMES = (400, 800, 1000, 1600, 3200)
 DEFAULT_ASR_WARMUP_BUCKETS = DEFAULT_ASR_BUCKET_FRAMES
@@ -314,6 +315,7 @@ DEFAULT_ASR_VAD_MAX_SPEECH_S = 7.5
 DEFAULT_ASR_VAD_MIN_SILENCE_MS = 100
 DEFAULT_ASR_VAD_SPEECH_PAD_MS = 300
 DEFAULT_ASR_VAD_FIRST_PAD_MS = 500
+DEFAULT_ASR_VAD_MIN_SEGMENT_MS = 0
 ASR_PAD_MODES = {"zero", "silence", "edge", "min"}
 
 ASR_MODEL_PROFILES = {
@@ -331,6 +333,15 @@ ASR_MODEL_PROFILES = {
         "backend": "openvino_ctc",
         "model_file": "v3_ctc.onnx",
         "model_dir": asr_model_dir,
+        "devices": ("CPU", "NPU"),
+        "default_device": "NPU",
+    },
+    OPENVINO_ASR_NNCF_INT8_MODEL: {
+        "label": "GigaAM v3 CTC (OpenVINO NNCF INT8 b400)",
+        "backend": "openvino_ctc",
+        "model_file": "../gigaam-v3-ctc-openvino-int8-calib96/v3_ctc_bucket400_nncf_int8.xml",
+        "model_dir": asr_model_dir,
+        "cache_key": "asr_gigaam_nncf_int8_calib96_b400",
         "devices": ("CPU", "NPU"),
         "default_device": "NPU",
     },
@@ -410,6 +421,14 @@ def normalize_model_config(cfg):
         0,
         2000,
     )
+    cfg["asr_vad_min_segment_ms"] = normalize_int(
+        cfg.get("asr_vad_min_segment_ms"),
+        DEFAULT_ASR_VAD_MIN_SEGMENT_MS,
+        0,
+        5000,
+    )
+    cfg["asr_vad_stitch"] = bool(cfg.get("asr_vad_stitch", False))
+    cfg["asr_vad_fuzzy_stitch"] = bool(cfg.get("asr_vad_fuzzy_stitch", False))
     cfg["punct_model"] = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
     cfg["punct_device"] = normalize_model_device(PUNCT_MODEL_PROFILES, cfg["punct_model"], cfg.get("punct_device"))
     cfg["warmup_models"] = bool(cfg.get("warmup_models", True))
@@ -561,6 +580,9 @@ def default_config():
         "asr_vad_min_silence_ms": DEFAULT_ASR_VAD_MIN_SILENCE_MS,
         "asr_vad_speech_pad_ms": DEFAULT_ASR_VAD_SPEECH_PAD_MS,
         "asr_vad_first_pad_ms": DEFAULT_ASR_VAD_FIRST_PAD_MS,
+        "asr_vad_min_segment_ms": DEFAULT_ASR_VAD_MIN_SEGMENT_MS,
+        "asr_vad_stitch": False,
+        "asr_vad_fuzzy_stitch": False,
         "input_device_index": choose_default_device_index(),
         "sample_rate": 0,
         "channels": 1,
@@ -879,6 +901,14 @@ def vad_segment_ranges(vad, audio16, cfg):
         ) * 16)
         start, end = segments[0]
         segments[0] = (max(0, start - first_pad), end)
+    min_segment_samples = normalize_int(
+        cfg.get("asr_vad_min_segment_ms"),
+        DEFAULT_ASR_VAD_MIN_SEGMENT_MS,
+        0,
+        5000,
+    ) * 16
+    if min_segment_samples:
+        segments = [(start, end) for start, end in segments if end - start >= min_segment_samples]
     return segments
 
 
@@ -1507,6 +1537,10 @@ class DictationEngine:
                 or old_cfg.get("asr_vad_max_speech_s") != cfg.get("asr_vad_max_speech_s")
                 or old_cfg.get("asr_vad_min_silence_ms") != cfg.get("asr_vad_min_silence_ms")
                 or old_cfg.get("asr_vad_speech_pad_ms") != cfg.get("asr_vad_speech_pad_ms")
+                or old_cfg.get("asr_vad_first_pad_ms") != cfg.get("asr_vad_first_pad_ms")
+                or old_cfg.get("asr_vad_min_segment_ms") != cfg.get("asr_vad_min_segment_ms")
+                or old_cfg.get("asr_vad_stitch") != cfg.get("asr_vad_stitch")
+                or old_cfg.get("asr_vad_fuzzy_stitch") != cfg.get("asr_vad_fuzzy_stitch")
             )
             self.cfg = cfg
             if reload_asr:
@@ -1543,7 +1577,7 @@ class DictationEngine:
                 profile["model_dir"](),
                 device=device,
                 model_filename=profile["model_file"],
-                cache_dir=repo_root() / "models" / "openvino" / "cache" / "asr_gigaam",
+                cache_dir=repo_root() / "models" / "openvino" / "cache" / profile.get("cache_key", "asr_gigaam"),
                 bucket_frames=normalize_asr_bucket_frames(cfg.get("asr_bucket_frames")),
                 pad_mode=normalize_asr_pad_mode(cfg.get("asr_pad_mode")),
             )
@@ -1943,6 +1977,8 @@ class DictationEngine:
                     audio16,
                     segments,
                     bucket=normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket")),
+                    stitch=bool(cfg.get("asr_vad_stitch", False)),
+                    fuzzy_stitch=bool(cfg.get("asr_vad_fuzzy_stitch", False)),
                 )
                 log_asr_chunks(self.asr)
             elif asr_mode == "chunked":
