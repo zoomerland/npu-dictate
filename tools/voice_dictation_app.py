@@ -317,7 +317,7 @@ DEFAULT_ASR_VAD_MIN_SILENCE_MS = 100
 DEFAULT_ASR_VAD_SPEECH_PAD_MS = 300
 DEFAULT_ASR_VAD_FIRST_PAD_MS = 500
 DEFAULT_ASR_VAD_MIN_SEGMENT_MS = 0
-DEFAULT_AUDIO_PRE_ROLL_MS = 700
+DEFAULT_AUDIO_PRE_ROLL_MS = 350
 ASR_PAD_MODES = {"zero", "silence", "edge", "min"}
 
 ASR_MODEL_PROFILES = {
@@ -1947,6 +1947,10 @@ class DictationEngine:
         seconds = self.pre_roll_samples / self.sample_rate if self.sample_rate else 0.0
         return blocks, seconds
 
+    def clear_pre_roll_locked(self):
+        self.pre_roll_blocks.clear()
+        self.pre_roll_samples = 0
+
     def start_recording(self):
         with self.lock:
             if self.recording or self.transcribing:
@@ -1992,6 +1996,7 @@ class DictationEngine:
             self.recording = False
             self.recording_cpu_end = system_cpu_times()
             self.recording_wall_end = time.perf_counter()
+            self.clear_pre_roll_locked()
 
         threading.Thread(target=self._transcribe_recording, daemon=True).start()
 
@@ -2008,6 +2013,7 @@ class DictationEngine:
             self.recording = False
             self.audio_blocks = []
             self.recording_context = ""
+            self.clear_pre_roll_locked()
 
         self.set_status("Ready" if self.loaded else "Starting")
 
