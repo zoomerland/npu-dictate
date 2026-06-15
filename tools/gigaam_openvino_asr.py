@@ -329,6 +329,29 @@ class GigaamOpenVinoCtcAsr:
 
         return " ".join(output)
 
+    @classmethod
+    def _stitch_chunks(cls, chunks, fuzzy=False, overlap_tolerance_s=0.05):
+        output = []
+        previous_end = None
+        for chunk in chunks:
+            text = str(chunk.get("text") or "").strip()
+            tokens = [token for token in text.split() if token]
+            if not tokens:
+                continue
+            if not output:
+                output.extend(tokens)
+                previous_end = float(chunk.get("end_sec", 0.0))
+                continue
+
+            start = float(chunk.get("start_sec", 0.0))
+            if previous_end is None or start <= previous_end + overlap_tolerance_s:
+                output = cls._stitch_texts([" ".join(output), " ".join(tokens)], fuzzy=fuzzy).split()
+            else:
+                output.extend(tokens)
+            previous_end = float(chunk.get("end_sec", previous_end or 0.0))
+
+        return " ".join(output)
+
     @staticmethod
     def _join_texts(texts):
         return " ".join(text.strip() for text in texts if text.strip())
@@ -490,5 +513,5 @@ class GigaamOpenVinoCtcAsr:
         self.last_bucket = f"vad:{bucket}x{len(chunks)}"
         self.last_frames = sum(chunk["frames"] for chunk in chunks)
         if stitch:
-            return self._stitch_texts(texts, fuzzy=fuzzy_stitch)
+            return self._stitch_chunks(chunks, fuzzy=fuzzy_stitch)
         return self._join_texts(texts)
