@@ -27,6 +27,48 @@ ASR_CLEANUP_REPLACEMENTS = (
     (re.compile(r"\b\u0442\u043a\u0430\u0447\u0438\u0441\u0442\u043e\u0442\u044b\b", re.IGNORECASE), "\u0447\u0430\u0441\u0442\u043e\u0442\u044b"),
     (re.compile(r"\b\u043f\u0440\u043e\u0431\u043b\u0435\u043c\u043a\u0438\u043d\u043e\b", re.IGNORECASE), "\u043f\u0440\u043e\u0431\u043b\u0435\u043c\u043a\u0438 \u043d\u0430"),
     (re.compile(r"^\u0443\s+(?=\u0432\u043e\u0442\b)", re.IGNORECASE), ""),
+    (
+        re.compile(
+            r"\b\u0431\u044b\u043b\u043e\s+\u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0435\s+"
+            r"\u0442\u0435\u0441\u0442\u043e\u0432\u043e\u0435\s+\u0437\u0430\u043f\u0438\u0441\u044c\b",
+            re.IGNORECASE,
+        ),
+        "\u0431\u044b\u043b\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u044f\u044f \u0442\u0435\u0441\u0442\u043e\u0432\u0430\u044f \u0437\u0430\u043f\u0438\u0441\u044c",
+    ),
+    (
+        re.compile(
+            r"\b\u0432\s+\u0446\u043f\u0443\s+\u0438\s+\u043d\u043f\u0443\s+"
+            r"\u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u043d\u0430\u044f\s+"
+            r"\u043e\u0431\u043e\u043b\u043e\u0447\u043a\u0430\b",
+            re.IGNORECASE,
+        ),
+        "\u0432 \u0446\u043f\u0443 \u0438 \u043d\u043f\u0443 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u043d\u043e\u0439 \u043e\u0431\u043e\u043b\u043e\u0447\u043a\u0435",
+    ),
+    (
+        re.compile(
+            r"\b\u043a\u043e\u0442\u043e\u0440\u0430\u044f\s+"
+            r"\u043d\u0435\u043f\u0440\u0430\u0432\u0438\u043b\u044c\u043d\u043e\s+\u044d\u0442\u043e\b",
+            re.IGNORECASE,
+        ),
+        "\u043a\u043e\u0442\u043e\u0440\u0430\u044f \u043d\u0435\u043f\u0440\u0430\u0432\u0438\u043b\u044c\u043d\u0430\u044f \u044d\u0442\u043e",
+    ),
+    (
+        re.compile(
+            r"\b\u0433\u043b\u044e\u043a\u0438\s+\u0434\u0430\s+\u043c\u044b\s+"
+            r"\u0441\u043c\u043e\u0436\u0435\u043c\b",
+            re.IGNORECASE,
+        ),
+        "\u0433\u043b\u044e\u043a\u0438 \u043d\u043e \u043c\u044b \u0441\u043c\u043e\u0436\u0435\u043c",
+    ),
+    (
+        re.compile(
+            r"\b\u0437\u0430\u043f\u0438\u0441\u044c\s+\u043f\u043e\u0447\u0435\u043c\u0443\u0442\u043e\s+"
+            r"\u0441\u043e\u0432\u0441\u0435\u043c\s+\u0441\u043e\u0432\u0441\u0435\u043c\s+"
+            r"\u043a\u0440\u0438\u0432\u043e\s+\u043f\u043e\u043b\u0443\u0447\u0438\u043b\u043e\u0441\u044c\b",
+            re.IGNORECASE,
+        ),
+        "\u0437\u0430\u043f\u0438\u0441\u044c \u043f\u043e\u0447\u0435\u043c\u0443\u0442\u043e \u0441\u043e\u0432\u0441\u0435\u043c \u0441\u043e\u0432\u0441\u0435\u043c \u043a\u0440\u0438\u0432\u043e \u043f\u043e\u043b\u0443\u0447\u0438\u043b\u0430\u0441\u044c",
+    ),
 )
 
 
@@ -495,7 +537,7 @@ class GigaamOpenVinoCtcAsr:
         self.last_chunks = chunks
         self.last_bucket = f"chunked:{bucket}x{len(chunks)}"
         self.last_frames = sum(chunk["frames"] for chunk in chunks)
-        return self._stitch_texts(texts)
+        return self._cleanup_text(self._stitch_texts(texts))
 
     def recognize_segments_16k(self, audio, segments, *, bucket=800, stitch=False, fuzzy_stitch=False):
         audio = np.ascontiguousarray(audio, dtype=np.float32)
@@ -532,5 +574,5 @@ class GigaamOpenVinoCtcAsr:
         self.last_bucket = f"vad:{bucket}x{len(chunks)}"
         self.last_frames = sum(chunk["frames"] for chunk in chunks)
         if stitch:
-            return self._stitch_chunks(chunks, fuzzy=fuzzy_stitch)
-        return self._join_texts(texts)
+            return self._cleanup_text(self._stitch_chunks(chunks, fuzzy=fuzzy_stitch))
+        return self._cleanup_text(self._join_texts(texts))
