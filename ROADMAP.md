@@ -173,6 +173,11 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Reference report: 46 saved dictation WAV files, 36 exact CPU/NPU text matches.
   - Average CPU/NPU text diff: 0.0021; maximum diff: 0.0185; no samples above 0.02.
   - Treat the remaining mismatches as minor recognition variants unless live testing shows a real regression.
+- [x] Stabilize live recording startup:
+  - Start audio capture before UI Automation context lookup.
+  - Keep a warm microphone stream and prepend a short 350 ms pre-roll buffer.
+  - Clear the pre-roll buffer after each recording to avoid carrying speech into the next dictation.
+  - Live quick-start tests preserved the first words without repeating prior-recording tails.
 - [ ] Tune chunked NPU ASR quality:
   - Compare bucket 400 vs 1000.
   - Compare VAD bucket 800 vs fixed chunk buckets.
@@ -180,6 +185,12 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Test fast speech and long dictation from saved WAV files.
   - Compare against the CPU dynamic-shape baseline.
 - [ ] Benchmark CPU vs NPU:
+  - [x] Preliminary warm ASR benchmark on 9 live post-pre-roll debug WAV files:
+    - CPU INT8 total: 10.643 seconds.
+    - NPU OpenVINO NNCF INT8 bucket-400 total: 1.831 seconds.
+    - Total speedup: about 5.8x.
+    - Exact CPU/NPU raw-text matches: 8/9.
+    - Average text diff: 0.0007; maximum diff: 0.0066.
   - Cold load.
   - Warm inference.
   - Short phrases.
