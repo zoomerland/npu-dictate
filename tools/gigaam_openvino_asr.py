@@ -29,12 +29,14 @@ class GigaamOpenVinoCtcAsr:
         cache_dir=None,
         bucket_frames=DEFAULT_BUCKET_FRAMES,
         pad_mode="zero",
+        device_config=None,
     ):
         self.model_dir = Path(model_dir)
         self.device = device
         self.model_path = self.model_dir / model_filename
         self.bucket_frames = tuple(sorted(int(value) for value in bucket_frames))
         self.pad_mode = pad_mode if pad_mode in PAD_MODES else "zero"
+        self.device_config = dict(device_config or {})
         self.core = ov.Core()
         if cache_dir is not None:
             Path(cache_dir).mkdir(parents=True, exist_ok=True)
@@ -113,7 +115,10 @@ class GigaamOpenVinoCtcAsr:
 
             model = self.core.read_model(str(self.model_path))
             model.reshape({"features": [1, 64, bucket], "feature_lengths": [1]})
-            compiled = self.core.compile_model(model, self.device)
+            if self.device_config:
+                compiled = self.core.compile_model(model, self.device, self.device_config)
+            else:
+                compiled = self.core.compile_model(model, self.device)
             self.compiled[bucket] = compiled
             return compiled
 

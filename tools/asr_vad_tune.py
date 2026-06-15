@@ -37,6 +37,18 @@ CONFIGS = {
         "first_pad_ms": 500,
         "vad": {"max_speech_duration_s": 9.5, "min_silence_duration_ms": 100, "speech_pad_ms": 300},
     },
+    "lowload_s2_b200": {
+        "bucket": 200,
+        "first_pad_ms": 300,
+        "hard_split": True,
+        "overlap_ms": 180,
+        "vad": {"max_speech_duration_s": 1.6, "min_silence_duration_ms": 60, "speech_pad_ms": 120},
+    },
+    "lowload_s25_b300": {
+        "bucket": 300,
+        "first_pad_ms": 450,
+        "vad": {"max_speech_duration_s": 2.7, "min_silence_duration_ms": 80, "speech_pad_ms": 220},
+    },
     "lowload_s3_b400": {
         "bucket": 400,
         "first_pad_ms": 500,
@@ -51,6 +63,24 @@ CONFIGS = {
         "bucket": 800,
         "first_pad_ms": 500,
         "vad": {"max_speech_duration_s": 6.5, "min_silence_duration_ms": 100, "speech_pad_ms": 250},
+    },
+    "tiles1_s3_b400": {
+        "bucket": 400,
+        "first_pad_ms": 500,
+        "device_config": {"NPU_TILES": 1},
+        "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
+    },
+    "turbo_s3_b400": {
+        "bucket": 400,
+        "first_pad_ms": 500,
+        "device_config": {"NPU_TURBO": True},
+        "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
+    },
+    "tiles1_turbo_s3_b400": {
+        "bucket": 400,
+        "first_pad_ms": 500,
+        "device_config": {"NPU_TILES": 1, "NPU_TURBO": True},
+        "vad": {"max_speech_duration_s": 3.5, "min_silence_duration_ms": 80, "speech_pad_ms": 250},
     },
 }
 
@@ -107,6 +137,27 @@ def vad_segments(vad, audio16, vad_options, first_pad_ms):
         start, end = segments[0]
         segments[0] = (max(0, start - int(first_pad_ms * 16)), end)
     return segments
+
+
+def hard_split_segments(segments, bucket, overlap_ms):
+    max_samples = GigaamOpenVinoCtcAsr._audio_samples_for_bucket(bucket)
+    overlap_samples = int(max(0, overlap_ms) * 16)
+    overlap_samples = min(overlap_samples, max_samples // 4)
+    split = []
+    for start, end in segments:
+        start = int(start)
+        end = int(end)
+        if end - start <= max_samples:
+            split.append((start, end))
+            continue
+        cursor = start
+        while cursor < end:
+            chunk_end = min(end, cursor + max_samples)
+            split.append((cursor, chunk_end))
+            if chunk_end >= end:
+                break
+            cursor = max(cursor + 1, chunk_end - overlap_samples)
+    return split
 
 
 def result_to_text(result):
@@ -198,6 +249,10 @@ def resolve_files(args):
     return resolved
 
 
+def device_config_key(device_config):
+    return tuple(sorted((str(key), value) for key, value in (device_config or {}).items()))
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -229,18 +284,22 @@ def main():
         raise SystemExit(f"Unknown config(s): {', '.join(unknown)}")
 
     vad = onnx_asr.load_vad("silero")
-    buckets = sorted({CONFIGS[name]["bucket"] for name in config_names})
+    asr_keys = sorted(
+        {(CONFIGS[name]["bucket"], device_config_key(CONFIGS[name].get("device_config"))) for name in config_names}
+    )
     asrs = {}
-    for bucket in buckets:
+    for bucket, config_key in asr_keys:
+        device_config = dict(config_key)
         asr = GigaamOpenVinoCtcAsr(
             args.model_dir,
             device=args.device,
             cache_dir=repo_root() / "models" / "openvino" / "cache" / "asr_gigaam_vad_tune",
             bucket_frames=(bucket,),
             pad_mode=args.pad_mode,
+            device_config=device_config,
         )
         asr.warmup([bucket])
-        asrs[bucket] = asr
+        asrs[(bucket, config_key)] = asr
 
     cpu = None
     if args.cpu_baseline:
@@ -264,11 +323,15 @@ def main():
         for name in config_names:
             config = CONFIGS[name]
             bucket = config["bucket"]
+            config_key = device_config_key(config.get("device_config"))
+            asr = asrs[(bucket, config_key)]
             segments = vad_segments(vad, audio16, config["vad"], config["first_pad_ms"])
+            if config.get("hard_split"):
+                segments = hard_split_segments(segments, bucket, config.get("overlap_ms", 0))
             start = time.perf_counter()
-            text = asrs[bucket].recognize_segments_16k(audio16, segments, bucket=bucket).strip()
+            text = asr.recognize_segments_16k(audio16, segments, bucket=bucket).strip()
             seconds = time.perf_counter() - start
-            chunks = list(getattr(asrs[bucket], "last_chunks", []))
+            chunks = list(getattr(asr, "last_chunks", []))
             segment_rows = [
                 {"start_sec": start / 16_000, "end_sec": end / 16_000, "duration_sec": (end - start) / 16_000}
                 for start, end in segments
@@ -277,6 +340,7 @@ def main():
                 {
                     "config": name,
                     "bucket": bucket,
+                    "device_config": dict(config_key),
                     "seconds": seconds,
                     "segments": segment_rows,
                     "chunks": chunks,
@@ -285,7 +349,9 @@ def main():
             )
             segment_text = ", ".join(f"{row['start_sec']:.2f}-{row['end_sec']:.2f}" for row in segment_rows)
             chunk_text = ", ".join(f"{chunk['frames']}->{chunk['bucket']}" for chunk in chunks)
-            print(f"{name}: {seconds:.3f}s n={len(segments)} [{segment_text}]", flush=True)
+            config_text = " ".join(f"{key}={value}" for key, value in config_key)
+            config_suffix = f" {config_text}" if config_text else ""
+            print(f"{name}: {seconds:.3f}s n={len(segments)}{config_suffix} [{segment_text}]", flush=True)
             if chunk_text:
                 print(f"  chunks: {chunk_text}", flush=True)
             print(f"  {text}", flush=True)
