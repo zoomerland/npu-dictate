@@ -361,6 +361,17 @@ PUNCT_MODEL_PROFILES = {
 }
 
 
+def device_is_available(devices, device):
+    target = str(device or "").upper()
+    if not target:
+        return False
+    for item in devices:
+        item = str(item or "").upper()
+        if item == target or item.startswith(f"{target}."):
+            return True
+    return False
+
+
 def normalize_model_id(profiles, value, default):
     return value if value in profiles else default
 
@@ -390,6 +401,71 @@ def normalize_model_device(profiles, model_id, device):
     if device in profile["devices"]:
         return device
     return profile.get("default_device") or profile["devices"][0]
+
+
+def selected_openvino_devices(cfg):
+    devices = set()
+    asr_model = normalize_model_id(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
+    asr_profile = model_profile(ASR_MODEL_PROFILES, asr_model, DEFAULT_ASR_MODEL)
+    if asr_profile.get("backend") == "openvino_ctc":
+        devices.add(normalize_model_device(ASR_MODEL_PROFILES, asr_model, cfg.get("asr_device")))
+
+    if cfg.get("use_punctuation", True):
+        punct_model = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
+        devices.add(normalize_model_device(PUNCT_MODEL_PROFILES, punct_model, cfg.get("punct_device")))
+
+    return sorted(device for device in devices if device)
+
+
+def probe_openvino_hardware(cfg):
+    info = {
+        "available": False,
+        "version": None,
+        "devices": [],
+        "device_names": {},
+        "selected_devices": selected_openvino_devices(cfg),
+        "warnings": [],
+        "error": None,
+    }
+
+    try:
+        import openvino as ov
+
+        info["version"] = getattr(ov, "__version__", None)
+        core = ov.Core()
+        devices = list(core.available_devices)
+        info["available"] = True
+        info["devices"] = devices
+
+        for device in devices:
+            try:
+                info["device_names"][device] = str(core.get_property(device, "FULL_DEVICE_NAME"))
+            except Exception as exc:
+                info["device_names"][device] = f"unavailable: {type(exc).__name__}"
+    except Exception as exc:
+        info["error"] = type(exc).__name__
+
+    if info["available"]:
+        for device in info["selected_devices"]:
+            if not device_is_available(info["devices"], device):
+                info["warnings"].append(f"Selected OpenVINO device {device} was not reported by OpenVINO.")
+    elif info["selected_devices"]:
+        info["warnings"].append("OpenVINO hardware probe failed while OpenVINO device profiles are selected.")
+
+    return info
+
+
+def log_openvino_hardware(info):
+    if not info:
+        return
+    log_debug(
+        "openvino hardware "
+        f"available={info.get('available')} version={info.get('version')} "
+        f"devices={','.join(info.get('devices') or []) or 'none'} "
+        f"selected={','.join(info.get('selected_devices') or []) or 'none'} "
+        f"warnings={';'.join(info.get('warnings') or []) or 'none'} "
+        f"error={info.get('error') or 'none'}"
+    )
 
 
 def normalize_model_config(cfg):
@@ -1588,6 +1664,7 @@ class DictationEngine:
         self.recording_wall_start = None
         self.recording_wall_end = None
         self.recording_context = ""
+        self.hardware_info = None
         self.lock = threading.RLock()
         self.compare_lock = threading.RLock()
         self.keyboard = keyboard.Controller()
@@ -1843,6 +1920,10 @@ class DictationEngine:
             load_start = time.perf_counter()
             log_debug("load start")
             cfg = dict(self.cfg)
+            hardware_info = probe_openvino_hardware(cfg)
+            log_openvino_hardware(hardware_info)
+            with self.lock:
+                self.hardware_info = hardware_info
             asr_profile = model_profile(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
             self.set_status("Loading ASR")
             asr_start = time.perf_counter()
@@ -2853,6 +2934,7 @@ class VoiceDictationApp:
                 "asr_dir_exists": asr_model_dir().exists(),
                 "punct_dir_exists": default_punct_model_dir().exists(),
             },
+            "hardware": self.engine.hardware_info,
             "raw_status": self.current_status,
             "tray_available": pystray is not None,
             "tray_running": self.tray_icon is not None,

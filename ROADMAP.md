@@ -216,7 +216,10 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
 - [x] Add ASR and punctuation model selectors for the currently supported local profiles.
 - [x] Show CPU / GPU / NPU availability per selected model and disable unsupported devices.
 - [ ] Add real fallback profiles after each model/device combination is tested.
-- [ ] Add startup hardware capability checks.
+- [x] Add startup hardware capability checks:
+  - Probe OpenVINO version and available devices in the background loading thread.
+  - Log device names, selected OpenVINO devices, and missing-device warnings.
+  - Include hardware probe results in copied diagnostics.
 - [ ] Document tested Intel NPU devices.
 
 ## Milestone 5: Public v0.1 Release

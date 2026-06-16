@@ -117,6 +117,8 @@ Current pipeline:
 
 CPU-only machines can currently use the CPU ASR profile. Full CPU-only parity still needs a tested CPU punctuation profile or punctuation disabled in settings, so NPU remains the preferred path for the current alpha.
 
+On startup, the app runs a soft OpenVINO hardware probe in the background loading thread. It logs the OpenVINO version, reported devices, device names, selected OpenVINO devices, and warnings when a selected device such as `NPU` is not reported by OpenVINO. The same data is included in copied diagnostics.
+
 ## Preliminary Benchmarks
 
 These numbers are local development measurements, not a formal benchmark suite.
@@ -166,6 +168,7 @@ Saved-sample ASR tuning report:
 - If paste fails, the app should leave the dictated text in the clipboard so manual `Ctrl+V` still works.
 - Try Notepad first to separate paste/focus issues from a specific application.
 - Use the diagnostics action from the tray/settings menu and inspect recent focus/paste log lines.
+- Diagnostics also include OpenVINO hardware info, selected devices, and recent log tail.
 
 ### The wrong field receives text
 
@@ -191,6 +194,13 @@ Saved-sample ASR tuning report:
 - Make sure internet access is available for first model preparation.
 - Delete only the incomplete model subfolder under `models/` and start again.
 - Keep virtual environment dependencies aligned with `requirements.txt`.
+
+### NPU is not available
+
+- Copy diagnostics and check `hardware.devices`.
+- Expected Intel NPU machines should report a device such as `NPU`.
+- If `NPU` is missing, update/install the Intel NPU driver and re-test with `start_voice_dictation_debug.cmd`.
+- Switch ASR to the CPU ONNX profile while investigating NPU/OpenVINO driver issues.
 
 ## License Notes
 
