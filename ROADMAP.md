@@ -227,7 +227,9 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Probe OpenVINO version and available devices in the background loading thread.
   - Log device names, selected OpenVINO devices, and missing-device warnings.
   - Include hardware probe results in copied diagnostics.
-- [ ] Document tested Intel NPU devices.
+- [x] Document tested Intel NPU devices:
+  - Added `docs/tested-hardware.md`.
+  - Documented the current Intel Core Ultra 5 135U / Intel AI Boost baseline.
 
 ## Milestone 5: Public v0.1 Release
 

@@ -36,6 +36,8 @@ Reference development laptop:
 
 This is intentionally treated as a weak/mainstream NPU baseline, not a high-end accelerator.
 
+See [docs/tested-hardware.md](docs/tested-hardware.md) for the current tested hardware matrix.
+
 ## Quick Start
 
 Create a virtual environment and install dependencies:
