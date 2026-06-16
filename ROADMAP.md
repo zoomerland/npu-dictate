@@ -160,7 +160,10 @@ Goal: make model setup transparent and legally clean.
   - Download/rebuild action.
   - Clear cache action.
 - [ ] Review upstream licenses before redistributing any converted model.
-- [ ] Document exact upstream sources and licenses.
+- [x] Document exact upstream sources and licenses:
+  - Added `docs/model-sources-and-licenses.md`.
+  - Recorded current GigaAM, ONNX ASR, and RUPunct upstream links and observed license labels.
+  - Kept redistribution review as a release gate.
 - [ ] Decide whether to publish a Hugging Face model repository for converted artifacts.
 - [ ] If publishing converted artifacts, include license metadata and attribution.
 - [ ] Keep user-provided custom models out of v0.1 unless core flow is stable.

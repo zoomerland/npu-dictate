@@ -235,4 +235,6 @@ Saved-sample ASR tuning report:
 
 Do not publish converted model artifacts until each upstream license is checked again. GigaAM and `istupakov/gigaam-v3-onnx` have been treated as MIT during local testing, but all upstream model cards should be reviewed before redistributing converted derivatives.
 
+See [docs/model-sources-and-licenses.md](docs/model-sources-and-licenses.md) for the current model source and license matrix.
+
 For now, publish code plus download/conversion scripts, not bundled model weights.
