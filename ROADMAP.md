@@ -37,6 +37,11 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Office/Word-like editors.
 - [x] Add a user-visible fallback when paste fails.
 - [x] Add a small diagnostics view or "copy debug info" action.
+- [x] Add local smoke checks:
+  - Validate config normalization and model/device profile selection.
+  - Validate OpenVINO hardware probing.
+  - Validate insertion spacing and clipboard paste/restore behavior without touching real user input.
+  - Smoke-test local RUPunct CPU fallback when model files are present.
 - [ ] Long dictation test: pauses, silence, repeated phrases, and cancellation.
 - [x] Decide how to handle leading/trailing spaces around inserted text:
   - Add a leading space when the cursor follows normal text and the inserted fragment starts with a word.

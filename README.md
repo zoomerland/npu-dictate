@@ -67,6 +67,16 @@ Default controls:
 - Default mode is `hold`: hold `F8`, speak, release.
 - In settings, switch to `toggle` to press once to start and once to stop.
 
+## Local Smoke Checks
+
+Run the lightweight developer smoke checks after changing model profiles, paste behavior, insertion spacing, or diagnostics:
+
+```powershell
+.\.venv\Scripts\python.exe .\tools\smoke_checks.py
+```
+
+The smoke checks validate config normalization, CPU fallback profile selection, OpenVINO hardware probing, insertion spacing rules, clipboard paste/restore behavior through mocks, model directories, and the local RUPunct CPU path when model files are already present.
+
 ## Models and First Launch
 
 Model artifacts are intentionally not stored in Git. First launch prepares local model files under `models/`.
