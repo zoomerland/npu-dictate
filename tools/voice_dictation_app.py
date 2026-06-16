@@ -76,7 +76,7 @@ TRANSLATIONS = {
         "paste_into_active_field": "Paste into active field",
         "restore_clipboard_after_paste": "Restore text clipboard after paste",
         "use_context": "Use text before cursor",
-        "append_trailing_space": "Append trailing space",
+        "append_trailing_space": "Add trailing space when appropriate",
         "start_with_windows": "Start with Windows",
         "button_dict": "DICT",
         "button_record": "REC",
@@ -167,7 +167,7 @@ TRANSLATIONS = {
         "paste_into_active_field": "Вставлять в активное поле",
         "restore_clipboard_after_paste": "Восстанавливать текстовый буфер после вставки",
         "use_context": "Учитывать текст перед курсором",
-        "append_trailing_space": "Добавлять пробел в конце",
+        "append_trailing_space": "Добавлять пробел после вставки по контексту",
         "start_with_windows": "Запускать вместе с Windows",
         "button_dict": "ДИКТ",
         "button_record": "ЗАП",
@@ -1016,6 +1016,59 @@ def text_ends_sentence(text):
 
 def text_ends_clause(text):
     return bool(re.search("[,;:\\u2014-]+[\"')\\]]*$", str(text or "").rstrip()))
+
+
+def first_non_space(text):
+    for char in str(text or ""):
+        if not char.isspace():
+            return char
+    return ""
+
+
+def last_non_space(text):
+    for char in reversed(str(text or "")):
+        if not char.isspace():
+            return char
+    return ""
+
+
+def starts_with_joining_punctuation(text):
+    return first_non_space(text) in set(",.;:!?)]}»”’%…")
+
+
+def context_blocks_leading_space(context):
+    return last_non_space(context) in set("([{«“‘/\\-")
+
+
+def should_prepend_insert_space(context, inserted_text):
+    context = str(context or "")
+    inserted_text = str(inserted_text or "")
+    if not context or not context.strip() or not inserted_text.strip():
+        return False
+    if context[-1].isspace() or inserted_text[0].isspace():
+        return False
+    if context_blocks_leading_space(context):
+        return False
+    if starts_with_joining_punctuation(inserted_text):
+        return False
+    return True
+
+
+def should_append_insert_space(inserted_text):
+    stripped = str(inserted_text or "").rstrip()
+    if not stripped:
+        return False
+    return last_non_space(stripped) not in set("([{«“‘/\\-—")
+
+
+def apply_insertion_spacing(inserted_text, context="", append_trailing_space=False):
+    inserted_text = str(inserted_text or "").strip()
+    if not inserted_text:
+        return ""
+
+    prefix = " " if should_prepend_insert_space(context, inserted_text) else ""
+    suffix = " " if append_trailing_space and should_append_insert_space(inserted_text) else ""
+    return f"{prefix}{inserted_text}{suffix}"
 
 
 def lowercase_first_alpha(text):
@@ -2149,6 +2202,7 @@ class DictationEngine:
             self._compare_asr_async(audio, sample_rate, duration, raw_text, asr_sec, cfg)
 
             final_text = raw_text
+            context = self.recording_context or ""
             punct_sec = 0.0
             if raw_text and cfg.get("use_punctuation", True):
                 if self.punct is None:
@@ -2162,7 +2216,7 @@ class DictationEngine:
                         cache_dir=repo_root() / "models" / "openvino" / "cache",
                     )
                 start = time.perf_counter()
-                context = self.recording_context or self.context_before_cursor()
+                context = context or self.context_before_cursor()
                 if context:
                     if hasattr(self.punct, "restore_inserted"):
                         final_text = self.punct.restore_inserted(context, raw_text)
@@ -2175,8 +2229,11 @@ class DictationEngine:
                     final_text = adjust_inserted_casing(raw_text, final_text)
                 punct_sec = time.perf_counter() - start
 
-            if cfg.get("append_space", False) and final_text:
-                final_text = final_text.rstrip() + " "
+            final_text = apply_insertion_spacing(
+                final_text,
+                context,
+                append_trailing_space=bool(cfg.get("append_space", False)),
+            )
 
             if final_text:
                 log_debug(

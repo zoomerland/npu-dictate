@@ -38,7 +38,11 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
 - [x] Add a user-visible fallback when paste fails.
 - [x] Add a small diagnostics view or "copy debug info" action.
 - [ ] Long dictation test: pauses, silence, repeated phrases, and cancellation.
-- [ ] Decide how to handle leading/trailing spaces around inserted text.
+- [x] Decide how to handle leading/trailing spaces around inserted text:
+  - Add a leading space when the cursor follows normal text and the inserted fragment starts with a word.
+  - Avoid adding a leading space before inserted punctuation such as commas or periods.
+  - Avoid duplicating a space when the context already ends with whitespace.
+  - Keep trailing-space behavior controlled by the existing setting, but apply it through the same insertion-boundary cleanup.
 - [x] Fix startup state transitions:
   - Avoid briefly showing an idle/ready-looking state before model loading begins.
   - Show model-loading/busy state immediately after app start.
