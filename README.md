@@ -77,6 +77,22 @@ Run the lightweight developer smoke checks after changing model profiles, paste 
 
 The smoke checks validate config normalization, CPU fallback profile selection, OpenVINO hardware probing, insertion spacing rules, clipboard paste/restore behavior through mocks, model directories, and the local RUPunct CPU path when model files are already present.
 
+## Diagnostics
+
+Print a readable environment report:
+
+```powershell
+.\.venv\Scripts\python.exe .\tools\doctor.py
+```
+
+Print the same report as JSON:
+
+```powershell
+.\.venv\Scripts\python.exe .\tools\doctor.py --json
+```
+
+The doctor report includes Python and package versions, config summary, model paths, OpenVINO devices, selected CPU/GPU/NPU devices, audio input devices, and recent log lines. It does not download models or start the UI.
+
 ## Models and First Launch
 
 Model artifacts are intentionally not stored in Git. First launch prepares local model files under `models/`.

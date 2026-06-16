@@ -42,6 +42,10 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Validate OpenVINO hardware probing.
   - Validate insertion spacing and clipboard paste/restore behavior without touching real user input.
   - Smoke-test local RUPunct CPU fallback when model files are present.
+- [x] Add local doctor diagnostics:
+  - Report Python and dependency versions.
+  - Report config, model paths, OpenVINO devices, audio input devices, and recent logs.
+  - Support human-readable output and JSON output.
 - [ ] Long dictation test: pauses, silence, repeated phrases, and cancellation.
 - [x] Decide how to handle leading/trailing spaces around inserted text:
   - Add a leading space when the cursor follows normal text and the inserted fragment starts with a word.
