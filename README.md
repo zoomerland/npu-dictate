@@ -1,20 +1,44 @@
 # Local Voice Dictation
 
-Windows-first local dictation prototype: microphone audio goes through GigaAM v3 CTC ASR, then optional Russian punctuation restoration through RUPunct on OpenVINO/NPU, then the final text is pasted into the active field.
+Local Voice Dictation is a Windows-first, local-first dictation utility. It records microphone audio, recognizes speech with GigaAM v3 CTC, optionally restores Russian punctuation/capitalization with RUPunct, and inserts the final text into the active text field.
 
-The repository intentionally does not store model weights, local virtual environments, recordings, or Hugging Face caches. The first launch prepares models locally.
+The project is still an alpha/prototype. There is no packaged `.exe` or installer yet; run it from source.
 
 See [ROADMAP.md](ROADMAP.md) for the current development plan.
 
-## Current Flow
+## What Works Today
 
-1. Hold or toggle the dictation hotkey.
-2. Record audio from the selected Windows input device.
-3. Transcribe locally with `gigaam-v3-ctc` through `onnx-asr`.
-4. Restore Russian punctuation/capitalization with a locally converted `RUPunct/RUPunct_big` OpenVINO model.
-5. Copy or paste the result into the active field.
+- Floating always-on-top dictation overlay.
+- Hold-to-talk and toggle recording modes.
+- Global dictation hotkey and overlay show/hide hotkey.
+- Tray menu for settings, hide/show, diagnostics, and quit.
+- Local ASR with GigaAM v3 CTC.
+- Local Russian punctuation restoration with RUPunct through OpenVINO.
+- NPU-accelerated ASR and punctuation profiles on the current Intel NPU test laptop.
+- CPU ASR fallback profile for machines without a working NPU ASR path.
+- Context-aware insertion spacing and punctuation context before the cursor.
+- Clipboard-based paste with optional clipboard restoration after successful paste.
 
-## Setup
+## Supported Environment
+
+Current target:
+
+- Windows 11.
+- Python 3.12.
+- Built-in or external microphone supported by `sounddevice`.
+- Optional Intel NPU for accelerated profiles.
+
+Reference development laptop:
+
+- Intel Core Ultra 5 135U.
+- Intel AI Boost NPU.
+- About 11 NPU TOPS / 22 total platform TOPS.
+
+This is intentionally treated as a weak/mainstream NPU baseline, not a high-end accelerator.
+
+## Quick Start
+
+Create a virtual environment and install dependencies:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -28,73 +52,148 @@ Start the app:
 .\start_voice_dictation.cmd
 ```
 
-For visible logs and errors:
+Start with a visible console for logs and errors:
 
 ```powershell
 .\start_voice_dictation_debug.cmd
 ```
 
-## Hotkeys
+Default controls:
 
-- `F8`: default dictation hotkey.
-- `Ctrl+Alt+Shift+D`: show or hide the floating button.
+- `F8`: dictation hotkey.
+- `Ctrl+Alt+Shift+D`: show or hide the overlay.
+- Default mode is `hold`: hold `F8`, speak, release.
+- In settings, switch to `toggle` to press once to start and once to stop.
 
-The default mode is `hold`: hold `F8`, speak, release. In settings, switch to `toggle` to press once to start and once to stop.
+## Models and First Launch
 
-## Models
+Model artifacts are intentionally not stored in Git. First launch prepares local model files under `models/`.
 
-The app prepares these local artifacts on first launch:
+Current upstream sources:
 
-- ASR: `gigaam-v3-ctc` from the `onnx-asr` model mapping, currently backed by `istupakov/gigaam-v3-onnx`.
-- Punctuation: `RUPunct/RUPunct_big`, downloaded from Hugging Face and converted locally to a static OpenVINO model for short dictation chunks.
+- ASR: `gigaam-v3-ctc`, currently backed by `istupakov/gigaam-v3-onnx` through `onnx-asr` and direct Hugging Face downloads.
+- Punctuation: `RUPunct/RUPunct_big`, downloaded from Hugging Face and converted locally to a static OpenVINO FP16 model.
 
-Generated artifacts live under `models/` and are ignored by Git.
+Generated local artifacts:
 
-## Hardware and Performance Notes
+- `models/asr/gigaam-v3-ctc/`
+- `models/openvino/RUPunct_big_fp16_static128/`
+- `models/openvino/cache/`
 
-Current development machine:
+The first NPU/OpenVINO run can spend noticeable time compiling and caching models. Later starts should be faster once the OpenVINO cache is warm.
 
-- CPU: Intel Core Ultra 5 135U.
-- NPU: Intel AI Boost.
-- Approximate platform capability: 11 NPU TOPS, 22 total platform TOPS.
+## Privacy and Offline Behavior
 
-This is intentionally treated as a mainstream/weak NPU baseline. If the app is useful here, it should be practical on many newer Windows laptops.
+The intended runtime flow is local:
 
-Preliminary local measurements:
+- Microphone audio is processed on the local machine.
+- ASR and punctuation run locally.
+- Text insertion uses local Windows focus, UI Automation, clipboard, and keyboard events.
 
-- GigaAM v3 CTC ASR has multiple local profiles.
-  - `onnx-asr` INT8 CPU profile:
-    - 2 seconds of audio: about 0.15 seconds after warmup.
-    - 4 seconds of audio: about 0.24 seconds after warmup.
-    - 8 seconds of audio: about 0.40 seconds after warmup.
-  - OpenVINO NPU profiles:
-    - First run for a new static bucket can spend tens of seconds compiling and caching the model.
-    - The app can warm common ASR buckets at startup (`warmup_models`, `asr_warmup_buckets`) so real dictation uses already-compiled paths.
-    - Current NPU buckets use a small static-shape grid (`asr_bucket_frames`).
-    - Experimental chunked NPU ASR (`asr_chunked`) splits longer dictation into short static bucket runs, then stitches chunk text before punctuation.
-    - Experimental VAD-segmented NPU ASR (`asr_vad_segments`) uses Silero VAD to cut audio on speech boundaries, then runs each segment through one warmed NPU bucket.
-    - Fragmented NPU ASR output can trigger an experimental NPU-only retry through alternate buckets (`asr_retry_fragmented`, `asr_retry_buckets`).
-    - Static feature padding is tunable (`asr_pad_mode`); the current default is `zero`, which best matched the CPU baseline on the reference voice sample.
-    - The current working ASR NPU profile is `gigaam-v3-ctc-openvino-nncf-int8-b400`.
-    - A short 350 ms microphone pre-roll is prepended to live recordings to avoid losing first words after hotkey/button activation.
-    - On 9 live post-pre-roll debug WAV files, CPU INT8 took 10.643 seconds total and NPU took 1.831 seconds total, about 5.8x faster.
-    - The same 9-file run had 8 exact CPU/NPU raw-text matches, average text diff 0.0007, and maximum diff 0.0066.
-    - One 8.73-second live sample took 4.307 seconds on CPU INT8 and 0.426 seconds on NPU, about 10.1x faster.
-- RUPunct punctuation restoration runs through OpenVINO and already works on NPU.
-  - Warm NPU inference is around 20-30 ms for short dictation chunks.
-  - Earlier OpenVINO CPU measurements were roughly 130 ms for comparable chunks.
+Network access is needed for first-time model download/preparation unless the models are already present locally. After that, normal dictation should not require internet access.
 
-Current NPU status:
+Local files that may contain private data:
 
-- RUPunct: end-to-end OpenVINO/NPU inference is implemented and tested.
-- GigaAM ASR: OpenVINO/NPU CTC wrappers are implemented for static-shape buckets and OpenVINO cache. The current default NPU candidate is the NNCF INT8 bucket-400 profile.
-- CPU ASR uses ONNX Runtime with a dynamic time axis (`seq_len`), while the NPU path uses static OpenVINO shapes. The chunked and VAD-segmented NPU modes are practical approximations: short fixed-shape windows, optional speech-boundary splitting, then text stitching.
-- GigaAM INT8 ONNX is intentionally not exposed for NPU because it compiled but produced incorrect text during local testing. This is separate from the OpenVINO NNCF INT8 profile used by the current NPU candidate.
+- `voice_dictation_config.json`
+- `voice_dictation.log`
+- `recordings/debug_dictation/` when debug audio saving is enabled
 
-The app must support CPU-only machines. NPU acceleration is a feature, not a hard requirement. Settings now expose separate ASR and punctuation model profiles, with CPU / GPU / NPU choices disabled until that exact model/device path is implemented and tested.
+These files are ignored by Git.
+
+## CPU vs NPU
+
+The app has separate model profiles. A device selector shows CPU / GPU / NPU choices, and unsupported choices are disabled for the selected model profile.
+
+Current pipeline:
+
+| Stage | Current status |
+| --- | --- |
+| Audio capture | CPU/Windows audio stack through `sounddevice`. |
+| VAD segmentation | CPU through Silero/Torch when enabled. |
+| ASR CPU profile | `GigaAM v3 CTC (ONNX INT8)`, CPU only. |
+| ASR NPU profile | `GigaAM v3 CTC (OpenVINO NNCF INT8 b400)`, tested on Intel NPU with VAD segmentation and fuzzy stitching. |
+| Punctuation | `RUPunct big (OpenVINO FP16 static 128)`, currently exposed as NPU only. |
+| Postprocessing | CPU string cleanup, casing, context-aware insertion spacing, and paste handling. |
+
+CPU-only machines can currently use the CPU ASR profile. Full CPU-only parity still needs a tested CPU punctuation profile or punctuation disabled in settings, so NPU remains the preferred path for the current alpha.
+
+## Preliminary Benchmarks
+
+These numbers are local development measurements, not a formal benchmark suite.
+
+| Task | Device/profile | Result | Notes |
+| --- | --- | --- | --- |
+| GigaAM ASR, 9 live post-pre-roll WAV files | CPU INT8 | 10.643 s total | Warm CPU baseline. |
+| GigaAM ASR, same 9 files | NPU OpenVINO NNCF INT8 b400 | 1.831 s total | About 5.8x faster than CPU total. |
+| GigaAM ASR text parity, same 9 files | CPU vs NPU | 8/9 exact matches | Average diff 0.0007, maximum diff 0.0066. |
+| GigaAM ASR, one 8.73 s live sample | CPU INT8 | 4.307 s | Warm CPU run. |
+| GigaAM ASR, same 8.73 s sample | NPU OpenVINO NNCF INT8 b400 | 0.426 s | About 10.1x faster. |
+| RUPunct short chunks | NPU OpenVINO FP16 static 128 | about 20-30 ms | Warm inference. |
+| RUPunct comparable chunks | OpenVINO CPU, earlier measurements | about 130 ms | Older local comparison. |
+
+Saved-sample ASR tuning report:
+
+- 46 saved dictation WAV files.
+- 36 exact CPU/NPU raw-text matches.
+- Average CPU/NPU text diff: 0.0021.
+- Maximum diff: 0.0185.
+- No samples above 0.02 diff.
+
+## Known Limitations
+
+- Russian dictation is the current focus.
+- UI localization exists for English and Russian, but speech model language profiles are not a general user feature yet.
+- Paste reliability still needs testing across more applications.
+- Some rich editors may behave differently from plain text inputs.
+- Clipboard paste is used intentionally for reliability; direct text injection is deferred.
+- Punctuation quality depends on ASR quality and available text context before the cursor.
+- Long dictation, fast speech, and heavy system/NPU load still need more tuning.
+- First model preparation and first OpenVINO/NPU compile can be slow.
+- There is no installer, code signing, or packaged app yet.
+
+## Troubleshooting
+
+### The app stays on loading
+
+- Start with `start_voice_dictation_debug.cmd` and inspect the console.
+- Check `voice_dictation.log`.
+- First launch or first NPU compile can be much slower than later starts.
+- If it repeatedly stalls on NPU model loading, switch the ASR model/device to the CPU ONNX profile in settings or edit `voice_dictation_config.json`.
+
+### Nothing is inserted
+
+- Check whether the dictated text was copied to the clipboard.
+- If paste fails, the app should leave the dictated text in the clipboard so manual `Ctrl+V` still works.
+- Try Notepad first to separate paste/focus issues from a specific application.
+- Use the diagnostics action from the tray/settings menu and inspect recent focus/paste log lines.
+
+### The wrong field receives text
+
+- Click the intended input once and try again.
+- Test with the overlay hidden if the target app is sensitive to focus changes.
+- Some Chromium/Electron and rich text editors can expose focus differently through UI Automation.
+
+### The first word is missing
+
+- The app keeps a warm microphone stream and prepends a short pre-roll buffer.
+- If first words are still lost, increase `audio_pre_roll_ms` in `voice_dictation_config.json`.
+- Avoid starting speech before the hotkey/button press is registered.
+
+### Recognition quality is worse than expected
+
+- Try a shorter phrase first.
+- Check that Windows microphone effects/noise suppression are not fighting the model.
+- Compare ASR CPU/NPU output with `compare_asr` enabled if debugging quality.
+- Heavy CPU/NPU load can affect live capture and processing timing.
+
+### Models fail to download or convert
+
+- Make sure internet access is available for first model preparation.
+- Delete only the incomplete model subfolder under `models/` and start again.
+- Keep virtual environment dependencies aligned with `requirements.txt`.
 
 ## License Notes
 
-Do not publish converted model artifacts until each upstream license is checked again. GigaAM and `istupakov/gigaam-v3-onnx` are marked as MIT, but the RUPunct model card should be reviewed before redistributing a converted OpenVINO derivative.
+Do not publish converted model artifacts until each upstream license is checked again. GigaAM and `istupakov/gigaam-v3-onnx` have been treated as MIT during local testing, but all upstream model cards should be reviewed before redistributing converted derivatives.
 
-For now, the project should publish code and conversion/download scripts, not bundled models.
+For now, publish code plus download/conversion scripts, not bundled model weights.

@@ -205,12 +205,12 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Long dictation.
   - CPU usage.
   - Battery/resource impact.
-- [ ] Publish benchmark notes for the current test laptop:
+- [x] Publish benchmark notes for the current test laptop:
   - Intel Core Ultra 5 135U.
   - Intel AI Boost NPU.
   - About 11 NPU TOPS / 22 total platform TOPS.
   - Treat this as a weak/mainstream NPU baseline, not a high-end accelerator.
-- [ ] Document what currently runs on NPU and what still runs on CPU.
+- [x] Document what currently runs on NPU and what still runs on CPU.
 - [ ] Provide CPU fallback for systems without NPU.
 - [ ] Make CPU-only mode obvious in settings and documentation.
 - [x] Add ASR and punctuation model selectors for the currently supported local profiles.
@@ -223,25 +223,25 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
 
 Goal: publish a usable alpha for technical users.
 
-- [ ] Improve README:
-  - What the app does.
-  - Supported OS.
-  - Hardware expectations.
-  - Model download behavior.
-  - Privacy/offline behavior.
-  - Known limitations.
+- [x] Improve README:
+  - [x] What the app does.
+  - [x] Supported OS.
+  - [x] Hardware expectations.
+  - [x] Model download behavior.
+  - [x] Privacy/offline behavior.
+  - [x] Known limitations.
 - [ ] Add screenshots or short demo GIF/video.
-- [ ] Add CPU vs NPU section.
-- [ ] Include preliminary benchmark table:
-  - RUPunct CPU vs NPU latency.
-  - GigaAM CPU ASR latency.
-  - Planned GigaAM NPU benchmark once implemented.
-- [ ] Explain CPU-only support for users without NPU.
-- [ ] Add troubleshooting:
-  - Microphone permissions.
-  - Paste/focus problems.
-  - Model download problems.
-  - NPU driver/OpenVINO issues.
+- [x] Add CPU vs NPU section.
+- [x] Include preliminary benchmark table:
+  - [x] RUPunct CPU vs NPU latency.
+  - [x] GigaAM CPU ASR latency.
+  - [x] GigaAM NPU benchmark.
+- [x] Explain CPU-only support for users without NPU.
+- [x] Add troubleshooting:
+  - [x] Microphone permissions.
+  - [x] Paste/focus problems.
+  - [x] Model download problems.
+  - [x] NPU driver/OpenVINO issues.
 - [ ] Add license for the app code.
 - [ ] Create GitHub release notes.
 - [ ] Keep release source-only or script-based until packaging is ready.
