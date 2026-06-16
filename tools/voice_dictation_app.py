@@ -74,6 +74,7 @@ TRANSLATIONS = {
         "sample_rate": "Sample rate",
         "use_punctuation": "Use punctuation",
         "paste_into_active_field": "Paste into active field",
+        "restore_clipboard_after_paste": "Restore text clipboard after paste",
         "use_context": "Use text before cursor",
         "append_trailing_space": "Append trailing space",
         "start_with_windows": "Start with Windows",
@@ -164,6 +165,7 @@ TRANSLATIONS = {
         "sample_rate": "Частота дискретизации",
         "use_punctuation": "Использовать пунктуацию",
         "paste_into_active_field": "Вставлять в активное поле",
+        "restore_clipboard_after_paste": "Восстанавливать текстовый буфер после вставки",
         "use_context": "Учитывать текст перед курсором",
         "append_trailing_space": "Добавлять пробел в конце",
         "start_with_windows": "Запускать вместе с Windows",
@@ -443,6 +445,7 @@ def normalize_model_config(cfg):
     cfg["asr_warmup_buckets"] = normalize_asr_warmup_buckets(cfg.get("asr_warmup_buckets"))
     cfg["asr_retry_fragmented"] = bool(cfg.get("asr_retry_fragmented", True))
     cfg["asr_retry_buckets"] = normalize_asr_retry_buckets(cfg.get("asr_retry_buckets"))
+    cfg["restore_clipboard_after_paste"] = bool(cfg.get("restore_clipboard_after_paste", True))
     return cfg
 
 
@@ -605,6 +608,7 @@ def default_config():
         "punct_model": DEFAULT_PUNCT_MODEL,
         "punct_device": "NPU",
         "auto_paste": True,
+        "restore_clipboard_after_paste": True,
         "use_context": True,
         "context_chars": 320,
         "append_space": True,
@@ -2216,15 +2220,50 @@ class DictationEngine:
         return context
 
     def paste_text(self, text):
-        pyperclip.copy(text)
+        restore_clipboard = bool(self.cfg.get("restore_clipboard_after_paste", True))
+        previous_clipboard = ""
+        has_previous_clipboard = False
+        if restore_clipboard:
+            try:
+                has_text_format = True
+                if os.name == "nt":
+                    try:
+                        cf_unicode_text = 13
+                        user32 = ctypes.WinDLL("user32", use_last_error=True)
+                        has_text_format = bool(user32.IsClipboardFormatAvailable(cf_unicode_text))
+                    except Exception as exc:
+                        log_debug(f"clipboard format check failed error={type(exc).__name__}")
+                if has_text_format:
+                    previous_clipboard = pyperclip.paste()
+                    has_previous_clipboard = True
+            except Exception as exc:
+                log_debug(f"clipboard read failed error={type(exc).__name__}")
+
+        try:
+            pyperclip.copy(text)
+        except Exception as exc:
+            log_debug(f"clipboard copy failed error={type(exc).__name__}")
+            return False
+
         target_ready = None
         if self.focus_callback:
             target_ready = bool(self.focus_callback())
         time.sleep(0.12)
 
+        def restore_previous_clipboard():
+            if not restore_clipboard or not has_previous_clipboard:
+                return
+            time.sleep(0.25)
+            try:
+                pyperclip.copy(previous_clipboard)
+                log_debug("clipboard restored=True")
+            except Exception as exc:
+                log_debug(f"clipboard restore failed error={type(exc).__name__}")
+
         sent = self.send_ctrl_v()
         log_debug(f"paste target_ready={target_ready} send_input={sent}")
         if sent:
+            restore_previous_clipboard()
             return True
 
         try:
@@ -2233,6 +2272,7 @@ class DictationEngine:
             self.keyboard.release("v")
             self.keyboard.release(keyboard.Key.ctrl)
             log_debug("paste fallback=pynput")
+            restore_previous_clipboard()
             return True
         except Exception as exc:
             log_debug(f"paste failed fallback_error={type(exc).__name__}")
@@ -3001,6 +3041,7 @@ class VoiceDictationApp:
         warmup_models = tk.BooleanVar(value=bool(self.cfg.get("warmup_models", True)))
         compare_asr = tk.BooleanVar(value=bool(self.cfg.get("compare_asr", False)))
         auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
+        restore_clipboard = tk.BooleanVar(value=bool(self.cfg.get("restore_clipboard_after_paste", True)))
         use_context = tk.BooleanVar(value=bool(self.cfg.get("use_context", True)))
         append_space = tk.BooleanVar(value=bool(self.cfg.get("append_space", False)))
         start_with_windows = tk.BooleanVar(value=is_startup_enabled())
@@ -3064,6 +3105,7 @@ class VoiceDictationApp:
             warmup_models,
             compare_asr,
             auto_paste,
+            restore_clipboard,
             use_context,
             append_space,
             start_with_windows,
@@ -3205,6 +3247,7 @@ class VoiceDictationApp:
                 "asr_warmup_buckets": normalize_asr_warmup_buckets(self.cfg.get("asr_warmup_buckets")),
                 "compare_asr": bool(compare_asr.get()),
                 "auto_paste": bool(auto_paste.get()),
+                "restore_clipboard_after_paste": bool(restore_clipboard.get()),
                 "use_context": bool(use_context.get()),
                 "append_space": bool(append_space.get()),
                 "start_with_windows": bool(start_with_windows.get()),
@@ -3397,6 +3440,11 @@ class VoiceDictationApp:
 
         row += 1
         i18n_checkbutton(win, "paste_into_active_field", variable=auto_paste).grid(
+            row=row, column=1, sticky="w", pady=6
+        )
+
+        row += 1
+        i18n_checkbutton(win, "restore_clipboard_after_paste", variable=restore_clipboard).grid(
             row=row, column=1, sticky="w", pady=6
         )
 

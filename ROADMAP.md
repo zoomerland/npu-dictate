@@ -22,6 +22,10 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
 - [x] Floating overlay button.
 - [x] Hold-to-talk and toggle recording modes.
 - [x] Paste through clipboard and Windows input events.
+- [x] Add clipboard restore setting:
+  - Temporarily use clipboard for reliable paste.
+  - Restore previous text clipboard after successful paste.
+  - Keep dictated text in clipboard when paste fails so the user can paste manually.
 - [x] First-run model preparation for ASR and punctuation.
 - [x] Debug log for paste/focus behavior.
 - [ ] Test paste reliability in:

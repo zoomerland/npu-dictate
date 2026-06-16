@@ -30,6 +30,7 @@
   "punct_model": "rupunct-big-openvino-fp16-static128",
   "punct_device": "NPU",
   "auto_paste": true,
+  "restore_clipboard_after_paste": true,
   "use_context": true,
   "context_chars": 320,
   "append_space": true,
