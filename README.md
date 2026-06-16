@@ -15,7 +15,7 @@ See [ROADMAP.md](ROADMAP.md) for the current development plan.
 - Local ASR with GigaAM v3 CTC.
 - Local Russian punctuation restoration with RUPunct through OpenVINO.
 - NPU-accelerated ASR and punctuation profiles on the current Intel NPU test laptop.
-- CPU ASR fallback profile for machines without a working NPU ASR path.
+- CPU ASR and punctuation fallback profiles for machines without a working NPU path.
 - Context-aware insertion spacing and punctuation context before the cursor.
 - Clipboard-based paste with optional clipboard restoration after successful paste.
 
@@ -112,10 +112,10 @@ Current pipeline:
 | VAD segmentation | CPU through Silero/Torch when enabled. |
 | ASR CPU profile | `GigaAM v3 CTC (ONNX INT8)`, CPU only. |
 | ASR NPU profile | `GigaAM v3 CTC (OpenVINO NNCF INT8 b400)`, tested on Intel NPU with VAD segmentation and fuzzy stitching. |
-| Punctuation | `RUPunct big (OpenVINO FP16 static 128)`, currently exposed as NPU only. |
+| Punctuation | `RUPunct big (OpenVINO FP16 static 128)`, available on CPU and NPU. |
 | Postprocessing | CPU string cleanup, casing, context-aware insertion spacing, and paste handling. |
 
-CPU-only machines can currently use the CPU ASR profile. Full CPU-only parity still needs a tested CPU punctuation profile or punctuation disabled in settings, so NPU remains the preferred path for the current alpha.
+CPU-only machines can use the CPU ASR profile and the CPU punctuation device. NPU remains the preferred path for the current alpha on supported Intel NPU laptops because it is much faster on the reference machine.
 
 On startup, the app runs a soft OpenVINO hardware probe in the background loading thread. It logs the OpenVINO version, reported devices, device names, selected OpenVINO devices, and warnings when a selected device such as `NPU` is not reported by OpenVINO. The same data is included in copied diagnostics.
 
@@ -132,6 +132,7 @@ These numbers are local development measurements, not a formal benchmark suite.
 | GigaAM ASR, same 8.73 s sample | NPU OpenVINO NNCF INT8 b400 | 0.426 s | About 10.1x faster. |
 | RUPunct short chunks | NPU OpenVINO FP16 static 128 | about 20-30 ms | Warm inference. |
 | RUPunct comparable chunks | OpenVINO CPU, earlier measurements | about 130 ms | Older local comparison. |
+| RUPunct direct smoke test | OpenVINO CPU | about 0.3-0.5 s | Short strings, end-to-end local load path verified. |
 
 Saved-sample ASR tuning report:
 
@@ -200,7 +201,7 @@ Saved-sample ASR tuning report:
 - Copy diagnostics and check `hardware.devices`.
 - Expected Intel NPU machines should report a device such as `NPU`.
 - If `NPU` is missing, update/install the Intel NPU driver and re-test with `start_voice_dictation_debug.cmd`.
-- Switch ASR to the CPU ONNX profile while investigating NPU/OpenVINO driver issues.
+- Switch ASR to the CPU ONNX profile and punctuation to CPU while investigating NPU/OpenVINO driver issues.
 
 ## License Notes
 

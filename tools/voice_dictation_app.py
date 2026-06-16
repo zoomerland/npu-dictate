@@ -355,7 +355,7 @@ PUNCT_MODEL_PROFILES = {
     DEFAULT_PUNCT_MODEL: {
         "label": "RUPunct big (OpenVINO FP16 static 128)",
         "model_dir": default_punct_model_dir,
-        "devices": ("NPU",),
+        "devices": ("CPU", "NPU"),
         "default_device": "NPU",
     },
 }

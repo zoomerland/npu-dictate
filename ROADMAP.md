@@ -211,11 +211,18 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - About 11 NPU TOPS / 22 total platform TOPS.
   - Treat this as a weak/mainstream NPU baseline, not a high-end accelerator.
 - [x] Document what currently runs on NPU and what still runs on CPU.
-- [ ] Provide CPU fallback for systems without NPU.
-- [ ] Make CPU-only mode obvious in settings and documentation.
+- [x] Provide CPU fallback for systems without NPU:
+  - ASR can use the ONNX INT8 CPU profile.
+  - RUPunct OpenVINO FP16 can use the CPU device.
+- [x] Make CPU-only mode obvious in settings and documentation:
+  - CPU is available in ASR and punctuation device selectors for tested profiles.
+  - README documents the CPU-only path and NPU troubleshooting fallback.
 - [x] Add ASR and punctuation model selectors for the currently supported local profiles.
 - [x] Show CPU / GPU / NPU availability per selected model and disable unsupported devices.
-- [ ] Add real fallback profiles after each model/device combination is tested.
+- [ ] Add real fallback profiles after each model/device combination is tested:
+  - [x] RUPunct OpenVINO FP16 CPU fallback.
+  - [ ] GPU profiles.
+  - [ ] Additional ASR OpenVINO fallback profiles beyond the current tested CPU/NPU paths.
 - [x] Add startup hardware capability checks:
   - Probe OpenVINO version and available devices in the background loading thread.
   - Log device names, selected OpenVINO devices, and missing-device warnings.
