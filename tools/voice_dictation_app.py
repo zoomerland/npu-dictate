@@ -2547,6 +2547,7 @@ class VoiceDictationApp:
         self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
         self.settings_i18n_widgets = []
         self.settings_i18n_choices = []
+        self.settings_i18n_tabs = []
         self.progress_running = False
         self.overlay_progress_after_id = None
         self.overlay_progress_phase = 0
@@ -3062,9 +3063,16 @@ class VoiceDictationApp:
         if not hasattr(self, "settings_window") or not self.settings_window.winfo_exists():
             self.settings_i18n_widgets = []
             self.settings_i18n_choices = []
+            self.settings_i18n_tabs = []
             return
 
         self.settings_window.title(f"{APP_NAME} {self.t('settings_title')}")
+        for notebook, tab_id, key in self.settings_i18n_tabs:
+            try:
+                if notebook.winfo_exists():
+                    notebook.tab(tab_id, text=self.t(key))
+            except tk.TclError:
+                pass
         for widget, key in self.settings_i18n_widgets:
             try:
                 if widget.winfo_exists():
@@ -3392,11 +3400,12 @@ class VoiceDictationApp:
         self.settings_window = win
         self.settings_i18n_widgets = []
         self.settings_i18n_choices = []
+        self.settings_i18n_tabs = []
         win.title(f"{APP_NAME} {self.t('settings_title')}")
         win.attributes("-topmost", True)
         win.resizable(True, True)
         win.configure(padx=24, pady=20)
-        win.minsize(900, 760)
+        win.minsize(900, 560)
         win.columnconfigure(0, weight=1)
         win.rowconfigure(0, weight=1)
 
@@ -3452,6 +3461,10 @@ class VoiceDictationApp:
             self.settings_i18n_choices.append((combobox, variable, group, default))
             return combobox
 
+        def remember_tab(notebook, tab_id, key):
+            self.settings_i18n_tabs.append((notebook, tab_id, key))
+            return tab_id
+
         def i18n_label(parent, key, **kwargs):
             return remember_i18n(ttk.Label(parent, text=self.t(key), **kwargs), key)
 
@@ -3465,6 +3478,7 @@ class VoiceDictationApp:
             if event.widget == win:
                 self.settings_i18n_widgets = []
                 self.settings_i18n_choices = []
+                self.settings_i18n_tabs = []
 
         win.bind("<Destroy>", clear_i18n_registry, add="+")
 
@@ -3683,47 +3697,14 @@ class VoiceDictationApp:
 
         win.protocol("WM_DELETE_WINDOW", close_settings)
 
-        canvas_bg = win.cget("background")
-        settings_canvas = tk.Canvas(win, background=canvas_bg, borderwidth=0, highlightthickness=0)
-        settings_scrollbar = ttk.Scrollbar(win, orient="vertical", command=settings_canvas.yview)
-        settings_canvas.configure(yscrollcommand=settings_scrollbar.set)
-        settings_canvas.grid(row=0, column=0, sticky="nsew")
-        settings_scrollbar.grid(row=0, column=1, sticky="ns", padx=(10, 0))
-
-        settings_content = ttk.Frame(settings_canvas)
-        settings_content.columnconfigure(0, weight=1)
-        settings_content_window = settings_canvas.create_window((0, 0), window=settings_content, anchor="nw")
-
-        def refresh_scroll_region(_event=None):
-            settings_canvas.configure(scrollregion=settings_canvas.bbox("all"))
-
-        def resize_settings_content(event):
-            settings_canvas.itemconfigure(settings_content_window, width=event.width)
-
-        def scroll_settings(event):
-            direction = -1 if event.delta > 0 else 1
-            settings_canvas.yview_scroll(direction * 3, "units")
-
-        settings_content.bind("<Configure>", refresh_scroll_region)
-        settings_canvas.bind("<Configure>", resize_settings_content)
-        win.bind("<MouseWheel>", scroll_settings, add="+")
-
-        section_row = 0
+        settings_notebook = ttk.Notebook(win)
+        settings_notebook.grid(row=0, column=0, sticky="nsew")
 
         def settings_section(key):
-            nonlocal section_row
-            frame = remember_i18n(
-                ttk.LabelFrame(
-                    settings_content,
-                    text=self.t(key),
-                    style="Settings.TLabelframe",
-                    padding=(16, 12),
-                ),
-                key,
-            )
-            frame.grid(row=section_row, column=0, sticky="ew", pady=(0, 14))
+            frame = ttk.Frame(settings_notebook, padding=(18, 16))
             frame.columnconfigure(1, weight=1)
-            section_row += 1
+            settings_notebook.add(frame, text=self.t(key))
+            remember_tab(settings_notebook, frame, key)
             return frame
 
         general_section = settings_section("settings_section_general")
@@ -3934,6 +3915,7 @@ class VoiceDictationApp:
         i18n_button(buttons, "apply", command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 10))
         i18n_button(buttons, "save", command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 10))
         i18n_button(buttons, "cancel", command=close_settings).pack(side="left")
+        dirty.set(False)
 
     def save_settings(self, win, values, close=True):
         values["ui_language"] = normalize_ui_language(values.get("ui_language", "en"))
