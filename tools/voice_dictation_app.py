@@ -33,6 +33,7 @@ except ImportError:
 
 
 APP_NAME = "Local Voice Dictation"
+SINGLE_INSTANCE_MUTEX_NAME = r"Local\LocalVoiceDictation.SingleInstance"
 CONFIG_VERSION = 1
 OVERLAY_TRANSPARENT_COLOR = "#ff00ff"
 OVERLAY_PANEL_BG = "#20242b"
@@ -843,6 +844,63 @@ def log_debug(message):
             file.write(f"{timestamp} {message}\n")
     except OSError:
         pass
+
+
+class SingleInstanceLock:
+    ERROR_ALREADY_EXISTS = 183
+
+    def __init__(self, name):
+        self.name = name
+        self.handle = None
+        self.acquired = False
+
+    def acquire(self):
+        if platform.system() != "Windows":
+            self.acquired = True
+            return True
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.ReleaseMutex.argtypes = [wintypes.HANDLE]
+        kernel32.ReleaseMutex.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        ctypes.set_last_error(0)
+        handle = kernel32.CreateMutexW(None, True, self.name)
+        error = ctypes.get_last_error()
+        if not handle:
+            log_debug(f"single instance mutex failed error={error}")
+            return True
+        if error == self.ERROR_ALREADY_EXISTS:
+            kernel32.CloseHandle(handle)
+            log_debug("single instance already running")
+            return False
+
+        self.handle = handle
+        self.kernel32 = kernel32
+        self.acquired = True
+        log_debug("single instance acquired")
+        return True
+
+    def release(self):
+        if self.handle is None:
+            return
+        try:
+            self.kernel32.ReleaseMutex(self.handle)
+            self.kernel32.CloseHandle(self.handle)
+        except Exception as exc:
+            log_debug(f"single instance release error={type(exc).__name__}")
+        self.handle = None
+        self.acquired = False
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.release()
 
 
 def token_from_virtual_key(vk):
@@ -4041,9 +4099,13 @@ class VoiceDictationApp:
 
 
 def main():
-    app = VoiceDictationApp()
-    app.run()
+    with SingleInstanceLock(SINGLE_INSTANCE_MUTEX_NAME) as single_instance:
+        if not single_instance.acquired:
+            return 0
+        app = VoiceDictationApp()
+        app.run()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
