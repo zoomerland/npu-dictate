@@ -43,11 +43,12 @@ Summary:
 | N1 | Notepad empty document | OK | User reported successful insertion. Log shows Notepad/RichEdit target with `paste target_ready=True send_input=True`. |
 | N2 | Notepad second phrase | OK | User reported successful append after the first insertion. Log shows Notepad/RichEdit target with context and successful paste. |
 | N3 | Notepad middle of line | OK | User reported successful insertion at the intended position. |
-| N4 | Windows Search / Start search | Mostly OK | First attempt appeared to paste stale clipboard text; later attempts inserted the dictated text correctly. Log shows Windows Search as `Windows.UI.Core.CoreWindow` and successful paste sends. |
+| N4 | Windows Search / Start search | OK | Initial stale-clipboard behavior was mitigated; follow-up testing inserted the dictated text correctly and restored the previous clipboard after successful paste. |
 
 Observed status:
 
 - Added clipboard verification/retry before sending `Ctrl+V`; if the new text is not confirmed in the clipboard, auto-paste is skipped to avoid pasting stale clipboard text.
+- Follow-up regression passed for Windows Search, including restoring the old clipboard after successful insertion.
 - The floating overlay can be visually covered by the Windows Search / Start panel. Treat this as a shell-z-order limitation for now; use the dictation hotkey in this surface.
 
 Next paste-test focus:
