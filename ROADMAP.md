@@ -79,11 +79,11 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Small.
   - Medium.
   - Large.
-- [ ] Add overlay shape presets:
+- [x] Add overlay shape presets:
   - Square.
   - Rounded square.
   - Circle.
-  - Previous WinAPI window-region prototype caused bugs; revisit later.
+  - Implemented with Canvas drawing and Tk transparent color instead of the previous WinAPI window-region prototype.
 - [x] Add overlay opacity slider in settings:
   - Store opacity in config.
   - Apply opacity to the overlay window immediately.
@@ -93,10 +93,10 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Button plus status.
   - Button plus status and hotkey hint.
 - [ ] Round UI corners where the Windows/Tk stack allows it:
-  - [ ] Overlay window shape.
-  - [ ] Overlay button and frame internals.
-  - Settings controls or grouped sections.
-  - Context menu/tray menu where practical.
+  - [x] Overlay window shape.
+  - [x] Overlay button and frame internals.
+  - [ ] Settings controls or grouped sections.
+  - [ ] Context menu/tray menu where practical.
 - [x] Increase context menu size to match the settings readability scale.
 - [x] Improve recording/loading/transcribing visual states.
 - [x] Add settings warning when closing with unsaved changes.

@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from collections import deque
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -33,6 +34,12 @@ except ImportError:
 
 APP_NAME = "Local Voice Dictation"
 CONFIG_VERSION = 1
+OVERLAY_TRANSPARENT_COLOR = "#ff00ff"
+OVERLAY_PANEL_BG = "#20242b"
+OVERLAY_PANEL_BORDER = "#313845"
+OVERLAY_TEXT_FG = "#d7deeb"
+OVERLAY_HINT_FG = "#8fa0bd"
+OVERLAY_SHAPES = {"square", "rounded", "circle"}
 UI_LANGUAGE_NAMES = {
     "en": "English",
     "ru": "Русский",
@@ -63,6 +70,10 @@ TRANSLATIONS = {
         "overlay_size_small": "Small",
         "overlay_size_medium": "Medium",
         "overlay_size_large": "Large",
+        "overlay_shape": "Overlay shape",
+        "overlay_shape_square": "Square",
+        "overlay_shape_rounded": "Rounded square",
+        "overlay_shape_circle": "Circle",
         "overlay_details": "Overlay details",
         "overlay_details_button": "Button only",
         "overlay_details_status": "Button + status",
@@ -154,6 +165,10 @@ TRANSLATIONS = {
         "overlay_size_small": "Маленькая",
         "overlay_size_medium": "Средняя",
         "overlay_size_large": "Большая",
+        "overlay_shape": "Форма кнопки",
+        "overlay_shape_square": "Квадратная",
+        "overlay_shape_rounded": "Скругленная",
+        "overlay_shape_circle": "Круглая",
         "overlay_details": "Детализация кнопки",
         "overlay_details_button": "Только кнопка",
         "overlay_details_status": "Кнопка и статус",
@@ -232,6 +247,11 @@ CHOICE_TRANSLATION_KEYS = {
         ("small", "overlay_size_small"),
         ("medium", "overlay_size_medium"),
         ("large", "overlay_size_large"),
+    ],
+    "overlay_shape": [
+        ("rounded", "overlay_shape_rounded"),
+        ("square", "overlay_shape_square"),
+        ("circle", "overlay_shape_circle"),
     ],
     "overlay_details": [
         ("button", "overlay_details_button"),
@@ -522,7 +542,13 @@ def normalize_model_config(cfg):
     cfg["asr_retry_fragmented"] = bool(cfg.get("asr_retry_fragmented", True))
     cfg["asr_retry_buckets"] = normalize_asr_retry_buckets(cfg.get("asr_retry_buckets"))
     cfg["restore_clipboard_after_paste"] = bool(cfg.get("restore_clipboard_after_paste", True))
+    cfg["overlay_shape"] = normalize_overlay_shape(cfg.get("overlay_shape"))
     return cfg
+
+
+def normalize_overlay_shape(value):
+    value = str(value or "rounded").strip().lower()
+    return value if value in OVERLAY_SHAPES else "rounded"
 
 
 def normalize_asr_pad_mode(value):
@@ -693,6 +719,7 @@ def default_config():
         "overlay_x": None,
         "overlay_y": None,
         "overlay_size": "medium",
+        "overlay_shape": "rounded",
         "overlay_details": "full",
         "overlay_opacity": 1.0,
     }
@@ -702,7 +729,7 @@ def load_config():
     cfg = default_config()
     path = config_path()
     if path.exists():
-        with path.open("r", encoding="utf-8") as file:
+        with path.open("r", encoding="utf-8-sig") as file:
             loaded = json.load(file)
         cfg.update(loaded)
     return normalize_model_config(cfg)
@@ -2497,7 +2524,8 @@ class VoiceDictationApp:
         self.root.protocol("WM_DELETE_WINDOW", self.hide_overlay)
         self.root.attributes("-topmost", True)
         self.root.overrideredirect(True)
-        self.root.configure(bg="#20242b")
+        self.root.configure(bg=OVERLAY_TRANSPARENT_COLOR)
+        self.apply_overlay_transparency()
         self.apply_overlay_opacity()
 
         self.status_var = tk.StringVar(value="Loading models")
@@ -2508,6 +2536,13 @@ class VoiceDictationApp:
         self.settings_i18n_widgets = []
         self.settings_i18n_choices = []
         self.progress_running = False
+        self.overlay_progress_after_id = None
+        self.overlay_progress_phase = 0
+        self.overlay_button_text = self.t("button_dict")
+        self.overlay_button_bg = "#2864d8"
+        self.overlay_button_active_bg = "#1f55bd"
+        self.overlay_button_bounds = (0, 0, 0, 0)
+        self.overlay_window_size = (1, 1)
         self.tray_icon = None
         self.recording_started_at = None
         self.transcribing_started_at = None
@@ -2519,7 +2554,7 @@ class VoiceDictationApp:
         self.overlay_start_y = 0
         self.dragging_overlay = False
         self.mouse_recording_active = False
-        self.mouse_pressed_widget = None
+        self.mouse_pressed_on_button = False
 
         self.foreground_tracker = ForegroundWindowTracker()
         self.input_tracker = FocusedInputTracker()
@@ -2581,47 +2616,17 @@ class VoiceDictationApp:
         return choices[0][0] if choices else label
 
     def _build_overlay(self):
-        self.frame = tk.Frame(self.root, bg="#20242b", padx=8, pady=7)
-        self.frame.pack(fill="both", expand=True)
-
-        self.button = tk.Button(
-            self.frame,
-            text=self.t("button_dict"),
-            width=8,
-            height=2,
-            fg="white",
-            bg="#2864d8",
-            activeforeground="white",
-            activebackground="#1f55bd",
-            relief="flat",
+        self.overlay_canvas = tk.Canvas(
+            self.root,
+            bg=OVERLAY_TRANSPARENT_COLOR,
+            highlightthickness=0,
+            borderwidth=0,
         )
-        self.button.pack(fill="x")
-
-        self.status_label = tk.Label(
-            self.frame,
-            textvariable=self.status_var,
-            fg="#d7deeb",
-            bg="#20242b",
-            font=("Segoe UI", 8),
-        )
-        self.status_label.pack(fill="x", pady=(5, 0))
-
-        self.hotkey_label = tk.Label(
-            self.frame,
-            text=self.cfg.get("dictation_hotkey", "f8").upper(),
-            fg="#8fa0bd",
-            bg="#20242b",
-            font=("Segoe UI", 7),
-        )
-        self.hotkey_label.pack(fill="x")
-
-        self.progress = ttk.Progressbar(self.frame, mode="indeterminate", length=86)
-        self.progress.pack(fill="x", pady=(5, 0))
-        self.progress.pack_forget()
+        self.overlay_canvas.pack(fill="both", expand=True)
 
         self.apply_overlay_layout()
 
-        for widget in (self.root, self.frame, self.button, self.status_label, self.hotkey_label, self.progress):
+        for widget in (self.root, self.overlay_canvas):
             widget.bind("<Button-3>", self.show_menu)
             widget.bind("<ButtonPress-1>", self.on_overlay_press)
             widget.bind("<B1-Motion>", self.on_overlay_motion)
@@ -2632,35 +2637,56 @@ class VoiceDictationApp:
             "small": {
                 "padx": 8,
                 "pady": 7,
-                "button_width": 8,
-                "button_height": 2,
+                "button_width": 92,
+                "button_height": 54,
                 "button_font": ("Segoe UI", 10, "bold"),
                 "status_font": ("Segoe UI", 8),
                 "hotkey_font": ("Segoe UI", 7),
-                "progress_length": 86,
+                "status_height": 18,
+                "hotkey_height": 14,
+                "progress_length": 84,
+                "progress_height": 5,
+                "gap": 5,
+                "radius": 12,
             },
             "medium": {
                 "padx": 10,
                 "pady": 8,
-                "button_width": 10,
-                "button_height": 3,
+                "button_width": 124,
+                "button_height": 72,
                 "button_font": ("Segoe UI", 13, "bold"),
                 "status_font": ("Segoe UI", 10),
                 "hotkey_font": ("Segoe UI", 9),
+                "status_height": 22,
+                "hotkey_height": 17,
                 "progress_length": 108,
+                "progress_height": 6,
+                "gap": 6,
+                "radius": 16,
             },
             "large": {
                 "padx": 12,
                 "pady": 10,
-                "button_width": 12,
-                "button_height": 3,
+                "button_width": 160,
+                "button_height": 88,
                 "button_font": ("Segoe UI", 17, "bold"),
                 "status_font": ("Segoe UI", 13),
                 "hotkey_font": ("Segoe UI", 11),
+                "status_height": 28,
+                "hotkey_height": 20,
                 "progress_length": 128,
+                "progress_height": 7,
+                "gap": 7,
+                "radius": 20,
             },
         }
         return profiles.get(self.cfg.get("overlay_size", "medium"), profiles["medium"])
+
+    def apply_overlay_transparency(self):
+        try:
+            self.root.wm_attributes("-transparentcolor", OVERLAY_TRANSPARENT_COLOR)
+        except tk.TclError:
+            pass
 
     def apply_overlay_opacity(self, opacity=None):
         opacity = clamp_overlay_opacity(self.cfg.get("overlay_opacity", 1.0) if opacity is None else opacity)
@@ -2669,41 +2695,227 @@ class VoiceDictationApp:
         except tk.TclError:
             pass
 
+    def overlay_shape_mode(self):
+        return normalize_overlay_shape(self.cfg.get("overlay_shape"))
+
     def overlay_details_mode(self):
         value = self.cfg.get("overlay_details", "full")
         return value if value in {"button", "status", "full"} else "full"
 
     def apply_overlay_layout(self):
         profile = self.overlay_size_profile()
-        self.frame.configure(padx=profile["padx"], pady=profile["pady"])
-        self.button.configure(
-            width=profile["button_width"],
-            height=profile["button_height"],
-            font=profile["button_font"],
-        )
-        self.status_label.configure(font=profile["status_font"])
-        self.hotkey_label.configure(font=profile["hotkey_font"])
-        self.progress.configure(length=profile["progress_length"])
-
         details = self.overlay_details_mode()
+        shape = self.overlay_shape_mode()
+        button_width = int(profile["button_width"])
+        button_height = int(profile["button_height"])
+        if shape == "circle":
+            button_width = button_height = max(button_width, button_height)
+
+        if details == "button":
+            width = button_width
+            height = button_height
+            button_x = 0
+            button_y = 0
+            content_width = button_width
+        else:
+            content_width = max(button_width, int(profile["progress_length"]))
+            width = content_width + profile["padx"] * 2
+            height = profile["pady"] * 2 + button_height
+            height += profile["gap"] + profile["status_height"]
+            if details == "full":
+                height += profile["hotkey_height"]
+            height += profile["gap"] + profile["progress_height"]
+            button_x = profile["padx"] + (content_width - button_width) // 2
+            button_y = profile["pady"]
+
+        y = button_y + button_height
+        status_y = None
+        hotkey_y = None
+        progress_y = None
         if details in {"status", "full"}:
-            if not self.status_label.winfo_ismapped():
-                self.status_label.pack(fill="x", pady=(5, 0))
-        else:
-            self.status_label.pack_forget()
-
+            y += profile["gap"]
+            status_y = y
+            y += profile["status_height"]
         if details == "full":
-            if not self.hotkey_label.winfo_ismapped():
-                self.hotkey_label.pack(fill="x")
-        else:
-            self.hotkey_label.pack_forget()
+            hotkey_y = y
+            y += profile["hotkey_height"]
+        if details in {"status", "full"}:
+            y += profile["gap"]
+            progress_y = y
 
-        self.update_status(self.current_status)
+        self.overlay_window_size = (int(width), int(height))
+        self.overlay_button_bounds = (
+            int(button_x),
+            int(button_y),
+            int(button_x + button_width),
+            int(button_y + button_height),
+        )
+        self.overlay_geometry = {
+            "profile": profile,
+            "details": details,
+            "shape": shape,
+            "content_width": int(content_width),
+            "status_y": status_y,
+            "hotkey_y": hotkey_y,
+            "progress_y": progress_y,
+        }
+        self.overlay_canvas.configure(width=int(width), height=int(height))
+        self.root.geometry(f"{int(width)}x{int(height)}")
+        self.draw_overlay()
+
+    def _draw_rounded_rect(self, canvas, x1, y1, x2, y2, radius, fill, outline=None, width=1):
+        radius = max(0, min(int(radius), int((x2 - x1) / 2), int((y2 - y1) / 2)))
+        if radius <= 0:
+            canvas.create_rectangle(x1, y1, x2, y2, fill=fill, outline=outline or fill, width=width)
+            return
+
+        canvas.create_rectangle(x1 + radius, y1, x2 - radius, y2, fill=fill, outline="")
+        canvas.create_rectangle(x1, y1 + radius, x2, y2 - radius, fill=fill, outline="")
+        canvas.create_oval(x1, y1, x1 + radius * 2, y1 + radius * 2, fill=fill, outline="")
+        canvas.create_oval(x2 - radius * 2, y1, x2, y1 + radius * 2, fill=fill, outline="")
+        canvas.create_oval(x2 - radius * 2, y2 - radius * 2, x2, y2, fill=fill, outline="")
+        canvas.create_oval(x1, y2 - radius * 2, x1 + radius * 2, y2, fill=fill, outline="")
+        if outline:
+            canvas.create_arc(x1, y1, x1 + radius * 2, y1 + radius * 2, start=90, extent=90, style="arc", outline=outline, width=width)
+            canvas.create_arc(x2 - radius * 2, y1, x2, y1 + radius * 2, start=0, extent=90, style="arc", outline=outline, width=width)
+            canvas.create_arc(x2 - radius * 2, y2 - radius * 2, x2, y2, start=270, extent=90, style="arc", outline=outline, width=width)
+            canvas.create_arc(x1, y2 - radius * 2, x1 + radius * 2, y2, start=180, extent=90, style="arc", outline=outline, width=width)
+            canvas.create_line(x1 + radius, y1, x2 - radius, y1, fill=outline, width=width)
+            canvas.create_line(x2, y1 + radius, x2, y2 - radius, fill=outline, width=width)
+            canvas.create_line(x1 + radius, y2, x2 - radius, y2, fill=outline, width=width)
+            canvas.create_line(x1, y1 + radius, x1, y2 - radius, fill=outline, width=width)
+
+    def _draw_shape(self, canvas, x1, y1, x2, y2, shape, fill, outline=None, radius=16, width=1):
+        if shape == "circle":
+            canvas.create_oval(x1, y1, x2, y2, fill=fill, outline=outline or fill, width=width)
+        elif shape == "rounded":
+            self._draw_rounded_rect(canvas, x1, y1, x2, y2, radius, fill, outline=outline, width=width)
+        else:
+            canvas.create_rectangle(x1, y1, x2, y2, fill=fill, outline=outline or fill, width=width)
+
+    def fit_overlay_text(self, text, font, max_width):
+        text = str(text)
+        if max_width <= 0:
+            return text
+        try:
+            measured_font = tkfont.Font(font=font)
+        except tk.TclError:
+            return text
+        if measured_font.measure(text) <= max_width:
+            return text
+
+        suffix = "..."
+        available = max(0, int(max_width) - measured_font.measure(suffix))
+        clipped = text
+        while clipped and measured_font.measure(clipped) > available:
+            clipped = clipped[:-1]
+        return f"{clipped.rstrip()}{suffix}" if clipped else suffix
+
+    def draw_overlay(self):
+        if not hasattr(self, "overlay_canvas"):
+            return
+
+        canvas = self.overlay_canvas
+        canvas.delete("all")
+        width, height = self.overlay_window_size
+        geometry = getattr(self, "overlay_geometry", {})
+        profile = geometry.get("profile", self.overlay_size_profile())
+        details = geometry.get("details", self.overlay_details_mode())
+        shape = geometry.get("shape", self.overlay_shape_mode())
+        radius = int(profile.get("radius", 16))
+        x1, y1, x2, y2 = self.overlay_button_bounds
+
+        if details != "button":
+            panel_shape = shape if shape != "circle" else "rounded"
+            self._draw_shape(
+                canvas,
+                0,
+                0,
+                width,
+                height,
+                panel_shape,
+                OVERLAY_PANEL_BG,
+                outline=OVERLAY_PANEL_BORDER,
+                radius=radius + 2,
+            )
+
+        self._draw_shape(
+            canvas,
+            x1,
+            y1,
+            x2,
+            y2,
+            shape,
+            self.overlay_button_bg,
+            outline=self.overlay_button_active_bg,
+            radius=radius,
+        )
+        canvas.create_text(
+            (x1 + x2) / 2,
+            (y1 + y2) / 2,
+            text=self.overlay_button_text,
+            fill="white",
+            font=profile["button_font"],
+            width=max(20, x2 - x1 - 12),
+            justify="center",
+        )
+
+        content_width = int(geometry.get("content_width", x2 - x1))
+        text_x = width / 2
+        if details in {"status", "full"} and geometry.get("status_y") is not None:
+            canvas.create_text(
+                text_x,
+                geometry["status_y"] + profile["status_height"] / 2,
+                text=self.fit_overlay_text(self.status_var.get(), profile["status_font"], content_width),
+                fill=OVERLAY_TEXT_FG,
+                font=profile["status_font"],
+                justify="center",
+            )
+        if details == "full" and geometry.get("hotkey_y") is not None:
+            canvas.create_text(
+                text_x,
+                geometry["hotkey_y"] + profile["hotkey_height"] / 2,
+                text=self.fit_overlay_text(str(self.cfg.get("dictation_hotkey", "f8")).upper(), profile["hotkey_font"], content_width),
+                fill=OVERLAY_HINT_FG,
+                font=profile["hotkey_font"],
+                justify="center",
+            )
+        if details in {"status", "full"} and geometry.get("progress_y") is not None:
+            progress_width = min(content_width, int(profile["progress_length"]))
+            progress_x1 = (width - progress_width) / 2
+            progress_y1 = geometry["progress_y"]
+            progress_x2 = progress_x1 + progress_width
+            progress_y2 = progress_y1 + profile["progress_height"]
+            self._draw_rounded_rect(
+                canvas,
+                progress_x1,
+                progress_y1,
+                progress_x2,
+                progress_y2,
+                max(2, profile["progress_height"] // 2),
+                "#303743",
+            )
+            if self.progress_running:
+                span = max(18, int(progress_width * 0.34))
+                travel = max(1, progress_width - span)
+                offset = (self.overlay_progress_phase % 100) / 100 * travel
+                self._draw_rounded_rect(
+                    canvas,
+                    progress_x1 + offset,
+                    progress_y1,
+                    progress_x1 + offset + span,
+                    progress_y2,
+                    max(2, profile["progress_height"] // 2),
+                    "#75a7ff",
+                )
 
     def _position_overlay(self):
         self.root.update_idletasks()
-        width = self.root.winfo_reqwidth()
-        height = self.root.winfo_reqheight()
+        width, height = getattr(
+            self,
+            "overlay_window_size",
+            (self.root.winfo_reqwidth(), self.root.winfo_reqheight()),
+        )
         x = self.cfg.get("overlay_x")
         y = self.cfg.get("overlay_y")
         if x is None or y is None:
@@ -2720,7 +2932,7 @@ class VoiceDictationApp:
             f"size=({width},{height}) "
             f"bounds={self.virtual_screen_bounds()}"
         )
-        self.root.geometry(f"+{int(x)}+{int(y)}")
+        self.root.geometry(f"{int(width)}x{int(height)}+{int(x)}+{int(y)}")
         if self.cfg.get("overlay_x") != x or self.cfg.get("overlay_y") != y:
             self.cfg["overlay_x"] = x
             self.cfg["overlay_y"] = y
@@ -2972,6 +3184,7 @@ class VoiceDictationApp:
         self.current_display_status = status
         self.status_var.set(status)
         self.update_tray_status()
+        self.draw_overlay()
 
     def dynamic_status_text(self):
         now = time.perf_counter()
@@ -2991,6 +3204,36 @@ class VoiceDictationApp:
             return
         self.set_display_status(self.dynamic_status_text())
         self.schedule_status_tick()
+
+    def set_overlay_button_state(self, text_key, bg, active_bg):
+        self.overlay_button_text = self.t(text_key)
+        self.overlay_button_bg = bg
+        self.overlay_button_active_bg = active_bg
+        self.draw_overlay()
+
+    def set_overlay_progress_running(self, running):
+        running = bool(running)
+        if running == self.progress_running:
+            return
+        self.progress_running = running
+        if running:
+            self.advance_overlay_progress()
+        else:
+            if self.overlay_progress_after_id is not None:
+                try:
+                    self.root.after_cancel(self.overlay_progress_after_id)
+                except tk.TclError:
+                    pass
+                self.overlay_progress_after_id = None
+            self.draw_overlay()
+
+    def advance_overlay_progress(self):
+        self.overlay_progress_after_id = None
+        if not self.progress_running:
+            return
+        self.overlay_progress_phase = (self.overlay_progress_phase + 7) % 100
+        self.draw_overlay()
+        self.overlay_progress_after_id = self.root.after(80, self.advance_overlay_progress)
 
     def update_status(self, status):
         previous_status = self.current_status
@@ -3020,42 +3263,35 @@ class VoiceDictationApp:
             or status in {"Still loading", "Transcribing"}
         )
         show_progress = busy and self.overlay_details_mode() != "button"
-        if show_progress and not self.progress_running:
-            self.progress.pack(fill="x", pady=(5, 0))
-            self.progress.start(12)
-            self.progress_running = True
-        elif not show_progress and self.progress_running:
-            self.progress.stop()
-            self.progress.pack_forget()
-            self.progress_running = False
+        self.set_overlay_progress_running(show_progress)
 
         if status == "Recording":
-            self.button.configure(text=self.t("button_record"), bg="#b83030", activebackground="#982727")
+            self.set_overlay_button_state("button_record", "#b83030", "#982727")
         elif status == "Loading ASR":
-            self.button.configure(text=self.t("button_asr"), bg="#81612b", activebackground="#6d5124")
+            self.set_overlay_button_state("button_asr", "#81612b", "#6d5124")
         elif status == "Loading punct":
-            self.button.configure(text=self.t("button_punct"), bg="#81612b", activebackground="#6d5124")
+            self.set_overlay_button_state("button_punct", "#81612b", "#6d5124")
         elif status == "Transcribing":
-            self.button.configure(text=self.t("button_text"), bg="#81612b", activebackground="#6d5124")
+            self.set_overlay_button_state("button_text", "#81612b", "#6d5124")
         elif busy:
-            self.button.configure(text=self.t("button_busy"), bg="#81612b", activebackground="#6d5124")
+            self.set_overlay_button_state("button_busy", "#81612b", "#6d5124")
         elif status == "Pasted":
-            self.button.configure(text=self.t("button_ok"), bg="#267d45", activebackground="#206b3b")
+            self.set_overlay_button_state("button_ok", "#267d45", "#206b3b")
         elif status == "Copied":
-            self.button.configure(text=self.t("button_copy"), bg="#2b7281", activebackground="#245f6c")
+            self.set_overlay_button_state("button_copy", "#2b7281", "#245f6c")
         elif status.startswith("Copied - paste"):
-            self.button.configure(text=self.t("button_paste"), bg="#b85528", activebackground="#98441f")
+            self.set_overlay_button_state("button_paste", "#b85528", "#98441f")
         elif status in {"No audio", "Too short", "No speech"}:
-            self.button.configure(text=self.t("button_empty"), bg="#5f6773", activebackground="#505762")
+            self.set_overlay_button_state("button_empty", "#5f6773", "#505762")
         elif status.startswith("Error") or status.startswith("Load error") or status in {
             "Bad hotkey",
             "Bad overlay key",
             "Hotkey conflict",
             "Startup error",
         }:
-            self.button.configure(text=self.t("button_error"), bg="#9f3030", activebackground="#832929")
+            self.set_overlay_button_state("button_error", "#9f3030", "#832929")
         else:
-            self.button.configure(text=self.t("button_dict"), bg="#2864d8", activebackground="#1f55bd")
+            self.set_overlay_button_state("button_dict", "#2864d8", "#1f55bd")
 
     def on_overlay_press(self, event):
         self.drag_start_x = event.x_root
@@ -3063,10 +3299,10 @@ class VoiceDictationApp:
         self.overlay_start_x = self.root.winfo_x()
         self.overlay_start_y = self.root.winfo_y()
         self.dragging_overlay = False
-        self.mouse_pressed_widget = event.widget
+        self.mouse_pressed_on_button = self.event_inside_overlay_button(event)
         self.mouse_recording_active = False
 
-        if event.widget == self.button and self.cfg.get("mode", "hold") == "hold":
+        if self.mouse_pressed_on_button and self.cfg.get("mode", "hold") == "hold":
             self.engine.start_recording()
             self.mouse_recording_active = True
 
@@ -3088,7 +3324,7 @@ class VoiceDictationApp:
     def on_overlay_release(self, event):
         if self.dragging_overlay:
             self.persist_overlay_position()
-        elif self.mouse_pressed_widget == self.button:
+        elif self.mouse_pressed_on_button:
             mode = self.cfg.get("mode", "hold")
             if mode == "hold" and self.mouse_recording_active:
                 self.engine.stop_recording()
@@ -3097,11 +3333,16 @@ class VoiceDictationApp:
 
         self.dragging_overlay = False
         self.mouse_recording_active = False
-        self.mouse_pressed_widget = None
+        self.mouse_pressed_on_button = False
+
+    def event_inside_overlay_button(self, event):
+        x1, y1, x2, y2 = self.overlay_button_bounds
+        return x1 <= int(event.x) <= x2 and y1 <= int(event.y) <= y2
 
     def move_overlay(self, x, y):
         x, y = self.clamp_overlay_position(x, y)
-        self.root.geometry(f"+{x}+{y}")
+        width, height = getattr(self, "overlay_window_size", (self.root.winfo_width(), self.root.winfo_height()))
+        self.root.geometry(f"{int(width)}x{int(height)}+{x}+{y}")
         self.cfg["overlay_x"] = x
         self.cfg["overlay_y"] = y
 
@@ -3121,6 +3362,7 @@ class VoiceDictationApp:
         save_config(self.cfg)
         self.root.deiconify()
         self.root.attributes("-topmost", True)
+        self.apply_overlay_transparency()
         self.apply_overlay_opacity()
         self._position_overlay()
 
@@ -3172,6 +3414,7 @@ class VoiceDictationApp:
         dict_hotkey = tk.StringVar(value=self.cfg.get("dictation_hotkey", "f8"))
         overlay_hotkey = tk.StringVar(value=self.cfg.get("overlay_hotkey", "ctrl+alt+shift+d"))
         overlay_size = tk.StringVar(value=self.choice_label("overlay_size", self.cfg.get("overlay_size", "medium")))
+        overlay_shape = tk.StringVar(value=self.choice_label("overlay_shape", self.cfg.get("overlay_shape", "rounded")))
         overlay_details = tk.StringVar(value=self.choice_label("overlay_details", self.cfg.get("overlay_details", "full")))
         overlay_opacity = tk.DoubleVar(value=clamp_overlay_opacity(self.cfg.get("overlay_opacity", 1.0)) * 100)
         overlay_opacity_label = tk.StringVar()
@@ -3236,6 +3479,7 @@ class VoiceDictationApp:
             dict_hotkey,
             overlay_hotkey,
             overlay_size,
+            overlay_shape,
             overlay_details,
             overlay_opacity,
             selected_device,
@@ -3376,6 +3620,7 @@ class VoiceDictationApp:
                 "dictation_hotkey": dict_hotkey.get(),
                 "overlay_hotkey": overlay_hotkey.get(),
                 "overlay_size": self.choice_value("overlay_size", overlay_size.get(), "medium"),
+                "overlay_shape": self.choice_value("overlay_shape", overlay_shape.get(), "rounded"),
                 "overlay_details": self.choice_value("overlay_details", overlay_details.get(), "full"),
                 "overlay_opacity": clamp_overlay_opacity(overlay_opacity.get() / 100),
                 "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
@@ -3511,6 +3756,18 @@ class VoiceDictationApp:
         remember_choice(overlay_size_combo, overlay_size, "overlay_size", "medium").grid(row=row, column=1, sticky="ew", pady=6)
 
         row += 1
+        i18n_label(win, "overlay_shape").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
+        overlay_shape_combo = ttk.Combobox(
+            win,
+            textvariable=overlay_shape,
+            values=self.choice_labels("overlay_shape"),
+            state="readonly",
+            width=32,
+            font=settings_font,
+        )
+        remember_choice(overlay_shape_combo, overlay_shape, "overlay_shape", "rounded").grid(row=row, column=1, sticky="ew", pady=6)
+
+        row += 1
         i18n_label(win, "overlay_details").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         overlay_details_combo = ttk.Combobox(
             win,
@@ -3633,6 +3890,7 @@ class VoiceDictationApp:
         values["overlay_hotkey"] = values["overlay_hotkey"].lower().strip()
         if values.get("overlay_size") not in {"small", "medium", "large"}:
             values["overlay_size"] = "medium"
+        values["overlay_shape"] = normalize_overlay_shape(values.get("overlay_shape"))
         if values.get("overlay_details") not in {"button", "status", "full"}:
             values["overlay_details"] = "full"
         values["overlay_opacity"] = clamp_overlay_opacity(values.get("overlay_opacity", 1.0))
@@ -3659,7 +3917,6 @@ class VoiceDictationApp:
         save_config(self.cfg)
         self.hotkeys.update_config(self.cfg)
         self.engine.update_config(self.cfg)
-        self.hotkey_label.configure(text=self.cfg["dictation_hotkey"].upper())
         self.apply_overlay_layout()
         self.apply_overlay_opacity()
         self._position_overlay()
@@ -3677,6 +3934,12 @@ class VoiceDictationApp:
             except tk.TclError:
                 pass
             self.status_tick_after_id = None
+        if self.overlay_progress_after_id is not None:
+            try:
+                self.root.after_cancel(self.overlay_progress_after_id)
+            except tk.TclError:
+                pass
+            self.overlay_progress_after_id = None
         if self.tray_icon:
             tray_icon = self.tray_icon
             self.tray_icon = None
