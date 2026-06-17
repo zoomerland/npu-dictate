@@ -428,24 +428,45 @@ def model_id_from_label(profiles, label, default):
     return default
 
 
-def normalize_model_device(profiles, model_id, device):
+def profile_uses_openvino(profile):
+    return profile.get("backend", "openvino") != "onnx_asr"
+
+
+def model_available_devices(profile, hardware_info=None):
+    supported = tuple(profile["devices"])
+    if not profile_uses_openvino(profile):
+        return supported
+    if hardware_info is None:
+        return supported
+    if not hardware_info.get("available"):
+        return tuple(device for device in supported if device == "CPU")
+    return tuple(
+        device for device in supported if device_is_available(hardware_info.get("devices") or [], device)
+    )
+
+
+def normalize_model_device(profiles, model_id, device, hardware_info=None):
     profile = model_profile(profiles, model_id, next(iter(profiles)))
     device = str(device or "").upper()
-    if device in profile["devices"]:
+    allowed = model_available_devices(profile, hardware_info) or tuple(profile["devices"])
+    if device in allowed:
         return device
-    return profile.get("default_device") or profile["devices"][0]
+    default_device = profile.get("default_device")
+    if default_device in allowed:
+        return default_device
+    return allowed[0]
 
 
-def selected_openvino_devices(cfg):
+def selected_openvino_devices(cfg, hardware_info=None):
     devices = set()
     asr_model = normalize_model_id(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
     asr_profile = model_profile(ASR_MODEL_PROFILES, asr_model, DEFAULT_ASR_MODEL)
-    if asr_profile.get("backend") == "openvino_ctc":
-        devices.add(normalize_model_device(ASR_MODEL_PROFILES, asr_model, cfg.get("asr_device")))
+    if profile_uses_openvino(asr_profile):
+        devices.add(normalize_model_device(ASR_MODEL_PROFILES, asr_model, cfg.get("asr_device"), hardware_info))
 
     if cfg.get("use_punctuation", True):
         punct_model = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
-        devices.add(normalize_model_device(PUNCT_MODEL_PROFILES, punct_model, cfg.get("punct_device")))
+        devices.add(normalize_model_device(PUNCT_MODEL_PROFILES, punct_model, cfg.get("punct_device"), hardware_info))
 
     return sorted(device for device in devices if device)
 
@@ -501,9 +522,14 @@ def log_openvino_hardware(info):
     )
 
 
-def normalize_model_config(cfg):
+def normalize_model_config(cfg, hardware_info=None):
     cfg["asr_model"] = normalize_model_id(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
-    cfg["asr_device"] = normalize_model_device(ASR_MODEL_PROFILES, cfg["asr_model"], cfg.get("asr_device"))
+    cfg["asr_device"] = normalize_model_device(
+        ASR_MODEL_PROFILES,
+        cfg["asr_model"],
+        cfg.get("asr_device"),
+        hardware_info,
+    )
     cfg["asr_pad_mode"] = normalize_asr_pad_mode(cfg.get("asr_pad_mode"))
     cfg["asr_bucket_frames"] = normalize_asr_bucket_frames(cfg.get("asr_bucket_frames"))
     cfg["asr_chunked"] = bool(cfg.get("asr_chunked", False))
@@ -543,7 +569,12 @@ def normalize_model_config(cfg):
     cfg["asr_vad_stitch"] = bool(cfg.get("asr_vad_stitch", False))
     cfg["asr_vad_fuzzy_stitch"] = bool(cfg.get("asr_vad_fuzzy_stitch", False))
     cfg["punct_model"] = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
-    cfg["punct_device"] = normalize_model_device(PUNCT_MODEL_PROFILES, cfg["punct_model"], cfg.get("punct_device"))
+    cfg["punct_device"] = normalize_model_device(
+        PUNCT_MODEL_PROFILES,
+        cfg["punct_model"],
+        cfg.get("punct_device"),
+        hardware_info,
+    )
     cfg["audio_pre_roll_ms"] = normalize_int(
         cfg.get("audio_pre_roll_ms"),
         DEFAULT_AUDIO_PRE_ROLL_MS,
@@ -1767,7 +1798,7 @@ class DictationEngine:
         self.keyboard = keyboard.Controller()
 
     def update_config(self, cfg):
-        cfg = normalize_model_config(cfg)
+        cfg = normalize_model_config(cfg, self.hardware_info)
         reload_asr = False
         restart_audio = False
         with self.lock:
@@ -2019,8 +2050,21 @@ class DictationEngine:
             cfg = dict(self.cfg)
             hardware_info = probe_openvino_hardware(cfg)
             log_openvino_hardware(hardware_info)
+            normalized_cfg = normalize_model_config(dict(cfg), hardware_info)
+            if (
+                normalized_cfg.get("asr_device") != cfg.get("asr_device")
+                or normalized_cfg.get("punct_device") != cfg.get("punct_device")
+            ):
+                log_debug(
+                    "hardware device fallback "
+                    f"asr={cfg.get('asr_device')}->{normalized_cfg.get('asr_device')} "
+                    f"punct={cfg.get('punct_device')}->{normalized_cfg.get('punct_device')}"
+                )
+                cfg = normalized_cfg
+                hardware_info["selected_devices"] = selected_openvino_devices(cfg, hardware_info)
             with self.lock:
                 self.hardware_info = hardware_info
+                self.cfg = cfg
             asr_profile = model_profile(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
             self.set_status("Loading ASR")
             asr_start = time.perf_counter()
@@ -3515,11 +3559,17 @@ class VoiceDictationApp:
         settings_style.configure("Settings.TNotebook.Tab", font=settings_tab_font, padding=(scaled(12), scaled(7)))
         win.option_add("*TCombobox*Listbox.font", settings_font)
 
+        hardware_info = self.engine.hardware_info or probe_openvino_hardware(self.cfg)
         mode = tk.StringVar(value=self.choice_label("mode", self.cfg.get("mode", "hold")))
         ui_language = tk.StringVar(value=UI_LANGUAGE_NAMES[normalize_ui_language(self.cfg.get("ui_language", "en"))])
         asr_model = tk.StringVar(value=model_label(ASR_MODEL_PROFILES, self.cfg.get("asr_model"), DEFAULT_ASR_MODEL))
         asr_device = tk.StringVar(
-            value=normalize_model_device(ASR_MODEL_PROFILES, self.cfg.get("asr_model"), self.cfg.get("asr_device"))
+            value=normalize_model_device(
+                ASR_MODEL_PROFILES,
+                self.cfg.get("asr_model"),
+                self.cfg.get("asr_device"),
+                hardware_info,
+            )
         )
         punct_model = tk.StringVar(
             value=model_label(PUNCT_MODEL_PROFILES, self.cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
@@ -3529,6 +3579,7 @@ class VoiceDictationApp:
                 PUNCT_MODEL_PROFILES,
                 self.cfg.get("punct_model"),
                 self.cfg.get("punct_device"),
+                hardware_info,
             )
         )
         dict_hotkey = tk.StringVar(value=self.cfg.get("dictation_hotkey", "f8"))
@@ -3638,14 +3689,14 @@ class VoiceDictationApp:
             def refresh_devices(*_):
                 model_id = model_id_from_label(profiles, model_var.get(), default_model)
                 profile = model_profile(profiles, model_id, default_model)
-                supported = set(profile["devices"])
+                available = set(model_available_devices(profile, hardware_info))
                 if state["model_id"] is not None and state["model_id"] != model_id:
-                    device_var.set(profile.get("default_device") or profile["devices"][0])
-                elif device_var.get() not in supported:
-                    device_var.set(normalize_model_device(profiles, model_id, device_var.get()))
+                    device_var.set(normalize_model_device(profiles, model_id, None, hardware_info))
+                elif device_var.get() not in available:
+                    device_var.set(normalize_model_device(profiles, model_id, device_var.get(), hardware_info))
                 state["model_id"] = model_id
                 for device, button in buttons.items():
-                    button.configure(state="normal" if device in supported else "disabled")
+                    button.configure(state="normal" if device in available else "disabled")
 
             model_var.trace_add("write", refresh_devices)
             refresh_devices()
@@ -3735,12 +3786,14 @@ class VoiceDictationApp:
                     ASR_MODEL_PROFILES,
                     model_id_from_label(ASR_MODEL_PROFILES, asr_model.get(), DEFAULT_ASR_MODEL),
                     asr_device.get(),
+                    hardware_info,
                 ),
                 "punct_model": model_id_from_label(PUNCT_MODEL_PROFILES, punct_model.get(), DEFAULT_PUNCT_MODEL),
                 "punct_device": normalize_model_device(
                     PUNCT_MODEL_PROFILES,
                     model_id_from_label(PUNCT_MODEL_PROFILES, punct_model.get(), DEFAULT_PUNCT_MODEL),
                     punct_device.get(),
+                    hardware_info,
                 ),
                 "dictation_hotkey": dict_hotkey.get(),
                 "overlay_hotkey": overlay_hotkey.get(),
@@ -4014,9 +4067,15 @@ class VoiceDictationApp:
         dirty.set(False)
 
     def save_settings(self, win, values, close=True):
+        hardware_info = self.engine.hardware_info or probe_openvino_hardware(values)
         values["ui_language"] = normalize_ui_language(values.get("ui_language", "en"))
         values["asr_model"] = normalize_model_id(ASR_MODEL_PROFILES, values.get("asr_model"), DEFAULT_ASR_MODEL)
-        values["asr_device"] = normalize_model_device(ASR_MODEL_PROFILES, values["asr_model"], values.get("asr_device"))
+        values["asr_device"] = normalize_model_device(
+            ASR_MODEL_PROFILES,
+            values["asr_model"],
+            values.get("asr_device"),
+            hardware_info,
+        )
         values["punct_model"] = normalize_model_id(
             PUNCT_MODEL_PROFILES,
             values.get("punct_model"),
@@ -4026,6 +4085,7 @@ class VoiceDictationApp:
             PUNCT_MODEL_PROFILES,
             values["punct_model"],
             values.get("punct_device"),
+            hardware_info,
         )
         values["dictation_hotkey"] = values["dictation_hotkey"].lower().strip()
         values["overlay_hotkey"] = values["overlay_hotkey"].lower().strip()
@@ -4054,7 +4114,7 @@ class VoiceDictationApp:
 
         next_cfg = dict(self.cfg)
         next_cfg.update(values)
-        self.cfg = normalize_model_config(next_cfg)
+        self.cfg = normalize_model_config(next_cfg, hardware_info)
         save_config(self.cfg)
         self.hotkeys.update_config(self.cfg)
         self.engine.update_config(self.cfg)

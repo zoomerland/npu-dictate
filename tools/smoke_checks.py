@@ -70,6 +70,27 @@ def check_cpu_fallback_profile():
     assert app.selected_openvino_devices(normalized) == ["CPU"]
 
 
+def check_hardware_device_filtering():
+    cpu_only_hardware = {"available": True, "devices": ["CPU"]}
+    cfg = app.default_config()
+    cfg.update(
+        {
+            "asr_model": app.OPENVINO_ASR_NNCF_INT8_MODEL,
+            "asr_device": "NPU",
+            "punct_model": app.DEFAULT_PUNCT_MODEL,
+            "punct_device": "NPU",
+            "use_punctuation": True,
+        }
+    )
+    normalized = app.normalize_model_config(cfg, cpu_only_hardware)
+    assert normalized["asr_device"] == "CPU"
+    assert normalized["punct_device"] == "CPU"
+    assert app.selected_openvino_devices(normalized, cpu_only_hardware) == ["CPU"]
+
+    asr_profile = app.ASR_MODEL_PROFILES[app.OPENVINO_ASR_NNCF_INT8_MODEL]
+    assert app.model_available_devices(asr_profile, cpu_only_hardware) == ("CPU",)
+
+
 def check_openvino_probe():
     info = app.probe_openvino_hardware(app.load_config())
     assert "available" in info
@@ -223,6 +244,7 @@ def main():
     runner = CheckRunner()
     runner.check("config and model profiles normalize", check_config_profiles)
     runner.check("CPU-only fallback profile normalizes", check_cpu_fallback_profile)
+    runner.check("hardware device filtering falls back to CPU", check_hardware_device_filtering)
     runner.check("OpenVINO hardware probe runs", check_openvino_probe)
     runner.check("context-aware insertion spacing cases pass", check_insertion_spacing)
     runner.check("clipboard paste/restore behavior passes with mocks", check_clipboard_paste_behavior)
