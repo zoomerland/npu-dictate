@@ -31,6 +31,7 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
 - [ ] Test paste reliability in:
   - Added `docs/manual-paste-test-plan.md`.
   - Added local browser test page: `tools/paste_test_page.html`.
+  - Browser test page B1-B8 passed in Chrome; results recorded in `docs/manual-paste-test-results.md`.
   - Codex Desktop input.
   - Chrome search field.
   - Chrome web textareas.
