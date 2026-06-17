@@ -131,6 +131,27 @@ class FakeClipboard:
         self.value = value
 
 
+class DelayedClipboard:
+    def __init__(self, value, delay_reads=2):
+        self.value = value
+        self.pending = None
+        self.delay_reads = delay_reads
+        self.remaining_reads = 0
+
+    def paste(self):
+        if self.pending is not None:
+            if self.remaining_reads <= 0:
+                self.value = self.pending
+                self.pending = None
+            else:
+                self.remaining_reads -= 1
+        return self.value
+
+    def copy(self, value):
+        self.pending = value
+        self.remaining_reads = self.delay_reads
+
+
 class FakeUser32:
     def IsClipboardFormatAvailable(self, _format):
         return 1
@@ -165,6 +186,11 @@ def check_clipboard_paste_behavior():
         assert app.pyperclip.value == "old"
 
         app.pyperclip = FakeClipboard("old")
+        engine = TestEngine({"restore_clipboard_after_paste": False}, send_ok=True)
+        assert engine.paste_text("new") is True
+        assert app.pyperclip.value == "new"
+
+        app.pyperclip = DelayedClipboard("old", delay_reads=2)
         engine = TestEngine({"restore_clipboard_after_paste": False}, send_ok=True)
         assert engine.paste_text("new") is True
         assert app.pyperclip.value == "new"

@@ -31,5 +31,25 @@ Observed status:
 
 Next paste-test focus:
 
-- Native Windows matrix: Notepad and Windows search.
+- Native Windows matrix: completed in the follow-up section below.
+- Downloadable/real apps: VS Code or VSCodium, Telegram Desktop, Discord, LibreOffice Writer, or Obsidian.
+
+## 2026-06-17 - Native Windows fields
+
+Summary:
+
+| ID | Target | Result | Evidence |
+| --- | --- | --- | --- |
+| N1 | Notepad empty document | OK | User reported successful insertion. Log shows Notepad/RichEdit target with `paste target_ready=True send_input=True`. |
+| N2 | Notepad second phrase | OK | User reported successful append after the first insertion. Log shows Notepad/RichEdit target with context and successful paste. |
+| N3 | Notepad middle of line | OK | User reported successful insertion at the intended position. |
+| N4 | Windows Search / Start search | Mostly OK | First attempt appeared to paste stale clipboard text; later attempts inserted the dictated text correctly. Log shows Windows Search as `Windows.UI.Core.CoreWindow` and successful paste sends. |
+
+Observed status:
+
+- Added clipboard verification/retry before sending `Ctrl+V`; if the new text is not confirmed in the clipboard, auto-paste is skipped to avoid pasting stale clipboard text.
+- The floating overlay can be visually covered by the Windows Search / Start panel. Treat this as a shell-z-order limitation for now; use the dictation hotkey in this surface.
+
+Next paste-test focus:
+
 - Downloadable/real apps: VS Code or VSCodium, Telegram Desktop, Discord, LibreOffice Writer, or Obsidian.

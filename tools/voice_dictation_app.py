@@ -2524,6 +2524,31 @@ class DictationEngine:
             log_debug(f"clipboard copy failed error={type(exc).__name__}")
             return False
 
+        def wait_for_clipboard_text(expected, timeout=0.35):
+            deadline = time.perf_counter() + timeout
+            while time.perf_counter() < deadline:
+                try:
+                    if pyperclip.paste() == expected:
+                        return True
+                except Exception as exc:
+                    log_debug(f"clipboard verify failed error={type(exc).__name__}")
+                    return False
+                time.sleep(0.02)
+            return False
+
+        clipboard_ready = wait_for_clipboard_text(text)
+        if not clipboard_ready:
+            log_debug("clipboard verify retry")
+            try:
+                pyperclip.copy(text)
+            except Exception as exc:
+                log_debug(f"clipboard copy retry failed error={type(exc).__name__}")
+                return False
+            clipboard_ready = wait_for_clipboard_text(text)
+        if not clipboard_ready:
+            log_debug("clipboard verify mismatch")
+            return False
+
         target_ready = None
         if self.focus_callback:
             target_ready = bool(self.focus_callback())

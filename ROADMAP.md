@@ -32,6 +32,7 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Added `docs/manual-paste-test-plan.md`.
   - Added local browser test page: `tools/paste_test_page.html`.
   - Browser test page B1-B8 passed in Chrome; results recorded in `docs/manual-paste-test-results.md`.
+  - Notepad N1-N3 passed; Windows Search N4 mostly passed after a stale-clipboard mitigation.
   - Codex Desktop input.
   - Chrome search field.
   - Chrome web textareas.
