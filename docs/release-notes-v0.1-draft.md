@@ -58,7 +58,7 @@ See `docs/model-sources-and-licenses.md`.
 - UI language is independent from speech recognition language. English/Russian UI does not imply English ASR support.
 - User-provided custom models are out of scope for v0.1.
 - Manual paste/focus checks passed for the current v0.1 application matrix.
-- Long dictation and fast speech still need more manual testing.
+- Long dictation passed the v0.1 manual acceptance pass; fast speech and exact repeated-word counts still need more tuning.
 - GPU profiles are not considered tested yet.
 - First model preparation and first OpenVINO/NPU compilation can be slow.
 - No packaged app, installer, or code signing yet.
@@ -68,5 +68,5 @@ See `docs/model-sources-and-licenses.md`.
 - Run `tools/smoke_checks.py`.
 - Run `tools/doctor.py`.
 - Paste matrix: completed for Codex/ChatGPT-style inputs, Chrome/browser fields, Telegram Desktop, Notepad, Windows Search, and standard Windows text fields.
-- Verify at least one long dictation sample with pauses and cancellation.
+- Long dictation matrix: completed for immediate start, long paragraphs, pauses, silence, repeated words, fast speech, accidental silence, too-short recording, and overlay drag cancellation.
 - Re-check upstream model licenses before publishing any converted artifacts.

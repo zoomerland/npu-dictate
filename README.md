@@ -181,7 +181,7 @@ Saved-sample ASR tuning report:
 - Untested rich editors may still behave differently from plain text inputs.
 - Clipboard paste is used intentionally for reliability; direct text injection is deferred.
 - Punctuation quality depends on ASR quality and available text context before the cursor.
-- Long dictation, fast speech, and heavy system/NPU load still need more tuning.
+- Long dictation passed the v0.1 manual acceptance pass, but fast speech, heavy system/NPU load, and exact repeated-word counts still need more tuning.
 - First model preparation and first OpenVINO/NPU compile can be slow.
 - There is no installer, code signing, or packaged app yet.
 
