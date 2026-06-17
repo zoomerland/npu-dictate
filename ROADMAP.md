@@ -95,7 +95,7 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
 - [ ] Round UI corners where the Windows/Tk stack allows it:
   - [x] Overlay window shape.
   - [x] Overlay button and frame internals.
-  - [ ] Settings controls or grouped sections.
+  - [x] Settings controls or grouped sections.
   - [ ] Context menu/tray menu where practical.
 - [x] Increase context menu size to match the settings readability scale.
 - [x] Improve recording/loading/transcribing visual states.
