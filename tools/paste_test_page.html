@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local Voice Dictation paste test</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #5c667a;
+      --line: #d9dee8;
+      --focus: #1f6feb;
+      --ok: #0f7b4f;
+      --bad: #b3261e;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.45;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 24px auto 40px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 26px;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 19px;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    button {
+      min-height: 38px;
+      padding: 8px 13px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: #aeb7c8;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    section,
+    .log {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    label {
+      display: block;
+      margin: 12px 0 6px;
+      font-weight: 600;
+    }
+
+    input,
+    textarea,
+    [contenteditable="true"] {
+      width: 100%;
+      min-height: 40px;
+      padding: 9px 10px;
+      border: 1px solid #b8c0cf;
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      outline: none;
+    }
+
+    textarea {
+      min-height: 132px;
+      resize: vertical;
+    }
+
+    [contenteditable="true"] {
+      min-height: 132px;
+      white-space: pre-wrap;
+    }
+
+    input:focus,
+    textarea:focus,
+    [contenteditable="true"]:focus {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.14);
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status.ok {
+      color: var(--ok);
+    }
+
+    .status.bad {
+      color: var(--bad);
+    }
+
+    .log {
+      margin-top: 14px;
+    }
+
+    pre {
+      min-height: 130px;
+      max-height: 240px;
+      overflow: auto;
+      margin: 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f9fafc;
+      color: #263247;
+      font: 13px/1.45 Consolas, "Cascadia Mono", monospace;
+      white-space: pre-wrap;
+    }
+
+    iframe {
+      width: 100%;
+      height: 164px;
+      border: 1px solid #b8c0cf;
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    @media (max-width: 780px) {
+      header {
+        display: block;
+      }
+
+      .actions {
+        justify-content: flex-start;
+        margin-top: 12px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Paste test</h1>
+        <p>Локальная страница для проверки вставки диктовки в браузерные поля.</p>
+      </div>
+      <div class="actions">
+        <button id="reset-all" type="button">Очистить поля</button>
+        <button id="copy-log" type="button">Копировать лог</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section>
+        <h2>Обычные поля</h2>
+
+        <label for="plain-input">Input</label>
+        <input id="plain-input" data-name="plain input" autocomplete="off" placeholder="Поставь курсор сюда">
+        <div class="status" data-status-for="plain-input">Ожидает ввод</div>
+
+        <label for="search-input">Search</label>
+        <input id="search-input" data-name="search input" type="search" autocomplete="off" placeholder="Проверка поля поиска">
+        <div class="status" data-status-for="search-input">Ожидает ввод</div>
+
+        <label for="prefilled-input">Input с текстом</label>
+        <input id="prefilled-input" data-name="prefilled input" autocomplete="off" value="Начало фразы">
+        <div class="status" data-status-for="prefilled-input">Ожидает ввод</div>
+      </section>
+
+      <section>
+        <h2>Многострочный ввод</h2>
+
+        <label for="plain-textarea">Textarea</label>
+        <textarea id="plain-textarea" data-name="textarea" placeholder="Поставь курсор сюда"></textarea>
+        <div class="status" data-status-for="plain-textarea">Ожидает ввод</div>
+      </section>
+
+      <section>
+        <h2>Редактор в странице</h2>
+
+        <label for="editable-block">Contenteditable</label>
+        <div id="editable-block" data-name="contenteditable" contenteditable="true">Начало текста. </div>
+        <div class="status" data-status-for="editable-block">Ожидает ввод</div>
+      </section>
+
+      <section>
+        <h2>Вложенный документ</h2>
+
+        <label for="test-frame">Iframe</label>
+        <iframe id="test-frame" title="iframe paste target"></iframe>
+        <div class="status" data-status-for="test-frame">Ожидает ввод</div>
+      </section>
+    </div>
+
+    <section class="log">
+      <h2>События</h2>
+      <pre id="event-log"></pre>
+    </section>
+  </main>
+
+  <script>
+    const logEl = document.querySelector("#event-log");
+    const events = [];
+
+    function valueOf(target) {
+      if (target.isContentEditable) {
+        return target.innerText;
+      }
+      return target.value ?? "";
+    }
+
+    function setStatus(target, kind, text) {
+      const id = target.id || target.closest("iframe")?.id;
+      if (!id) return;
+      const status = document.querySelector(`[data-status-for="${id}"]`);
+      if (!status) return;
+      status.className = `status ${kind || ""}`.trim();
+      status.textContent = text;
+    }
+
+    function addEvent(type, target) {
+      const name = target.dataset?.name || target.id || target.tagName.toLowerCase();
+      const value = valueOf(target);
+      const item = {
+        time: new Date().toLocaleTimeString(),
+        type,
+        target: name,
+        length: value.length,
+        tail: value.slice(-120)
+      };
+      events.unshift(item);
+      events.splice(40);
+      logEl.textContent = events.map((event) =>
+        `${event.time} ${event.type.padEnd(8)} ${event.target.padEnd(18)} len=${String(event.length).padStart(3)} tail=${JSON.stringify(event.tail)}`
+      ).join("\n");
+      setStatus(target, "ok", `${type}: ${value.length} символов`);
+    }
+
+    function bindTarget(target) {
+      target.addEventListener("focus", () => setStatus(target, "", "Фокус получен"));
+      target.addEventListener("input", () => addEvent("input", target));
+      target.addEventListener("paste", () => window.setTimeout(() => addEvent("paste", target), 0));
+    }
+
+    document.querySelectorAll("input, textarea, [contenteditable='true']").forEach(bindTarget);
+
+    const frame = document.querySelector("#test-frame");
+    const frameDoc = frame.contentDocument;
+    frameDoc.open();
+    frameDoc.write(`
+      <!doctype html>
+      <html lang="ru">
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { margin: 12px; font: 16px "Segoe UI", Arial, sans-serif; color: #172033; }
+          label { display: block; margin-bottom: 6px; font-weight: 600; }
+          textarea { width: 100%; min-height: 98px; box-sizing: border-box; padding: 9px 10px; border: 1px solid #b8c0cf; border-radius: 6px; font: inherit; resize: vertical; }
+          textarea:focus { border-color: #1f6feb; outline: none; box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.14); }
+        </style>
+      </head>
+      <body>
+        <label for="frame-textarea">Iframe textarea</label>
+        <textarea id="frame-textarea" data-name="iframe textarea" placeholder="Поставь курсор сюда"></textarea>
+      </body>
+      </html>
+    `);
+    frameDoc.close();
+
+    const frameTarget = frameDoc.querySelector("#frame-textarea");
+    frameTarget.addEventListener("focus", () => setStatus(frame, "", "Фокус внутри iframe"));
+    frameTarget.addEventListener("input", () => {
+      addEvent("input", frameTarget);
+      setStatus(frame, "ok", `${frameTarget.value.length} символов внутри iframe`);
+    });
+    frameTarget.addEventListener("paste", () => window.setTimeout(() => {
+      addEvent("paste", frameTarget);
+      setStatus(frame, "ok", `${frameTarget.value.length} символов внутри iframe`);
+    }, 0));
+
+    document.querySelector("#reset-all").addEventListener("click", () => {
+      document.querySelectorAll("input, textarea").forEach((target) => {
+        if (target.id === "prefilled-input") {
+          target.value = "Начало фразы";
+        } else {
+          target.value = "";
+        }
+        setStatus(target, "", "Очищено");
+      });
+      document.querySelector("#editable-block").innerText = "Начало текста. ";
+      frameTarget.value = "";
+      setStatus(frame, "", "Очищено");
+      events.length = 0;
+      logEl.textContent = "";
+    });
+
+    document.querySelector("#copy-log").addEventListener("click", async () => {
+      const text = logEl.textContent || "";
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const area = document.createElement("textarea");
+        area.value = text;
+        document.body.append(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -29,6 +29,8 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
 - [x] First-run model preparation for ASR and punctuation.
 - [x] Debug log for paste/focus behavior.
 - [ ] Test paste reliability in:
+  - Added `docs/manual-paste-test-plan.md`.
+  - Added local browser test page: `tools/paste_test_page.html`.
   - Codex Desktop input.
   - Chrome search field.
   - Chrome web textareas.
