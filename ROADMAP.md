@@ -52,6 +52,7 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Report config, model paths, OpenVINO devices, audio input devices, and recent logs.
   - Support human-readable output and JSON output.
 - [ ] Long dictation test: pauses, silence, repeated phrases, and cancellation.
+  - Added `docs/manual-long-dictation-test-plan.md`.
 - [x] Decide how to handle leading/trailing spaces around inserted text:
   - Add a leading space when the cursor follows normal text and the inserted fragment starts with a word.
   - Avoid adding a leading space before inserted punctuation such as commas or periods.
