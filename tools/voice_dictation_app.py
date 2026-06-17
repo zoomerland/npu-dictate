@@ -3391,6 +3391,28 @@ class VoiceDictationApp:
         save_config(self.cfg)
         self.root.withdraw()
 
+    def settings_ui_scale(self):
+        try:
+            dpi_scale = float(self.root.winfo_fpixels("1i")) / 96.0
+        except (tk.TclError, ValueError, ZeroDivisionError):
+            dpi_scale = 1.0
+
+        try:
+            screen_width = int(self.root.winfo_screenwidth())
+            screen_height = int(self.root.winfo_screenheight())
+        except tk.TclError:
+            screen_width = 1280
+            screen_height = 800
+
+        short_side = min(screen_width, screen_height)
+        if short_side <= 850:
+            readable_scale = 1.18
+        elif short_side <= 1100:
+            readable_scale = 1.10
+        else:
+            readable_scale = 1.04
+        return min(max(dpi_scale, readable_scale, 1.0), 1.4)
+
     def open_settings(self):
         if hasattr(self, "settings_window") and self.settings_window.winfo_exists():
             self.settings_window.focus()
@@ -3404,19 +3426,35 @@ class VoiceDictationApp:
         win.title(f"{APP_NAME} {self.t('settings_title')}")
         win.attributes("-topmost", True)
         win.resizable(True, True)
-        win.configure(padx=24, pady=20)
-        win.minsize(900, 560)
+
+        settings_scale = self.settings_ui_scale()
+
+        def scaled(value):
+            return max(1, int(round(value * settings_scale)))
+
+        left, top, right, bottom = self.virtual_screen_bounds()
+        screen_width = max(1, right - left)
+        screen_height = max(1, bottom - top)
+        window_width = min(max(scaled(960), 860), max(760, screen_width - scaled(80)))
+        window_height = min(max(scaled(560), 540), max(520, screen_height - scaled(100)))
+        window_x = left + max(0, (screen_width - window_width) // 2)
+        window_y = top + max(0, (screen_height - window_height) // 2)
+        win.configure(padx=scaled(24), pady=scaled(20))
+        win.minsize(window_width, window_height)
+        win.geometry(f"{window_width}x{window_height}+{window_x}+{window_y}")
         win.columnconfigure(0, weight=1)
         win.rowconfigure(0, weight=1)
 
-        settings_font = ("Segoe UI", 12)
-        settings_small_font = ("Segoe UI", 10)
+        settings_font_size = max(14, int(round(13 * settings_scale)))
+        settings_font = ("Segoe UI", settings_font_size)
+        settings_small_font = ("Segoe UI", max(12, settings_font_size - 2))
+        settings_tab_font = ("Segoe UI", max(12, settings_font_size - 1))
         settings_style = ttk.Style(win)
         settings_style.configure("TLabel", font=settings_font)
-        settings_style.configure("TCheckbutton", font=settings_font, padding=(0, 4))
-        settings_style.configure("TButton", font=settings_font, padding=(12, 6))
-        settings_style.configure("Settings.TLabelframe", padding=(16, 12))
-        settings_style.configure("Settings.TLabelframe.Label", font=("Segoe UI", 12, "bold"))
+        settings_style.configure("TCheckbutton", font=settings_font, padding=(0, scaled(5)))
+        settings_style.configure("TRadiobutton", font=settings_font, padding=(0, scaled(3)))
+        settings_style.configure("TButton", font=settings_font, padding=(scaled(14), scaled(8)))
+        settings_style.configure("Settings.TNotebook.Tab", font=settings_tab_font, padding=(scaled(12), scaled(7)))
         win.option_add("*TCombobox*Listbox.font", settings_font)
 
         mode = tk.StringVar(value=self.choice_label("mode", self.cfg.get("mode", "hold")))
@@ -3697,11 +3735,11 @@ class VoiceDictationApp:
 
         win.protocol("WM_DELETE_WINDOW", close_settings)
 
-        settings_notebook = ttk.Notebook(win)
+        settings_notebook = ttk.Notebook(win, style="Settings.TNotebook")
         settings_notebook.grid(row=0, column=0, sticky="nsew")
 
         def settings_section(key):
-            frame = ttk.Frame(settings_notebook, padding=(18, 16))
+            frame = ttk.Frame(settings_notebook, padding=(scaled(22), scaled(18)))
             frame.columnconfigure(1, weight=1)
             settings_notebook.add(frame, text=self.t(key))
             remember_tab(settings_notebook, frame, key)
