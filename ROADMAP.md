@@ -28,17 +28,18 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Keep dictated text in clipboard when paste fails so the user can paste manually.
 - [x] First-run model preparation for ASR and punctuation.
 - [x] Debug log for paste/focus behavior.
-- [ ] Test paste reliability in:
+- [x] Test paste reliability in:
   - Added `docs/manual-paste-test-plan.md`.
   - Added local browser test page: `tools/paste_test_page.html`.
   - Browser test page B1-B8 passed in Chrome; results recorded in `docs/manual-paste-test-results.md`.
   - Notepad N1-N3 passed; Windows Search N4 passed after stale-clipboard mitigation and clipboard-restore regression.
-  - Codex Desktop input.
-  - Chrome search field.
-  - Chrome web textareas.
-  - Notepad.
-  - Telegram/Slack/Discord-like apps.
-  - Office/Word-like editors.
+  - Codex Desktop input passed.
+  - Chrome/browser real fields passed.
+  - Chrome web textarea-like fields passed.
+  - Notepad passed.
+  - Telegram Desktop passed.
+  - ChatGPT input passed.
+  - Office/Word-like editors are not required for v0.1 after covering the user's actual daily apps.
 - [x] Add a user-visible fallback when paste fails.
 - [x] Add a small diagnostics view or "copy debug info" action.
 - [x] Add local smoke checks:
@@ -65,7 +66,7 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - [x] Use previous sentence or current unfinished sentence as punctuation context.
   - [x] Send context plus new dictation to the postprocessor.
   - [x] Insert only the newly dictated segment back into the field.
-  - [ ] Test and tune in Chromium/Electron and native Win32 inputs.
+  - [x] Test and tune in Chromium/Electron and native Win32 inputs.
   - [ ] Optional full-field repunctuation mode:
     - Re-read the full text field after insertion.
     - Run punctuation/casing over the full field text.

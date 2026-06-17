@@ -53,4 +53,27 @@ Observed status:
 
 Next paste-test focus:
 
-- Downloadable/real apps: VS Code or VSCodium, Telegram Desktop, Discord, LibreOffice Writer, or Obsidian.
+- Real-app matrix: completed in the follow-up section below.
+
+## 2026-06-18 - Real apps
+
+Summary:
+
+| ID | Target | Result | Evidence |
+| --- | --- | --- | --- |
+| A1 | Browser / Chrome real fields | OK | User reported the real browser app tests passed. |
+| A2 | Telegram Desktop | OK | User reported the Telegram Desktop tests passed. |
+| A3 | ChatGPT input | OK | User reported the ChatGPT input tests passed. |
+| A4 | Codex Desktop / current work input | OK | User reported the remaining app/input tests passed. |
+| A5 | Standard Windows fields | OK | Covered by Notepad and Windows Search results above; user reported the follow-up tests passed. |
+
+Observed status:
+
+- No new paste/focus regressions were reported in the real-app pass.
+- Office/LibreOffice-style editors were intentionally not installed or required for v0.1 after the manual test matrix covered the user's actual daily apps.
+
+Paste reliability status:
+
+- Browser test page B1-B8: passed.
+- Native Windows N1-N4: passed.
+- Real apps A1-A5: passed.

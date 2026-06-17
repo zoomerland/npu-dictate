@@ -57,7 +57,7 @@ See `docs/model-sources-and-licenses.md`.
 - Russian speech recognition is the current focus.
 - UI language is independent from speech recognition language. English/Russian UI does not imply English ASR support.
 - User-provided custom models are out of scope for v0.1.
-- Paste/focus behavior still needs a broader application matrix.
+- Manual paste/focus checks passed for the current v0.1 application matrix.
 - Long dictation and fast speech still need more manual testing.
 - GPU profiles are not considered tested yet.
 - First model preparation and first OpenVINO/NPU compilation can be slow.
@@ -67,8 +67,6 @@ See `docs/model-sources-and-licenses.md`.
 
 - Run `tools/smoke_checks.py`.
 - Run `tools/doctor.py`.
-- Verify paste into Codex Desktop input.
-- Verify paste into Chrome search and web textareas.
-- Verify paste into Notepad.
+- Paste matrix: completed for Codex/ChatGPT-style inputs, Chrome/browser fields, Telegram Desktop, Notepad, Windows Search, and standard Windows text fields.
 - Verify at least one long dictation sample with pauses and cancellation.
 - Re-check upstream model licenses before publishing any converted artifacts.

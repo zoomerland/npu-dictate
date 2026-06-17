@@ -177,8 +177,8 @@ Saved-sample ASR tuning report:
 - Russian dictation is the current focus.
 - UI localization exists for English and Russian, but UI language is separate from ASR language. English UI does not imply English speech recognition support.
 - User-provided custom models are out of scope for v0.1.
-- Paste reliability still needs testing across more applications.
-- Some rich editors may behave differently from plain text inputs.
+- The current v0.1 manual paste matrix passed for browser fields, Notepad, Windows Search, Telegram Desktop, ChatGPT/Codex-style inputs, and standard Windows text fields.
+- Untested rich editors may still behave differently from plain text inputs.
 - Clipboard paste is used intentionally for reliability; direct text injection is deferred.
 - Punctuation quality depends on ASR quality and available text context before the cursor.
 - Long dictation, fast speech, and heavy system/NPU load still need more tuning.
