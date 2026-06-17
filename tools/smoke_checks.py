@@ -1,4 +1,6 @@
 import argparse
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -169,25 +171,52 @@ def check_model_paths(runner):
         runner.warn(f"Punctuation model directory is missing: {punct_dir}")
 
 
-def check_rupunct_cpu():
-    from rupunct_restore import RUPunctRestorer
-
-    restorer = RUPunctRestorer(
-        app.default_punct_model_dir(),
-        "CPU",
-        cache_dir=app.repo_root() / "models" / "openvino" / "cache",
+def check_rupunct_cpu(timeout_sec):
+    code = (
+        "import os, sys\n"
+        "from pathlib import Path\n"
+        f"sys.path.insert(0, {str(TOOLS_DIR)!r})\n"
+        "from rupunct_restore import RUPunctRestorer\n"
+        "from voice_dictation_app import default_punct_model_dir, repo_root\n"
+        "restorer = RUPunctRestorer(default_punct_model_dir(), 'CPU', "
+        "cache_dir=repo_root() / 'models' / 'openvino' / 'cache')\n"
+        "result = restorer.restore('привет мир как дела')\n"
+        "assert result and 'Привет' in result, result\n"
+        "print(result, flush=True)\n"
+        "os._exit(0)\n"
     )
-    result = restorer.restore("привет мир как дела")
-    assert result, "RUPunct returned an empty string"
-    assert "Привет" in result, result
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=app.repo_root(),
+        capture_output=True,
+        text=True,
+        timeout=timeout_sec,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
+    assert result.returncode == 0, (result.stdout + result.stderr).strip()
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(description="Run local smoke checks for Local Voice Dictation.")
     parser.add_argument(
         "--skip-rupunct",
         action="store_true",
         help="Skip the optional RUPunct CPU smoke test.",
+    )
+    parser.add_argument(
+        "--rupunct-timeout",
+        type=float,
+        default=90.0,
+        help="Timeout in seconds for the optional RUPunct CPU child-process smoke test.",
     )
     args = parser.parse_args()
 
@@ -204,7 +233,7 @@ def main():
     elif not app.default_punct_model_dir().exists():
         runner.warn("Skipping RUPunct CPU smoke test because the model directory is missing")
     else:
-        runner.check("RUPunct CPU smoke test", check_rupunct_cpu)
+        runner.check("RUPunct CPU smoke test", lambda: check_rupunct_cpu(args.rupunct_timeout))
 
     print()
     print(f"Smoke checks complete: failures={len(runner.failures)} warnings={len(runner.warnings)}")

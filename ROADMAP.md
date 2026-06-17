@@ -143,7 +143,9 @@ This milestone is about UI language, not ASR language.
   - Spanish.
   - German.
   - French.
-- [ ] Keep ASR model language separate from UI language.
+- [x] Keep ASR model language separate from UI language:
+  - README documents that English/Russian UI does not imply English/Russian ASR model support.
+  - Custom ASR language profiles remain deferred until custom model support exists.
 
 ## Milestone 3: Model Management and Licensing
 
@@ -166,7 +168,8 @@ Goal: make model setup transparent and legally clean.
   - Kept redistribution review as a release gate.
 - [ ] Decide whether to publish a Hugging Face model repository for converted artifacts.
 - [ ] If publishing converted artifacts, include license metadata and attribution.
-- [ ] Keep user-provided custom models out of v0.1 unless core flow is stable.
+- [x] Keep user-provided custom models out of v0.1 unless core flow is stable:
+  - v0.1 release notes draft lists custom user models as out of scope.
 
 ## Milestone 4: NPU Work
 
@@ -266,9 +269,13 @@ Goal: publish a usable alpha for technical users.
   - [x] Paste/focus problems.
   - [x] Model download problems.
   - [x] NPU driver/OpenVINO issues.
-- [ ] Add license for the app code.
-- [ ] Create GitHub release notes.
-- [ ] Keep release source-only or script-based until packaging is ready.
+- [x] Add license for the app code:
+  - Added MIT `LICENSE` for application code.
+  - Kept model weights and converted artifacts under upstream model licenses.
+- [x] Create GitHub release notes:
+  - Added `docs/release-notes-v0.1-draft.md` as the v0.1 alpha release notes draft.
+- [x] Keep release source-only or script-based until packaging is ready:
+  - v0.1 release notes draft explicitly excludes packaged `.exe`, installer, bundled model weights, and code signing.
 
 ## Milestone 6: Packaging and Installer
 

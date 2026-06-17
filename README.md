@@ -6,6 +6,8 @@ The project is still an alpha/prototype. There is no packaged `.exe` or installe
 
 See [ROADMAP.md](ROADMAP.md) for the current development plan.
 
+App code is licensed under the [MIT License](LICENSE). Model weights and converted model artifacts are governed by their upstream licenses and are not bundled in this repository.
+
 ## What Works Today
 
 - Floating always-on-top dictation overlay.
@@ -173,7 +175,8 @@ Saved-sample ASR tuning report:
 ## Known Limitations
 
 - Russian dictation is the current focus.
-- UI localization exists for English and Russian, but speech model language profiles are not a general user feature yet.
+- UI localization exists for English and Russian, but UI language is separate from ASR language. English UI does not imply English speech recognition support.
+- User-provided custom models are out of scope for v0.1.
 - Paste reliability still needs testing across more applications.
 - Some rich editors may behave differently from plain text inputs.
 - Clipboard paste is used intentionally for reliability; direct text injection is deferred.
@@ -233,8 +236,12 @@ Saved-sample ASR tuning report:
 
 ## License Notes
 
+The application code is MIT licensed.
+
 Do not publish converted model artifacts until each upstream license is checked again. GigaAM and `istupakov/gigaam-v3-onnx` have been treated as MIT during local testing, but all upstream model cards should be reviewed before redistributing converted derivatives.
 
 See [docs/model-sources-and-licenses.md](docs/model-sources-and-licenses.md) for the current model source and license matrix.
 
 For now, publish code plus download/conversion scripts, not bundled model weights.
+
+The current v0.1 alpha release notes draft is in [docs/release-notes-v0.1-draft.md](docs/release-notes-v0.1-draft.md).
