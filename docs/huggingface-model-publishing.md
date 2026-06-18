@@ -1,0 +1,88 @@
+# Hugging Face Model Artifact Publishing
+
+This document records the current publishing flow for the converted model artifacts used by Local Voice Dictation.
+
+Target repository:
+
+- `zoomerland/local-voice-dictation-openvino`
+- Visibility: public
+- Repository type: model
+- License: MIT
+
+## What Gets Published
+
+The Hugging Face model repository should contain only the selected converted artifacts and metadata:
+
+- GigaAM v3 CTC OpenVINO NNCF INT8 bucket-400 ASR artifacts.
+- Small ASR config/vocabulary files required by the local wrapper.
+- RUPunct big OpenVINO FP16 static-128 punctuation artifacts.
+- `MANIFEST.json` with install paths, file sizes, SHA256 checksums, source revisions, and conversion metadata.
+- `README.md` model card.
+- `THIRD_PARTY_NOTICES.md`.
+
+Do not upload:
+
+- OpenVINO cache files.
+- Hugging Face local cache directories.
+- Debug WAV recordings.
+- Intermediate bucket/model experiments that are not the current supported profile.
+
+## Prepare Locally
+
+Use the project virtual environment:
+
+```powershell
+.\.venv\Scripts\python.exe tools\prepare_hf_model_repo.py
+```
+
+This creates:
+
+```text
+hf_export/local-voice-dictation-openvino/
+```
+
+The `hf_export/` directory is ignored by Git.
+
+## Authenticate
+
+Do not paste Hugging Face tokens into chat or commit them to the repository.
+
+Safe local options:
+
+```powershell
+.\.venv\Scripts\hf.exe auth login
+```
+
+or for a one-shot terminal session:
+
+```powershell
+$env:HF_TOKEN = "hf_your_token_here"
+```
+
+Then verify:
+
+```powershell
+.\.venv\Scripts\hf.exe auth whoami
+```
+
+## Upload
+
+After local authentication:
+
+```powershell
+.\.venv\Scripts\python.exe tools\prepare_hf_model_repo.py --upload --repo-id zoomerland/local-voice-dictation-openvino
+```
+
+The upload is public by default. Add `--private` only if a private staging repository is needed.
+
+## App Downloader Contract
+
+The future in-app downloader should:
+
+- Download `MANIFEST.json` first.
+- Download each listed `repo_path`.
+- Verify `size_bytes` and `sha256`.
+- Move files to the listed `install_path`.
+- Retry failed downloads.
+- Leave partial files with a temporary suffix until verification succeeds.
+- Show per-model progress and clear failure messages.

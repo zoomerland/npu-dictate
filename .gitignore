@@ -2,6 +2,7 @@
 .hf/
 models/
 recordings/
+hf_export/
 
 __pycache__/
 *.py[cod]

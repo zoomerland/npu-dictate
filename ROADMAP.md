@@ -177,8 +177,13 @@ Goal: make model setup transparent and legally clean.
   - Added `docs/model-sources-and-licenses.md`.
   - Recorded current GigaAM, ONNX ASR, and RUPunct upstream links and observed license labels.
   - Kept redistribution review as a release gate.
-- [ ] Decide whether to publish a Hugging Face model repository for converted artifacts.
-- [ ] If publishing converted artifacts, include license metadata and attribution.
+- [x] Decide whether to publish a Hugging Face model repository for converted artifacts.
+  - Chosen public model repository: `zoomerland/local-voice-dictation-openvino`.
+- [x] Prepare Hugging Face model repository metadata and attribution.
+  - Added `tools/prepare_hf_model_repo.py`.
+  - Added `docs/huggingface-model-publishing.md`.
+  - Generated model card, `MANIFEST.json`, `.gitattributes`, and `THIRD_PARTY_NOTICES.md` in the ignored `hf_export/` staging directory.
+- [ ] Upload converted artifacts to Hugging Face.
 - [x] Keep user-provided custom models out of v0.1 unless core flow is stable:
   - v0.1 release notes draft lists custom user models as out of scope.
 
