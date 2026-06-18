@@ -44,7 +44,7 @@ except ImportError:
 
 
 APP_NAME = "NPU Dictate"
-APP_VERSION = "0.1.0-alpha.1"
+APP_VERSION = "0.1.0-alpha.2"
 APP_ICON_PNG = Path("assets") / "app-icon-256.png"
 SINGLE_INSTANCE_MUTEX_NAME = os.environ.get(
     "LOCAL_VOICE_DICTATION_MUTEX_NAME",

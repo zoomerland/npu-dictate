@@ -1,6 +1,6 @@
 param(
     [string]$Version = "0.1.0",
-    [string]$Configuration = "alpha.1",
+    [string]$Configuration = "alpha.2",
     [switch]$SkipExeBuild
 )
 

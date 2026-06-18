@@ -324,8 +324,10 @@ Goal: publish a usable alpha for technical users.
   - Kept model weights and converted artifacts under upstream model licenses.
 - [x] Create GitHub release notes:
   - Added `docs/release-notes-v0.1.0-alpha.1.md` as the v0.1 alpha release notes.
+  - Added `docs/release-notes-v0.1.0-alpha.2.md` for the model-download UX pre-release refresh.
 - [x] Prepare unsigned packaged pre-release path:
   - `0.1.0-alpha.1` may publish unsigned packaged artifacts while SignPath Foundation signing is pending.
+  - `0.1.0-alpha.2` refreshes unsigned artifacts after the model-download UX improvements.
   - Model weights and converted artifacts remain outside the installer.
 
 ## Milestone 6: Packaging and Installer

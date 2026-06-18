@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 if ([string]::IsNullOrWhiteSpace($MsiPath)) {
-    $MsiPath = Join-Path $Root "dist\installer\NPUDictate-0.1.0-alpha.1.msi"
+    $MsiPath = Join-Path $Root "dist\installer\NPUDictate-0.1.0-alpha.2.msi"
 }
 $MsiPath = (Resolve-Path $MsiPath).Path
 

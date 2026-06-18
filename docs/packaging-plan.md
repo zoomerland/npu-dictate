@@ -90,7 +90,7 @@ Build the MSI from an existing packaged `.exe` directory:
 Default output:
 
 ```text
-dist\installer\NPUDictate-0.1.0-alpha.1.msi
+dist\installer\NPUDictate-0.1.0-alpha.2.msi
 ```
 
 Smoke-check the MSI by extracting an administrative image into a temporary directory:
@@ -112,7 +112,7 @@ Last local MSI smoke result:
 
 - Date: 2026-06-18.
 - Result: passed.
-- MSI output: `dist\installer\NPUDictate-0.1.0-alpha.1.msi`.
+- MSI output: `dist\installer\NPUDictate-0.1.0-alpha.2.msi`.
 - MSI size: about 253 MB.
 - Administrative extraction succeeded with `msiexec /a`.
 - Extracted executable was present.
