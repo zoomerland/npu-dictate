@@ -155,6 +155,26 @@ This milestone is about UI language, not ASR language.
   - README documents that English/Russian UI does not imply English/Russian ASR model support.
   - Custom ASR language profiles remain deferred until custom model support exists.
 
+## Milestone 2.5: Speech Language Expansion
+
+Goal: add more dictation languages without weakening the current Russian NPU-first workflow.
+
+Do this after the Russian dictation loop and packaged v0.1 flow are stable.
+
+- [ ] Add ASR and punctuation profile support for English.
+  - Find a fast local ASR candidate.
+  - Check CPU baseline quality first.
+  - Try OpenVINO/NPU conversion when the CPU path is acceptable.
+  - Add matching punctuation/casing support if the ASR model does not provide it well enough.
+- [ ] Add ASR and punctuation profile support for German.
+  - Repeat the same CPU-first, then NPU-conversion workflow.
+- [ ] Add ASR and punctuation profile support for French.
+  - Repeat the same CPU-first, then NPU-conversion workflow.
+- [ ] Keep language selection explicit in settings:
+  - Interface language stays separate from dictation language.
+  - Each dictation language lists only the model/device profiles that actually work on the current system.
+- [ ] Record per-language quality and speed notes before marking a language supported.
+
 ## Milestone 3: Model Management and Licensing
 
 Goal: make model setup transparent and legally clean.
@@ -370,7 +390,6 @@ Keep this list short and practical while the app is young.
 These are valuable, but not v0.1 blockers.
 
 - Custom user models.
-- ASR language profiles beyond Russian after custom model support exists.
 - Auto language detection for speech recognition.
 - Cloud fallback.
 - Voice commands.
