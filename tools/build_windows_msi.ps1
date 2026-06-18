@@ -1,6 +1,6 @@
 param(
     [string]$Version = "0.1.0",
-    [string]$Configuration = "alpha.2",
+    [string]$Configuration = "alpha.3",
     [switch]$SkipExeBuild
 )
 
@@ -15,6 +15,7 @@ $UpgradeCode = "EF3E8984-DA8E-4615-BD86-ACE089338FB3"
 $DistDir = Join-Path $Root "dist\NPUDictate"
 $ExePath = Join-Path $DistDir "NPUDictate.exe"
 $IconPath = Join-Path $Root "assets\app-icon.ico"
+$LicenseRtfPath = Join-Path $Root "packaging\license.rtf"
 $InstallerDir = Join-Path $Root "dist\installer"
 $IntermediateDir = Join-Path $Root "build\msi"
 $WxsPath = Join-Path $IntermediateDir "NPUDictate.generated.wxs"
@@ -70,10 +71,21 @@ if (-not (Test-Path $ExePath)) {
 if (-not (Test-Path $IconPath)) {
     throw "Application icon not found: $IconPath"
 }
+if (-not (Test-Path $LicenseRtfPath)) {
+    throw "Installer license file not found: $LicenseRtfPath"
+}
 
 $toolList = dotnet tool list --local
 if ($LASTEXITCODE -ne 0 -or -not ($toolList -match "wix\s+5\.")) {
     throw "WiX 5 local tool is not installed. Run: dotnet tool install wix --version 5.0.2"
+}
+
+$extensionList = dotnet wix extension list
+if ($LASTEXITCODE -ne 0 -or -not ($extensionList -match "WixToolset\.UI\.wixext\s+5\.")) {
+    dotnet wix extension add WixToolset.UI.wixext/5.0.2
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to add WiX UI extension."
+    }
 }
 
 New-Item -ItemType Directory -Path $InstallerDir -Force | Out-Null
@@ -143,7 +155,7 @@ foreach ($file in $files) {
 }
 
 $wxs = @"
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package
     Name="$AppName"
     Manufacturer="$Manufacturer"
@@ -156,6 +168,9 @@ $wxs = @"
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
     <Icon Id="AppIcon.ico" SourceFile="$(ConvertTo-XmlAttribute $IconPath)" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(ConvertTo-XmlAttribute $LicenseRtfPath)" />
+    <ui:WixUI Id="WixUI_Minimal" />
+    <UIRef Id="WixUI_ErrorProgressText" />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="INSTALLFOLDER" Name="$AppId">
@@ -197,7 +212,7 @@ $componentsXml    </ComponentGroup>
 
 Set-Content -LiteralPath $WxsPath -Value $wxs -Encoding UTF8
 
-dotnet wix build $WxsPath -arch x64 -out $MsiPath -intermediatefolder $IntermediateDir
+dotnet wix build $WxsPath -ext WixToolset.UI.wixext -arch x64 -out $MsiPath -intermediatefolder $IntermediateDir
 if ($LASTEXITCODE -ne 0) {
     throw "WiX MSI build failed."
 }

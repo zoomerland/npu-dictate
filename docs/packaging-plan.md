@@ -90,7 +90,7 @@ Build the MSI from an existing packaged `.exe` directory:
 Default output:
 
 ```text
-dist\installer\NPUDictate-0.1.0-alpha.2.msi
+dist\installer\NPUDictate-0.1.0-alpha.3.msi
 ```
 
 Smoke-check the MSI by extracting an administrative image into a temporary directory:
@@ -102,6 +102,7 @@ Smoke-check the MSI by extracting an administrative image into a temporary direc
 Current installer decisions:
 
 - Use WiX 5 as a local .NET tool from `.config/dotnet-tools.json`.
+- Use the WiX 5 UI extension for a minimal installer wizard and completion page.
 - Avoid WiX 7 because it requires accepting the OSMF EULA.
 - Do not bundle downloaded model artifacts in the MSI.
 - Install per-user under `%LOCALAPPDATA%\NPUDictate` so models, config, logs, and OpenVINO cache can stay app-local and writable.
@@ -112,7 +113,7 @@ Last local MSI smoke result:
 
 - Date: 2026-06-18.
 - Result: passed.
-- MSI output: `dist\installer\NPUDictate-0.1.0-alpha.2.msi`.
+- MSI output: `dist\installer\NPUDictate-0.1.0-alpha.3.msi`.
 - MSI size: about 253 MB.
 - Administrative extraction succeeded with `msiexec /a`.
 - Extracted executable was present.

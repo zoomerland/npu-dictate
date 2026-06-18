@@ -1,5 +1,6 @@
 .venv/
 .hf/
+.wix/
 models/
 recordings/
 hf_export/

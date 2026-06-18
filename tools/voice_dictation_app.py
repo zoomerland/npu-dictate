@@ -44,7 +44,7 @@ except ImportError:
 
 
 APP_NAME = "NPU Dictate"
-APP_VERSION = "0.1.0-alpha.2"
+APP_VERSION = "0.1.0-alpha.3"
 APP_ICON_PNG = Path("assets") / "app-icon-256.png"
 SINGLE_INSTANCE_MUTEX_NAME = os.environ.get(
     "LOCAL_VOICE_DICTATION_MUTEX_NAME",
@@ -125,6 +125,8 @@ TRANSLATIONS = {
         "button_punct": "PUNCT",
         "button_text": "TEXT",
         "button_busy": "BUSY",
+        "button_load": "LOAD",
+        "button_warm": "WARM",
         "button_download": "DL",
         "button_ok": "OK",
         "button_copy": "COPY",
@@ -241,6 +243,8 @@ TRANSLATIONS = {
         "button_punct": "ПУНКТ",
         "button_text": "ТЕКСТ",
         "button_busy": "ЗАНЯТ",
+        "button_load": "ЗАГР",
+        "button_warm": "ПРОГ",
         "button_download": "СКАЧ",
         "button_ok": "ОК",
         "button_copy": "КОПИЯ",
@@ -369,6 +373,13 @@ def format_percent(value):
 
 def format_seconds(value):
     return "none" if value is None else f"{value:.2f}"
+
+
+def status_percent(status):
+    match = re.search(r"(?<!\d)(100|[1-9]?\d)%(?!\d)", str(status or ""))
+    if not match:
+        return None
+    return max(0, min(100, int(match.group(1))))
 
 
 def config_path():
@@ -2813,6 +2824,7 @@ class VoiceDictationApp:
         self.settings_i18n_choices = []
         self.settings_i18n_tabs = []
         self.progress_running = False
+        self.overlay_progress_percent = None
         self.overlay_progress_after_id = None
         self.overlay_progress_phase = 0
         self.overlay_button_text = self.t("button_dict")
@@ -2880,6 +2892,15 @@ class VoiceDictationApp:
             if status.startswith(prefix) and status != prefix:
                 return f"{self.t(prefix)}{status[len(prefix):]}"
         return self.t(status)
+
+    def compact_download_status(self, status, localized_status):
+        percent = status_percent(status)
+        if percent is None:
+            return localized_status
+        speed_eta = re.search(r", ([^,]+/s), ETA ([^,]+),", str(status or ""))
+        if speed_eta:
+            return f"{self.t('Downloading models')} {percent}% · {speed_eta.group(1)} · {speed_eta.group(2)}"
+        return f"{self.t('Downloading models')} {percent}%"
 
     def choice_label(self, group, value):
         for code, key in CHOICE_TRANSLATION_KEYS.get(group, []):
@@ -3182,7 +3203,21 @@ class VoiceDictationApp:
                 max(2, profile["progress_height"] // 2),
                 "#303743",
             )
-            if self.progress_running:
+            if self.overlay_progress_percent is not None:
+                fill_width = max(
+                    profile["progress_height"],
+                    int(progress_width * self.overlay_progress_percent / 100),
+                )
+                self._draw_rounded_rect(
+                    canvas,
+                    progress_x1,
+                    progress_y1,
+                    min(progress_x2, progress_x1 + fill_width),
+                    progress_y2,
+                    max(2, profile["progress_height"] // 2),
+                    "#37c7d8",
+                )
+            elif self.progress_running:
                 span = max(18, int(progress_width * 0.34))
                 travel = max(1, progress_width - span)
                 offset = (self.overlay_progress_phase % 100) / 100 * travel
@@ -3527,8 +3562,8 @@ class VoiceDictationApp:
         self.set_display_status(self.dynamic_status_text())
         self.schedule_status_tick()
 
-    def set_overlay_button_state(self, text_key, bg, active_bg):
-        self.overlay_button_text = self.t(text_key)
+    def set_overlay_button_state(self, text_key, bg, active_bg, text=None):
+        self.overlay_button_text = str(text) if text is not None else self.t(text_key)
         self.overlay_button_bg = bg
         self.overlay_button_active_bg = active_bg
         self.draw_overlay()
@@ -3560,6 +3595,7 @@ class VoiceDictationApp:
     def update_status(self, status):
         previous_status = self.current_status
         self.current_status = status
+        percent = status_percent(status)
 
         if status == "Recording":
             if previous_status != "Recording" or self.recording_started_at is None:
@@ -3576,7 +3612,8 @@ class VoiceDictationApp:
         else:
             self.recording_started_at = None
             self.transcribing_started_at = None
-            self.set_display_status(self.localize_status(status))
+            localized_status = self.localize_status(status)
+            self.set_display_status(self.compact_download_status(status, localized_status))
 
         busy = (
             status.startswith("First model setup")
@@ -3588,6 +3625,7 @@ class VoiceDictationApp:
             or status.startswith("Loading")
             or status in {"Still loading", "Transcribing"}
         )
+        self.overlay_progress_percent = percent if busy else None
         show_progress = busy and self.overlay_details_mode() != "button"
         self.set_overlay_progress_running(show_progress)
 
@@ -3595,8 +3633,10 @@ class VoiceDictationApp:
             self.set_overlay_button_state("button_record", "#b83030", "#982727")
         elif status == "Loading ASR":
             self.set_overlay_button_state("button_asr", "#81612b", "#6d5124")
-        elif status == "Loading punct":
+        elif status in {"Loading punct", "Loading punct dependencies"}:
             self.set_overlay_button_state("button_punct", "#81612b", "#6d5124")
+        elif status == "Warming models":
+            self.set_overlay_button_state("button_warm", "#81612b", "#6d5124")
         elif status == "Transcribing":
             self.set_overlay_button_state("button_text", "#81612b", "#6d5124")
         elif (
@@ -3604,9 +3644,14 @@ class VoiceDictationApp:
             or status.startswith("Preparing model download")
             or status.startswith("Downloading")
         ):
-            self.set_overlay_button_state("button_download", "#81612b", "#6d5124")
+            self.set_overlay_button_state(
+                "button_download",
+                "#81612b",
+                "#6d5124",
+                text=f"{percent}%" if percent is not None else None,
+            )
         elif busy:
-            self.set_overlay_button_state("button_busy", "#81612b", "#6d5124")
+            self.set_overlay_button_state("button_load", "#81612b", "#6d5124")
         elif status == "Pasted":
             self.set_overlay_button_state("button_ok", "#267d45", "#206b3b")
         elif status == "Copied":

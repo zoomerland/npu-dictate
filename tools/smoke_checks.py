@@ -130,6 +130,8 @@ def check_download_status_format():
     assert "512.0 KB/s" in status
     assert "ETA" in status
     assert "2/5 model.bin" in status
+    assert app.status_percent(status) == 75
+    assert app.status_percent("Loading ASR") is None
 
 
 def check_openvino_probe():
