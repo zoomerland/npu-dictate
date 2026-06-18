@@ -178,12 +178,14 @@ Goal: make model setup transparent and legally clean.
   - Recorded current GigaAM, ONNX ASR, and RUPunct upstream links and observed license labels.
   - Kept redistribution review as a release gate.
 - [x] Decide whether to publish a Hugging Face model repository for converted artifacts.
-  - Chosen public model repository: `zoomerland/local-voice-dictation-openvino`.
+  - Chosen public model repository: `Zoomerland/local-voice-dictation-openvino`.
 - [x] Prepare Hugging Face model repository metadata and attribution.
   - Added `tools/prepare_hf_model_repo.py`.
   - Added `docs/huggingface-model-publishing.md`.
   - Generated model card, `MANIFEST.json`, `.gitattributes`, and `THIRD_PARTY_NOTICES.md` in the ignored `hf_export/` staging directory.
-- [ ] Upload converted artifacts to Hugging Face.
+- [x] Upload converted artifacts to Hugging Face.
+  - Published at https://huggingface.co/Zoomerland/local-voice-dictation-openvino on 2026-06-18.
+  - Verified through the Hugging Face API: public model repo, MIT license metadata, 13 manifest artifacts, 594057141 total artifact bytes.
 - [x] Keep user-provided custom models out of v0.1 unless core flow is stable:
   - v0.1 release notes draft lists custom user models as out of scope.
 

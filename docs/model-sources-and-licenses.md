@@ -40,6 +40,28 @@ Current policy:
 - If converted model artifacts are ever published separately, include upstream attribution, exact source revision or commit where practical, original license text or links, conversion script/version, and a clear note that the artifact is a derivative conversion.
 - Preserve MIT copyright/license notices for any bundled substantial portions of model/runtime artifacts.
 
+## Published Converted Artifacts
+
+Current public Hugging Face repository:
+
+- https://huggingface.co/Zoomerland/local-voice-dictation-openvino
+- Repository type: model.
+- Visibility: public.
+- License metadata: MIT.
+- Uploaded on: 2026-06-18.
+- Verified repository SHA after upload: `cb844c775b2b2b4a238ccb3237d20cf1b272f9cf`.
+- Remote manifest: 13 artifacts, `total_size_bytes=594057141`.
+
+The published repository includes:
+
+- `README.md` model card.
+- `MANIFEST.json` with `repo_path`, `install_path`, `size_bytes`, SHA256, source revisions, and conversion notes.
+- `THIRD_PARTY_NOTICES.md`.
+- `.gitattributes`.
+- Selected ASR and punctuation OpenVINO artifacts for the current tested profiles.
+
+It intentionally excludes OpenVINO cache files, local Hugging Face cache files, debug WAV recordings, and intermediate model experiments.
+
 ## Redistribution Notes
 
 The current public repository should publish:

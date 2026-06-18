@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-DEFAULT_REPO_ID = "zoomerland/local-voice-dictation-openvino"
+DEFAULT_REPO_ID = "Zoomerland/local-voice-dictation-openvino"
 DEFAULT_OUTPUT_DIR = Path("hf_export") / "local-voice-dictation-openvino"
 
 ASR_SOURCE_REVISION = "322c3b29492673eb7d0b434bfa9dfb8653e34d02"

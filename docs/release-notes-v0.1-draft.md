@@ -50,6 +50,7 @@ See `docs/tested-hardware.md`.
 - GigaAM-v3 ONNX: `istupakov/gigaam-v3-onnx`.
 - RUPunct big: `RUPunct/RUPunct_big`.
 - Silero VAD: loaded through `onnx-asr` for VAD-segmented NPU ASR.
+- Converted OpenVINO artifacts: `Zoomerland/local-voice-dictation-openvino`.
 
 Model-license audit completed on 2026-06-18. Current ASR, punctuation, VAD, and model-loading upstreams are observed as MIT-licensed. See `docs/model-sources-and-licenses.md`.
 

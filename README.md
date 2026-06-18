@@ -103,6 +103,7 @@ Current upstream sources:
 
 - ASR: `gigaam-v3-ctc`, currently backed by `istupakov/gigaam-v3-onnx` through `onnx-asr` and direct Hugging Face downloads.
 - Punctuation: `RUPunct/RUPunct_big`, downloaded from Hugging Face and converted locally to a static OpenVINO FP16 model.
+- Converted OpenVINO artifacts for the current tested NPU profiles: `Zoomerland/local-voice-dictation-openvino`.
 
 Generated local artifacts:
 

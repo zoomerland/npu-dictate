@@ -4,7 +4,7 @@ This document records the current publishing flow for the converted model artifa
 
 Target repository:
 
-- `zoomerland/local-voice-dictation-openvino`
+- `Zoomerland/local-voice-dictation-openvino`
 - Visibility: public
 - Repository type: model
 - License: MIT
@@ -70,10 +70,17 @@ Then verify:
 After local authentication:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\prepare_hf_model_repo.py --upload --repo-id zoomerland/local-voice-dictation-openvino
+.\.venv\Scripts\python.exe tools\prepare_hf_model_repo.py --upload --repo-id Zoomerland/local-voice-dictation-openvino
 ```
 
 The upload is public by default. Add `--private` only if a private staging repository is needed.
+
+Current public repository:
+
+- https://huggingface.co/Zoomerland/local-voice-dictation-openvino
+- Uploaded on 2026-06-18.
+- Hugging Face API verification after upload: `private=false`, `license=mit`, 17 repository files.
+- Remote `MANIFEST.json`: 13 artifacts, `total_size_bytes=594057141`.
 
 ## App Downloader Contract
 
