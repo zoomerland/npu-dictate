@@ -301,7 +301,7 @@ def main():
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-    parser = argparse.ArgumentParser(description="Run local smoke checks for Local Voice Dictation.")
+    parser = argparse.ArgumentParser(description="Run local smoke checks for NPU Dictate.")
     parser.add_argument(
         "--skip-rupunct",
         action="store_true",

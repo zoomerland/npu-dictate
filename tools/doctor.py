@@ -288,7 +288,7 @@ def print_human(report):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Print Local Voice Dictation environment diagnostics.")
+    parser = argparse.ArgumentParser(description="Print NPU Dictate environment diagnostics.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument("--strict", action="store_true", help="Exit with code 1 when any FAIL item is present.")
     parser.add_argument("--log-lines", type=int, default=25, help="Number of recent log lines to include.")

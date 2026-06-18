@@ -320,8 +320,9 @@ Goal: publish a usable alpha for technical users.
   - Kept model weights and converted artifacts under upstream model licenses.
 - [x] Create GitHub release notes:
   - Added `docs/release-notes-v0.1-draft.md` as the v0.1 alpha release notes draft.
-- [x] Keep release source-only or script-based until packaging is ready:
-  - v0.1 release notes draft explicitly excludes packaged `.exe`, installer, bundled model weights, and code signing.
+- [x] Prepare unsigned packaged pre-release path:
+  - `0.1.0-alpha.1` may publish unsigned packaged artifacts while SignPath Foundation signing is pending.
+  - Model weights and converted artifacts remain outside the installer.
 
 ## Milestone 6: Packaging and Installer
 
@@ -329,7 +330,9 @@ Goal: ship a normal Windows app after the UX is stable.
 
 Do this last.
 
-- [ ] Choose final app name.
+- [x] Choose final app name:
+  - Selected `NPU Dictate` for the first public pre-release.
+  - Use `NPUDictate` for executable, installer, and app-local directory names.
 - [x] Choose app icon and visual identity:
   - Generated the first app icon source image.
   - Added stable PNG derivatives and a multi-size `.ico` under `assets/`.
@@ -340,14 +343,14 @@ Do this last.
   - Treat the executable directory as the app-local root in frozen mode.
   - Added `docs/packaging-plan.md` and `tools/build_windows_exe.ps1`.
 - [x] Package to `.exe`:
-  - Built `dist/LocalVoiceDictation/LocalVoiceDictation.exe`.
+  - Built `dist/NPUDictate/NPUDictate.exe`.
   - Added packaged smoke checks in `tools/smoke_packaged_exe.ps1`.
   - Import-only smoke passed.
   - Full packaged model-load smoke passed on 2026-06-18.
   - Packaged OpenVINO sees `CPU,GPU,NPU`; NPU ASR and NPU punctuation load successfully.
 - [x] Create installer:
   - Added `tools/build_windows_msi.ps1`.
-  - Built developer MSI at `dist/installer/LocalVoiceDictation-0.1.0-dev.msi`.
+  - Built developer MSI at `dist/installer/NPUDictate-0.1.0-alpha.1.msi`.
   - MSI administrative extraction smoke passed on 2026-06-18.
   - The MSI installs app binaries only; app-local model artifacts are still downloaded after launch.
   - The MSI is not signed yet.
@@ -357,15 +360,23 @@ Do this last.
   - Keep Inno Setup/NSIS as fallback options for `.exe` installers if MSI becomes impractical.
 - [x] Decide initial model download location and cache location for packaged builds:
   - In source mode, keep using the repository root.
-  - In frozen `.exe` mode, use the directory containing `LocalVoiceDictation.exe`.
+  - In frozen `.exe` mode, use the directory containing `NPUDictate.exe`.
   - For MSI, prefer a user-writable install directory unless model/config/cache paths are moved under `%LOCALAPPDATA%`.
-- [ ] Add uninstall behavior.
+- [x] Add uninstall behavior:
+  - MSI supports standard Windows uninstall for app binaries and shortcuts.
+  - README documents uninstall through Windows Settings.
+  - Dedicated optional model/cache cleanup remains deferred.
 - [ ] Add startup toggle for installed builds.
-- [ ] Research code signing:
-  - Certificate options.
-  - Cost.
-  - Individual vs organization signing.
-  - SmartScreen reputation implications.
+- [x] Research code signing:
+  - Preferred route: SignPath Foundation OSS signing.
+  - Free for qualifying OSS projects.
+  - Certificate is issued to SignPath Foundation and signing happens through SignPath.io.
+  - Repository must be public, released, documented, and built through a trusted build system.
+- [ ] Apply for SignPath Foundation OSS signing:
+  - Added `docs/code-signing-policy.md`.
+  - Added GitHub Actions Windows artifact build workflow.
+  - Make the GitHub repository public before submission.
+  - Publish `0.1.0-alpha.1` unsigned pre-release artifacts before or during application.
 - [ ] Sign installer and app binaries if practical.
 
 ## Test Matrix

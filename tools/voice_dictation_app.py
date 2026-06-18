@@ -39,11 +39,12 @@ except ImportError:
     ImageDraw = None
 
 
-APP_NAME = "Local Voice Dictation"
+APP_NAME = "NPU Dictate"
+APP_VERSION = "0.1.0-alpha.1"
 APP_ICON_PNG = Path("assets") / "app-icon-256.png"
 SINGLE_INSTANCE_MUTEX_NAME = os.environ.get(
     "LOCAL_VOICE_DICTATION_MUTEX_NAME",
-    r"Local\LocalVoiceDictation.SingleInstance",
+    r"Local\NPUDictate.SingleInstance",
 )
 CONFIG_VERSION = 1
 OVERLAY_TRANSPARENT_COLOR = "#ff00ff"
@@ -3188,7 +3189,7 @@ class VoiceDictationApp:
 
         try:
             self.tray_icon = pystray.Icon(
-                "local_voice_dictation",
+                "npu_dictate",
                 image,
                 self.tray_title(),
                 self.build_tray_menu(),
@@ -3330,6 +3331,7 @@ class VoiceDictationApp:
 
         info = {
             "app": APP_NAME,
+            "version": APP_VERSION,
             "status": self.current_display_status,
             "python": sys.version,
             "platform": platform.platform(),

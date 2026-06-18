@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
-$Exe = Join-Path $Root "dist\LocalVoiceDictation\LocalVoiceDictation.exe"
+$Exe = Join-Path $Root "dist\NPUDictate\NPUDictate.exe"
 
 if (-not (Test-Path $Exe)) {
     throw "Packaged executable not found: $Exe"
@@ -55,7 +55,7 @@ function Get-LogTail {
 $testRoot = New-TestRoot
 $logPath = Join-Path $testRoot "voice_dictation.log"
 $env:LOCAL_VOICE_DICTATION_APP_ROOT = $testRoot
-$env:LOCAL_VOICE_DICTATION_MUTEX_NAME = "Local\LocalVoiceDictation.PackageSmoke.$PID"
+$env:LOCAL_VOICE_DICTATION_MUTEX_NAME = "Local\NPUDictate.PackageSmoke.$PID"
 
 if ($ImportOnly) {
     $env:LOCAL_VOICE_DICTATION_SMOKE_IMPORT = "1"

@@ -1,0 +1,78 @@
+name: Build Windows artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-windows:
+    name: Build unsigned Windows artifacts
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    env:
+      APP_VERSION: "0.1.0"
+      APP_CHANNEL: "alpha.1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+          .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+      - name: Restore .NET tools
+        shell: pwsh
+        run: dotnet tool restore
+
+      - name: Build packaged app
+        shell: pwsh
+        run: .\tools\build_windows_exe.ps1 -Clean -SkipInstall
+
+      - name: Smoke-check packaged app import
+        shell: pwsh
+        run: .\tools\smoke_packaged_exe.ps1 -ImportOnly
+
+      - name: Build MSI
+        shell: pwsh
+        run: .\tools\build_windows_msi.ps1 -Version $env:APP_VERSION -Configuration $env:APP_CHANNEL -SkipExeBuild
+
+      - name: Smoke-check MSI
+        shell: pwsh
+        run: .\tools\smoke_windows_msi.ps1 -MsiPath "dist\installer\NPUDictate-$env:APP_VERSION-$env:APP_CHANNEL.msi"
+
+      - name: Create packaged app archive
+        shell: pwsh
+        run: |
+          $archive = "dist\installer\NPUDictate-$env:APP_VERSION-$env:APP_CHANNEL-win-x64.zip"
+          Compress-Archive -Path "dist\NPUDictate\*" -DestinationPath $archive -Force
+
+      - name: Upload unsigned artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: npudictate-windows-unsigned
+          path: |
+            dist/installer/NPUDictate-${{ env.APP_VERSION }}-${{ env.APP_CHANNEL }}.msi
+            dist/installer/NPUDictate-${{ env.APP_VERSION }}-${{ env.APP_CHANNEL }}-win-x64.zip

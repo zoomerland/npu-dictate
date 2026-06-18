@@ -68,7 +68,7 @@ def manifest_url(repo_id=ARTIFACT_MODEL_REPO, revision=ARTIFACT_MODEL_REVISION):
 
 
 def read_json_url(url, timeout=30):
-    request = Request(url, headers={"User-Agent": "LocalVoiceDictation/0.1"})
+    request = Request(url, headers={"User-Agent": "NPUDictate/0.1"})
     with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -158,7 +158,7 @@ def download_url_to_file(url, target, expected_size=None, status_callback=None, 
     if tmp.exists():
         tmp.unlink()
 
-    request = Request(url, headers={"User-Agent": "LocalVoiceDictation/0.1"})
+    request = Request(url, headers={"User-Agent": "NPUDictate/0.1"})
     try:
         with urlopen(request, timeout=60) as response, tmp.open("wb") as file:
             total = expected_size or response.headers.get("Content-Length")

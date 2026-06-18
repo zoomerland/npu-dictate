@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Python = Join-Path $Root ".venv\Scripts\python.exe"
-$Spec = Join-Path $Root "packaging\local_voice_dictation.spec"
+$Spec = Join-Path $Root "packaging\npu_dictate.spec"
 
 if (-not (Test-Path $Python)) {
     throw "Virtual environment Python not found: $Python"
@@ -23,7 +23,7 @@ if ($Clean) {
 
 & $Python -m PyInstaller --noconfirm --clean $Spec
 
-$Exe = Join-Path $Root "dist\LocalVoiceDictation\LocalVoiceDictation.exe"
+$Exe = Join-Path $Root "dist\NPUDictate\NPUDictate.exe"
 if (-not (Test-Path $Exe)) {
     throw "Build finished but executable was not found: $Exe"
 }

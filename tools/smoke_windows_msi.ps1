@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 if ([string]::IsNullOrWhiteSpace($MsiPath)) {
-    $MsiPath = Join-Path $Root "dist\installer\LocalVoiceDictation-0.1.0-dev.msi"
+    $MsiPath = Join-Path $Root "dist\installer\NPUDictate-0.1.0-alpha.1.msi"
 }
 $MsiPath = (Resolve-Path $MsiPath).Path
 
@@ -17,8 +17,8 @@ New-Item -ItemType Directory -Path $Target | Out-Null
 
 $ArgString = "/a `"$MsiPath`" /qn TARGETDIR=`"$Target`" /L*v `"$Log`""
 $Process = Start-Process -FilePath msiexec.exe -ArgumentList $ArgString -Wait -PassThru
-$InstallRoot = Join-Path $Target "LocalApp\LocalVoiceDictation"
-$ExePath = Join-Path $InstallRoot "LocalVoiceDictation.exe"
+$InstallRoot = Join-Path $Target "LocalApp\NPUDictate"
+$ExePath = Join-Path $InstallRoot "NPUDictate.exe"
 $AppModelsPath = Join-Path $InstallRoot "models"
 $FileCount = (Get-ChildItem -LiteralPath $Target -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
 $Passed = (

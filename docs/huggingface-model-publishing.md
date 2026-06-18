@@ -1,6 +1,6 @@
 # Hugging Face Model Artifact Publishing
 
-This document records the current publishing flow for the converted model artifacts used by Local Voice Dictation.
+This document records the current publishing flow for the converted model artifacts used by NPU Dictate.
 
 Target repository:
 

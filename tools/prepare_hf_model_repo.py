@@ -213,7 +213,7 @@ def manifest_for(root, output_dir, repo_id, artifacts):
         "created_by_app_revision": git_revision(root),
         "license": "mit",
         "release_channel": "v0.1-alpha",
-        "description": "Converted OpenVINO artifacts for Local Voice Dictation.",
+        "description": "Converted OpenVINO artifacts for NPU Dictate.",
         "total_size_bytes": total_size,
         "source_revisions": {
             "ai-sage/GigaAM-v3": GIGAAM_BASE_REVISION,
@@ -251,9 +251,9 @@ tags:
 library_name: openvino
 ---
 
-# Local Voice Dictation OpenVINO Artifacts
+# NPU Dictate OpenVINO Artifacts
 
-This repository contains converted model artifacts used by Local Voice Dictation.
+This repository contains converted model artifacts used by NPU Dictate.
 
 The main application repository downloads these files after installation. Large
 model files are intentionally not bundled inside the application executable or
@@ -274,7 +274,7 @@ source revisions, and conversion metadata.
 - GigaAM-v3 ONNX export: `istupakov/gigaam-v3-onnx`
 - RUPunct big: `RUPunct/RUPunct_big`
 
-These artifacts are derivative conversions prepared for Local Voice Dictation.
+These artifacts are derivative conversions prepared for NPU Dictate.
 They are not a new model family.
 
 ## License
@@ -285,7 +285,7 @@ See `THIRD_PARTY_NOTICES.md` for attribution and notice details.
 ## Integrity
 
 Consumers should verify every downloaded file against `MANIFEST.json` before
-using it. The Local Voice Dictation downloader is expected to use `repo_path`,
+using it. The NPU Dictate downloader is expected to use `repo_path`,
 `install_path`, `size_bytes`, and `sha256` from that manifest.
 """
 
@@ -310,7 +310,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
     return f"""# Third-Party Notices
 
-These converted artifacts are prepared for Local Voice Dictation from upstream
+These converted artifacts are prepared for NPU Dictate from upstream
 MIT-licensed model/runtime projects.
 
 ## GigaAM / GigaAM-v3
@@ -427,7 +427,7 @@ def upload_folder(args, output_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Prepare and optionally upload the Local Voice Dictation Hugging Face model artifact repository."
+        description="Prepare and optionally upload the NPU Dictate Hugging Face model artifact repository."
     )
     parser.add_argument("--repo-id", default=DEFAULT_REPO_ID)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -436,7 +436,7 @@ def main():
     parser.add_argument("--private", action="store_true")
     parser.add_argument(
         "--commit-message",
-        default="Upload Local Voice Dictation OpenVINO artifacts",
+        default="Upload NPU Dictate OpenVINO artifacts",
     )
     args = parser.parse_args()
     args.clean = bool(args.clean)

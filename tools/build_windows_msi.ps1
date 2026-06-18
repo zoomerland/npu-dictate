@@ -1,6 +1,6 @@
 param(
     [string]$Version = "0.1.0",
-    [string]$Configuration = "dev",
+    [string]$Configuration = "alpha.1",
     [switch]$SkipExeBuild
 )
 
@@ -8,17 +8,17 @@ $ErrorActionPreference = "Stop"
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
-$AppName = "Local Voice Dictation"
-$AppId = "LocalVoiceDictation"
+$AppName = "NPU Dictate"
+$AppId = "NPUDictate"
 $Manufacturer = "Zoomerland"
-$UpgradeCode = "76C70DAD-4971-4037-AA4E-7067FD465BB2"
-$DistDir = Join-Path $Root "dist\LocalVoiceDictation"
-$ExePath = Join-Path $DistDir "LocalVoiceDictation.exe"
+$UpgradeCode = "EF3E8984-DA8E-4615-BD86-ACE089338FB3"
+$DistDir = Join-Path $Root "dist\NPUDictate"
+$ExePath = Join-Path $DistDir "NPUDictate.exe"
 $IconPath = Join-Path $Root "assets\app-icon.ico"
 $InstallerDir = Join-Path $Root "dist\installer"
 $IntermediateDir = Join-Path $Root "build\msi"
-$WxsPath = Join-Path $IntermediateDir "LocalVoiceDictation.generated.wxs"
-$MsiPath = Join-Path $InstallerDir "LocalVoiceDictation-$Version-$Configuration.msi"
+$WxsPath = Join-Path $IntermediateDir "NPUDictate.generated.wxs"
+$MsiPath = Join-Path $InstallerDir "NPUDictate-$Version-$Configuration.msi"
 
 function ConvertTo-WixId {
     param([string]$Prefix, [string]$Value)
@@ -173,8 +173,8 @@ $componentsXml    </ComponentGroup>
       <Shortcut
         Id="ApplicationStartMenuShortcut"
         Name="$AppName"
-        Description="Local offline voice dictation"
-        Target="[INSTALLFOLDER]LocalVoiceDictation.exe"
+        Description="Local offline NPU-first voice dictation"
+        Target="[INSTALLFOLDER]NPUDictate.exe"
         WorkingDirectory="INSTALLFOLDER"
         Icon="AppIcon.ico" />
       <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />

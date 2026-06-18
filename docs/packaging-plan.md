@@ -1,6 +1,6 @@
 # Packaging Plan
 
-This document tracks the packaging route for Local Voice Dictation after the source-based v0.1 alpha.
+This document tracks the packaging route for NPU Dictate after the source-based v0.1 alpha and toward the first signed Windows pre-release.
 
 ## Current Decision
 
@@ -25,7 +25,7 @@ Source mode:
 
 Frozen `.exe` mode:
 
-- App root is the directory containing `LocalVoiceDictation.exe`.
+- App root is the directory containing `NPUDictate.exe`.
 - Config, models, logs, and OpenVINO cache stay next to the executable.
 - The `LOCAL_VOICE_DICTATION_APP_ROOT` environment variable can override the app root for tests or portable layouts.
 - The `LOCAL_VOICE_DICTATION_MUTEX_NAME` environment variable can override the single-instance mutex name for packaging smoke tests.
@@ -41,7 +41,7 @@ From the repository root:
 Output:
 
 ```text
-dist\LocalVoiceDictation\LocalVoiceDictation.exe
+dist\NPUDictate\NPUDictate.exe
 ```
 
 ## Smoke Checks
@@ -87,10 +87,10 @@ Build the MSI from an existing packaged `.exe` directory:
 .\tools\build_windows_msi.ps1 -SkipExeBuild
 ```
 
-Output:
+Default output:
 
 ```text
-dist\installer\LocalVoiceDictation-0.1.0-dev.msi
+dist\installer\NPUDictate-0.1.0-alpha.1.msi
 ```
 
 Smoke-check the MSI by extracting an administrative image into a temporary directory:
@@ -104,15 +104,15 @@ Current installer decisions:
 - Use WiX 5 as a local .NET tool from `.config/dotnet-tools.json`.
 - Avoid WiX 7 because it requires accepting the OSMF EULA.
 - Do not bundle downloaded model artifacts in the MSI.
-- Install per-user under `%LOCALAPPDATA%\LocalVoiceDictation` so models, config, logs, and OpenVINO cache can stay app-local and writable.
+- Install per-user under `%LOCALAPPDATA%\NPUDictate` so models, config, logs, and OpenVINO cache can stay app-local and writable.
 - Add a Start Menu shortcut.
-- Defer icon integration until the app icon is designed.
+- Use the app icon for the executable, tray, Start Menu shortcut, and installer metadata.
 
 Last local MSI smoke result:
 
 - Date: 2026-06-18.
 - Result: passed.
-- MSI output: `dist\installer\LocalVoiceDictation-0.1.0-dev.msi`.
+- MSI output: `dist\installer\NPUDictate-0.1.0-alpha.1.msi`.
 - MSI size: about 253 MB.
 - Administrative extraction succeeded with `msiexec /a`.
 - Extracted executable was present.
@@ -146,7 +146,8 @@ Before signing:
 
 Signing should cover:
 
-- `LocalVoiceDictation.exe`.
+- `NPUDictate.exe`.
 - The installer package.
 
 Community/open-source signing options still need a fresh release-time check before relying on them.
+Current preferred route: SignPath Foundation OSS signing. See `docs/code-signing-policy.md`.

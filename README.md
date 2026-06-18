@@ -1,12 +1,14 @@
-# Local Voice Dictation
+# NPU Dictate
 
-Local Voice Dictation is a Windows-first, local-first dictation utility. It records microphone audio, recognizes speech with GigaAM v3 CTC, optionally restores Russian punctuation/capitalization with RUPunct, and inserts the final text into the active text field.
+NPU Dictate is a Windows-first, local-first dictation utility. It records microphone audio, recognizes speech with GigaAM v3 CTC, optionally restores Russian punctuation/capitalization with RUPunct, and inserts the final text into the active text field.
 
-The project is still an alpha/prototype. A developer `.exe` build now exists, but there is no installer or signed release yet. Source mode remains the main development path.
+The project is still an alpha/prototype. Unsigned packaged `.exe` and MSI pre-release builds are available for testing, while source mode remains the main development path.
 
 See [ROADMAP.md](ROADMAP.md) for the current development plan.
 
 App code is licensed under the [MIT License](LICENSE). Model weights and converted model artifacts are governed by their upstream licenses and are not bundled in this repository.
+
+See the [Code signing policy](docs/code-signing-policy.md) for the planned Windows signing process and current SignPath Foundation application status.
 
 ## What Works Today
 
@@ -80,7 +82,7 @@ Build a PyInstaller one-directory `.exe`:
 Output:
 
 ```text
-dist\LocalVoiceDictation\LocalVoiceDictation.exe
+dist\NPUDictate\NPUDictate.exe
 ```
 
 Run a fast packaged import smoke check:
@@ -104,7 +106,7 @@ dotnet tool restore
 .\tools\build_windows_msi.ps1 -SkipExeBuild
 ```
 
-The MSI path is `dist\installer\LocalVoiceDictation-0.1.0-dev.msi`. The installer is not signed yet and does not bundle model artifacts.
+The default MSI path is `dist\installer\NPUDictate-0.1.0-alpha.1.msi`. The installer is not signed yet and does not bundle model artifacts.
 
 Smoke-check the MSI without installing it:
 
@@ -229,7 +231,20 @@ Saved-sample ASR tuning report:
 - Punctuation quality depends on ASR quality and available text context before the cursor.
 - Long dictation passed the v0.1 manual acceptance pass, but fast speech, heavy system/NPU load, and exact repeated-word counts still need more tuning.
 - First model preparation and first OpenVINO/NPU compile can be slow.
-- There is no installer, code signing, or signed public packaged release yet.
+- The current packaged artifacts are unsigned pre-release builds.
+
+## Install And Uninstall
+
+The MSI installs NPU Dictate per-user under `%LOCALAPPDATA%\NPUDictate` and creates a Start Menu shortcut.
+
+Uninstall through Windows Settings:
+
+1. Open Settings.
+2. Go to Apps > Installed apps.
+3. Find `NPU Dictate`.
+4. Choose Uninstall.
+
+The MSI removes installed application binaries and shortcuts. Downloaded model files may remain in the app-local directory until a dedicated cache cleanup option is added.
 
 ## Troubleshooting
 
@@ -293,4 +308,4 @@ See [docs/model-sources-and-licenses.md](docs/model-sources-and-licenses.md) for
 
 For now, publish code plus download/conversion scripts, not bundled model weights.
 
-The current v0.1 alpha release notes draft is in [docs/release-notes-v0.1-draft.md](docs/release-notes-v0.1-draft.md).
+The current `0.1.0-alpha.1` release notes draft is in [docs/release-notes-v0.1-draft.md](docs/release-notes-v0.1-draft.md).

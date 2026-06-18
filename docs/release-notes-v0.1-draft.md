@@ -1,12 +1,12 @@
-# v0.1 Alpha Release Notes Draft
+# NPU Dictate 0.1.0-alpha.1 Release Notes Draft
 
-Status: draft. Do not publish as a GitHub Release until the remaining manual UX checks are complete.
+Status: unsigned public pre-release candidate for SignPath Foundation application prep.
 
 ## Summary
 
-Local Voice Dictation v0.1 alpha is a source-based Windows prototype for local Russian dictation. It records microphone audio, runs local ASR, restores punctuation/capitalization, and inserts the result into the active text field.
+NPU Dictate 0.1.0-alpha.1 is a Windows prototype for local Russian dictation. It records microphone audio, runs local ASR, restores punctuation/capitalization, and inserts the result into the active text field.
 
-This alpha is meant for technical users who are comfortable running a Python project from source.
+This alpha is meant for technical users who are comfortable with unsigned Windows pre-release software or running a Python project from source.
 
 ## Highlights
 
@@ -22,19 +22,19 @@ This alpha is meant for technical users who are comfortable running a Python pro
 - Clipboard-based paste with optional restoration of the previous text clipboard after successful paste.
 - Local smoke checks and environment doctor diagnostics.
 
-## Distribution Policy For v0.1
+## Distribution Policy For 0.1.0-alpha.1
 
-v0.1 should be source-only or script-based:
+0.1.0-alpha.1 may publish unsigned Windows artifacts while code signing is pending:
 
 - Publish source code.
 - Publish setup instructions.
 - Publish model download/conversion code.
 - Download current converted OpenVINO artifacts from `Zoomerland/local-voice-dictation-openvino` at first setup.
-- Do not ship a packaged `.exe` yet.
-- Do not ship an installer yet.
+- Publish the unsigned packaged app archive and MSI for technical testing.
+- Clearly label packaged artifacts as unsigned pre-release builds.
 - Do not bundle model weights or converted OpenVINO artifacts.
 
-Packaging, installer work, icon/branding, uninstall behavior, and code signing remain later milestones.
+Code signing remains pending through the SignPath Foundation application.
 
 ## Tested Reference Hardware
 
@@ -65,7 +65,7 @@ Model-license audit completed on 2026-06-18. Current ASR, punctuation, VAD, and 
 - GPU profiles are not considered tested yet.
 - First model preparation and first OpenVINO/NPU compilation can be slow.
 - First converted-artifact download requires internet access and about 566 MB of model files.
-- No packaged app, installer, or code signing yet.
+- Packaged app and MSI artifacts are unsigned until the SignPath Foundation flow is approved and configured.
 
 ## Suggested Pre-Release Checklist
 

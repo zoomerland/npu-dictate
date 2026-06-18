@@ -7,6 +7,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 
 project_root = Path(SPECPATH).parent
 icon_path = project_root / "assets" / "app-icon.ico"
+version_file = project_root / "packaging" / "windows_version_info.txt"
 
 block_cipher = None
 
@@ -95,7 +96,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="LocalVoiceDictation",
+    name="NPUDictate",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -107,6 +108,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(icon_path),
+    version=str(version_file),
 )
 
 coll = COLLECT(
@@ -116,5 +118,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="LocalVoiceDictation",
+    name="NPUDictate",
 )
