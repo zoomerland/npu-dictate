@@ -326,10 +326,12 @@ Goal: publish a usable alpha for technical users.
   - Added `docs/release-notes-v0.1.0-alpha.1.md` as the v0.1 alpha release notes.
   - Added `docs/release-notes-v0.1.0-alpha.2.md` for the model-download UX pre-release refresh.
   - Added `docs/release-notes-v0.1.0-alpha.3.md` for visible download percent and MSI UI fixes.
+  - Added `docs/release-notes-v0.1.0-alpha.4.md` for startup readiness and NPU warmup fixes.
 - [x] Prepare unsigned packaged pre-release path:
   - `0.1.0-alpha.1` may publish unsigned packaged artifacts while SignPath Foundation signing is pending.
   - `0.1.0-alpha.2` refreshes unsigned artifacts after the model-download UX improvements.
   - `0.1.0-alpha.3` refreshes unsigned artifacts after the overlay progress and MSI UI fixes.
+  - `0.1.0-alpha.4` refreshes unsigned artifacts after the startup readiness and NPU warmup fixes.
   - Model weights and converted artifacts remain outside the installer.
 
 ## Milestone 6: Packaging and Installer
@@ -355,14 +357,17 @@ Do this last.
   - Added packaged smoke checks in `tools/smoke_packaged_exe.ps1`.
   - Import-only smoke passed.
   - Full packaged model-load smoke passed on 2026-06-18.
+  - `0.1.0-alpha.4` full packaged model-load smoke reached `load ready` in 9.703 seconds on the local NPU test machine.
   - Packaged OpenVINO sees `CPU,GPU,NPU`; NPU ASR and NPU punctuation load successfully.
 - [x] Create installer:
   - Added `tools/build_windows_msi.ps1`.
   - Built developer MSI at `dist/installer/NPUDictate-0.1.0-alpha.1.msi`.
+  - Built developer MSI at `dist/installer/NPUDictate-0.1.0-alpha.4.msi`.
   - MSI administrative extraction smoke passed on 2026-06-18.
   - The MSI installs app binaries only; app-local model artifacts are still downloaded after launch.
   - The MSI is not signed yet.
   - Added WiX minimal installer UI and completion page for `0.1.0-alpha.3`.
+  - `0.1.0-alpha.4` MSI administrative extraction smoke passed on 2026-06-18.
 - [x] Decide installer technology:
   - Use WiX 5 as a repository-local .NET tool for the first MSI path.
   - Avoid WiX 7 because it requires accepting the OSMF EULA.

@@ -106,7 +106,7 @@ dotnet tool restore
 .\tools\build_windows_msi.ps1 -SkipExeBuild
 ```
 
-The default MSI path is `dist\installer\NPUDictate-0.1.0-alpha.3.msi`. The installer is not signed yet, shows a minimal installer wizard, and does not bundle model artifacts.
+The default MSI path is `dist\installer\NPUDictate-0.1.0-alpha.4.msi`. The installer is not signed yet, shows a minimal installer wizard, and does not bundle model artifacts.
 
 Smoke-check the MSI without installing it:
 
@@ -308,4 +308,4 @@ See [docs/model-sources-and-licenses.md](docs/model-sources-and-licenses.md) for
 
 For now, publish code plus download/conversion scripts, not bundled model weights.
 
-The current `0.1.0-alpha.3` release notes are in [docs/release-notes-v0.1.0-alpha.3.md](docs/release-notes-v0.1.0-alpha.3.md).
+The current `0.1.0-alpha.4` release notes are in [docs/release-notes-v0.1.0-alpha.4.md](docs/release-notes-v0.1.0-alpha.4.md).

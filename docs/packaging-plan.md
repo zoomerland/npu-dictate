@@ -90,7 +90,7 @@ Build the MSI from an existing packaged `.exe` directory:
 Default output:
 
 ```text
-dist\installer\NPUDictate-0.1.0-alpha.3.msi
+dist\installer\NPUDictate-0.1.0-alpha.4.msi
 ```
 
 Smoke-check the MSI by extracting an administrative image into a temporary directory:
@@ -113,11 +113,20 @@ Last local MSI smoke result:
 
 - Date: 2026-06-18.
 - Result: passed.
-- MSI output: `dist\installer\NPUDictate-0.1.0-alpha.3.msi`.
-- MSI size: about 253 MB.
+- MSI output: `dist\installer\NPUDictate-0.1.0-alpha.4.msi`.
+- MSI size: about 254 MB.
 - Administrative extraction succeeded with `msiexec /a`.
 - Extracted executable was present.
 - App-local `models/` directory was not included.
+
+Last local packaged full-load smoke result:
+
+- Date: 2026-06-18.
+- Result: passed.
+- Executable: `dist\NPUDictate\NPUDictate.exe`.
+- Version: `0.1.0-alpha.4`.
+- `load ready` time: 9.703 seconds in a temporary packaged app root.
+- Model artifacts were hardlinked into the temporary app root for the smoke test; model artifacts are still not bundled in the executable or MSI.
 
 Tool setup:
 

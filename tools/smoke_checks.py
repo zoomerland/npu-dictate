@@ -134,6 +134,36 @@ def check_download_status_format():
     assert app.status_percent("Loading ASR") is None
 
 
+class FakeWarmupAsr:
+    def __init__(self):
+        self.called = False
+        self.bucket_frames = (400,)
+
+    def warmup(self, _buckets):
+        self.called = True
+        raise AssertionError("NPU ASR warmup should be skipped")
+
+
+class FakePunct:
+    def __init__(self):
+        self.called = False
+
+    def restore(self, _text):
+        self.called = True
+        return _text
+
+
+def check_npu_asr_warmup_is_skipped():
+    engine = app.DictationEngine(app.default_config(), lambda _status: None, lambda *_args: None)
+    asr = FakeWarmupAsr()
+    punct = FakePunct()
+    cfg = app.default_config()
+    cfg.update({"warmup_models": True, "asr_device": "NPU", "punct_device": "NPU"})
+    engine._warmup_models(asr, punct, cfg)
+    assert not asr.called
+    assert punct.called
+
+
 def check_openvino_probe():
     info = app.probe_openvino_hardware(app.load_config())
     assert "available" in info
@@ -361,6 +391,7 @@ def main():
     runner.check("hardware device filtering falls back to CPU", check_hardware_device_filtering)
     runner.check("model display labels map back to profile ids", check_model_display_labels)
     runner.check("download progress status includes size, speed, and ETA", check_download_status_format)
+    runner.check("NPU ASR warmup is skipped to avoid startup hangs", check_npu_asr_warmup_is_skipped)
     runner.check("OpenVINO hardware probe runs", check_openvino_probe)
     runner.check("model artifact downloader helpers pass", check_model_artifact_helpers)
     runner.check("context-aware insertion spacing cases pass", check_insertion_spacing)

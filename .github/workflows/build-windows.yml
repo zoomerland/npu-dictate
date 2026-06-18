@@ -18,7 +18,7 @@ jobs:
 
     env:
       APP_VERSION: "0.1.0"
-      APP_CHANNEL: "alpha.3"
+      APP_CHANNEL: "alpha.4"
 
     steps:
       - name: Check out repository

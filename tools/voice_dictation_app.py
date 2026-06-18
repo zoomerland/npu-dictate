@@ -44,7 +44,7 @@ except ImportError:
 
 
 APP_NAME = "NPU Dictate"
-APP_VERSION = "0.1.0-alpha.3"
+APP_VERSION = "0.1.0-alpha.4"
 APP_ICON_PNG = Path("assets") / "app-icon-256.png"
 SINGLE_INSTANCE_MUTEX_NAME = os.environ.get(
     "LOCAL_VOICE_DICTATION_MUTEX_NAME",
@@ -1914,6 +1914,8 @@ class DictationEngine:
         self.compare_asr_signature = None
         self.vad = None
         self.punct = None
+        self.punct_loading = False
+        self.punct_error = None
         self.loaded = False
         self.loading = False
         self.recording = False
@@ -1938,6 +1940,7 @@ class DictationEngine:
         self.hardware_info = None
         self.lock = threading.RLock()
         self.compare_lock = threading.RLock()
+        self.punct_lock = threading.RLock()
         self.keyboard = keyboard.Controller()
 
     def update_config(self, cfg):
@@ -1978,7 +1981,9 @@ class DictationEngine:
                 old_cfg.get("punct_model") != cfg.get("punct_model")
                 or old_cfg.get("punct_device") != cfg.get("punct_device")
             ):
-                self.punct = None
+                with self.punct_lock:
+                    self.punct = None
+                    self.punct_error = None
         if restart_audio:
             self.close_audio_stream()
             if self.loaded:
@@ -2054,6 +2059,76 @@ class DictationEngine:
             if self.vad is None:
                 self.vad = vad
             return self.vad
+
+    def _load_punct_profile(self, cfg, status_callback=None):
+        punct_profile = model_profile(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
+        emit_status = status_callback or (lambda _status: None)
+        emit_status("Loading punct dependencies")
+        log_debug("load punct import start")
+        from rupunct_restore import RUPunctRestorer
+        log_debug("load punct import done")
+
+        emit_status("Loading punct")
+        log_debug("load punct ensure start")
+        ensure_punct_model(emit_status)
+        log_debug("load punct ensure done")
+        punct_start = time.perf_counter()
+        punct = RUPunctRestorer(
+            punct_profile["model_dir"](),
+            cfg.get("punct_device", "NPU"),
+            cache_dir=repo_root() / "models" / "openvino" / "cache",
+        )
+        log_debug(
+            "load punct done "
+            f"model={cfg.get('punct_model')} device={cfg.get('punct_device')} "
+            f"seconds={time.perf_counter() - punct_start:.3f}"
+        )
+        return punct
+
+    def _get_punct(self, cfg, status_callback=None):
+        while True:
+            with self.punct_lock:
+                if self.punct is not None:
+                    return self.punct
+                if not self.punct_loading:
+                    self.punct_loading = True
+                    self.punct_error = None
+                    break
+                error = self.punct_error
+            if error is not None:
+                raise error
+            time.sleep(0.05)
+
+        try:
+            punct = self._load_punct_profile(cfg, status_callback)
+            with self.punct_lock:
+                self.punct = punct
+                self.punct_error = None
+                return self.punct
+        except Exception as exc:
+            with self.punct_lock:
+                self.punct_error = exc
+            raise
+        finally:
+            with self.punct_lock:
+                self.punct_loading = False
+
+    def load_punct_async(self, cfg):
+        with self.punct_lock:
+            if self.punct is not None or self.punct_loading:
+                return
+
+        cfg = dict(cfg)
+
+        def run():
+            try:
+                self._get_punct(cfg)
+                if not self.recording and not self.transcribing:
+                    self.set_status("Ready")
+            except Exception as exc:
+                log_debug(f"load punct async error type={type(exc).__name__}")
+
+        threading.Thread(target=run, daemon=True).start()
 
     def _compare_asr_async(self, audio, sample_rate, duration, active_text, active_sec, cfg):
         if not cfg.get("compare_asr", False):
@@ -2156,18 +2231,29 @@ class DictationEngine:
 
         self.set_status("Warming models")
         if hasattr(asr, "warmup"):
-            buckets = active_asr_warmup_buckets(asr, cfg)
-            start = time.perf_counter()
-            try:
-                warmed = asr.warmup(buckets)
+            if str(cfg.get("asr_device", "")).upper().startswith("NPU"):
                 log_debug(
-                    "warmup asr done "
-                    f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} "
-                    f"buckets={','.join(str(bucket) for bucket in warmed)} "
-                    f"seconds={time.perf_counter() - start:.3f}"
+                    "warmup asr skipped "
+                    f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} reason=npu-startup-hang-guard"
                 )
-            except Exception as exc:
-                log_debug(f"warmup asr error type={type(exc).__name__}")
+            else:
+                buckets = active_asr_warmup_buckets(asr, cfg)
+                start = time.perf_counter()
+                log_debug(
+                    "warmup asr start "
+                    f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} "
+                    f"buckets={','.join(str(bucket) for bucket in buckets)}"
+                )
+                try:
+                    warmed = asr.warmup(buckets)
+                    log_debug(
+                        "warmup asr done "
+                        f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} "
+                        f"buckets={','.join(str(bucket) for bucket in warmed)} "
+                        f"seconds={time.perf_counter() - start:.3f}"
+                    )
+                except Exception as exc:
+                    log_debug(f"warmup asr error type={type(exc).__name__}")
         else:
             log_debug(
                 "warmup asr skipped "
@@ -2176,6 +2262,10 @@ class DictationEngine:
 
         if punct is not None:
             start = time.perf_counter()
+            log_debug(
+                "warmup punct start "
+                f"model={cfg.get('punct_model')} device={cfg.get('punct_device')}"
+            )
             try:
                 punct.restore("проверка прогрева модели")
                 log_debug(
@@ -2226,40 +2316,17 @@ class DictationEngine:
                 f"seconds={time.perf_counter() - asr_start:.3f}"
             )
 
-            punct = None
-            if cfg.get("use_punctuation", True):
-                punct_profile = model_profile(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
-                self.set_status("Loading punct dependencies")
-                log_debug("load punct import start")
-                from rupunct_restore import RUPunctRestorer
-                log_debug("load punct import done")
-
-                self.set_status("Loading punct")
-                log_debug("load punct ensure start")
-                ensure_punct_model(self.set_status)
-                log_debug("load punct ensure done")
-                punct_start = time.perf_counter()
-                punct = RUPunctRestorer(
-                    punct_profile["model_dir"](),
-                    cfg.get("punct_device", "NPU"),
-                    cache_dir=repo_root() / "models" / "openvino" / "cache",
-                )
-                log_debug(
-                    "load punct done "
-                    f"model={cfg.get('punct_model')} device={cfg.get('punct_device')} "
-                    f"seconds={time.perf_counter() - punct_start:.3f}"
-                )
-
-            self._warmup_models(asr, punct, cfg)
+            self._warmup_models(asr, None, cfg)
 
             with self.lock:
                 self.asr = asr
-                self.punct = punct
                 self.loaded = True
                 self.loading = False
             self.ensure_audio_stream()
             log_debug(f"load ready seconds={time.perf_counter() - load_start:.3f}")
             self.set_status("Ready")
+            if cfg.get("use_punctuation", True):
+                self.load_punct_async(cfg)
         except Exception as exc:
             with self.lock:
                 self.loading = False
@@ -2575,27 +2642,18 @@ class DictationEngine:
             context = self.recording_context or ""
             punct_sec = 0.0
             if raw_text and cfg.get("use_punctuation", True):
-                if self.punct is None:
-                    punct_profile = model_profile(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
-                    from rupunct_restore import RUPunctRestorer
-
-                    ensure_punct_model(self.set_status)
-                    self.punct = RUPunctRestorer(
-                        punct_profile["model_dir"](),
-                        cfg.get("punct_device", "NPU"),
-                        cache_dir=repo_root() / "models" / "openvino" / "cache",
-                    )
+                punct = self._get_punct(cfg, self.set_status)
                 start = time.perf_counter()
                 context = context or self.context_before_cursor()
                 if context:
-                    if hasattr(self.punct, "restore_inserted"):
-                        final_text = self.punct.restore_inserted(context, raw_text)
+                    if hasattr(punct, "restore_inserted"):
+                        final_text = punct.restore_inserted(context, raw_text)
                         final_text = adjust_inserted_casing(raw_text, final_text, context)
                     else:
-                        restored = self.punct.restore(f"{context} {raw_text}".strip())
+                        restored = punct.restore(f"{context} {raw_text}".strip())
                         final_text = inserted_text_from_context(raw_text, restored, context)
                 else:
-                    final_text = self.punct.restore(raw_text)
+                    final_text = punct.restore(raw_text)
                     final_text = adjust_inserted_casing(raw_text, final_text)
                 punct_sec = time.perf_counter() - start
 
