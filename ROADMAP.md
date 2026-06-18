@@ -167,6 +167,7 @@ Goal: make model setup transparent and legally clean.
   - Installs files into the app-local `models/` directory.
   - Uses temporary `.download` files, retries, file-size checks, and SHA256 verification.
   - Leaves OpenVINO cache files and local Hugging Face caches out of the published artifact set.
+  - Fresh-download verification passed on 2026-06-18: 13 artifacts, 594057141 bytes, all SHA256 checks passed.
 - [ ] Replace indeterminate progress with per-model progress where possible.
 - [ ] Add retry and failure messages for model setup.
   - [x] Hugging Face converted-artifact downloader retries failed file downloads and surfaces load errors.

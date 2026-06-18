@@ -100,3 +100,14 @@ Still pending:
 
 - A richer settings UI for installed models, disk usage, manual rebuild, and cache clearing.
 - A determinate progress widget instead of only status-text updates plus the existing busy indicator.
+
+## Download Verification
+
+2026-06-18 fresh-download test:
+
+- Downloaded remote `MANIFEST.json` from `Zoomerland/local-voice-dictation-openvino`.
+- Downloaded all 13 listed artifacts into a temporary empty app root.
+- Verified `size_bytes` and SHA256 for every downloaded file.
+- Total downloaded artifact bytes: `594057141`.
+- Elapsed time on the test connection: about `73.85` seconds.
+- Result: `download_test=OK`.
