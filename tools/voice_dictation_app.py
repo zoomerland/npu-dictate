@@ -21,7 +21,12 @@ import sounddevice as sd
 import soundfile as sf
 from pynput import keyboard
 
-from model_setup import ensure_asr_model, ensure_asr_openvino_model, ensure_punct_model
+from model_setup import (
+    artifact_manifest_cache_path,
+    ensure_asr_model,
+    ensure_asr_openvino_model,
+    ensure_punct_model,
+)
 
 try:
     import pystray
@@ -119,6 +124,11 @@ TRANSLATIONS = {
         "Loading models": "Loading models",
         "Downloading ASR": "Downloading ASR",
         "Downloading ASR NPU": "Downloading ASR NPU",
+        "Downloading model manifest": "Downloading model manifest",
+        "Downloading models": "Downloading models",
+        "Verifying models": "Verifying models",
+        "Retrying models": "Retrying models",
+        "Downloading punct failed": "Punctuation download failed",
         "Loading ASR": "Loading ASR",
         "Downloading punct": "Downloading punct",
         "Converting punct": "Converting punct",
@@ -220,6 +230,11 @@ TRANSLATIONS = {
         "Loading models": "Загрузка моделей",
         "Downloading ASR": "Загрузка ASR",
         "Downloading ASR NPU": "Загрузка ASR NPU",
+        "Downloading model manifest": "Загрузка манифеста моделей",
+        "Downloading models": "Загрузка моделей",
+        "Verifying models": "Проверка моделей",
+        "Retrying models": "Повтор загрузки моделей",
+        "Downloading punct failed": "Не удалось скачать пунктуацию",
         "Loading ASR": "Запуск ASR",
         "Downloading punct": "Загрузка пунктуации",
         "Converting punct": "Конвертация пунктуации",
@@ -1855,7 +1870,7 @@ class DictationEngine:
     def _load_asr_profile(self, model_id, device, status_callback=None, cfg=None):
         profile = model_profile(ASR_MODEL_PROFILES, model_id, DEFAULT_ASR_MODEL)
         if profile["backend"] == "openvino_ctc":
-            ensure_asr_openvino_model(status_callback)
+            ensure_asr_openvino_model(status_callback, profile_id=model_id)
             from gigaam_openvino_asr import GigaamOpenVinoCtcAsr
 
             cfg = cfg or self.cfg
@@ -2732,6 +2747,14 @@ class VoiceDictationApp:
             return f"{self.t('load_error')}: {status.split(': ', 1)[1]}"
         if status.startswith("Error: "):
             return f"{self.t('error')}: {status.split(': ', 1)[1]}"
+        for prefix in (
+            "Downloading models",
+            "Verifying models",
+            "Retrying models",
+            "Downloading punct failed",
+        ):
+            if status.startswith(prefix) and status != prefix:
+                return f"{self.t(prefix)}{status[len(prefix):]}"
         return self.t(status)
 
     def choice_label(self, group, value):
@@ -3291,7 +3314,11 @@ class VoiceDictationApp:
             "config": self.cfg,
             "models": {
                 "asr_dir_exists": asr_model_dir().exists(),
+                "asr_openvino_artifact_dir_exists": (
+                    repo_root() / "models" / "asr" / "gigaam-v3-ctc-openvino-int8-calib96"
+                ).exists(),
                 "punct_dir_exists": default_punct_model_dir().exists(),
+                "artifact_manifest_exists": artifact_manifest_cache_path().exists(),
             },
             "hardware": self.engine.hardware_info,
             "raw_status": self.current_status,
@@ -3405,6 +3432,8 @@ class VoiceDictationApp:
 
         busy = (
             status.startswith("Downloading")
+            or status.startswith("Verifying")
+            or status.startswith("Retrying")
             or status.startswith("Converting")
             or status.startswith("Loading")
             or status in {"Still loading", "Transcribing"}

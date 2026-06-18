@@ -1,7 +1,9 @@
 import argparse
+import hashlib
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -10,6 +12,7 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 import voice_dictation_app as app
+import model_setup
 
 
 class CheckRunner:
@@ -207,15 +210,60 @@ def check_clipboard_paste_behavior():
 
 def check_model_paths(runner):
     asr_dir = app.asr_model_dir()
+    asr_openvino_dir = app.repo_root() / "models" / "asr" / "gigaam-v3-ctc-openvino-int8-calib96"
     punct_dir = app.default_punct_model_dir()
+    manifest_path = model_setup.artifact_manifest_cache_path()
     if asr_dir.exists():
         runner.ok(f"ASR model directory exists: {asr_dir}")
     else:
         runner.warn(f"ASR model directory is missing: {asr_dir}")
+    if asr_openvino_dir.exists():
+        runner.ok(f"ASR OpenVINO artifact directory exists: {asr_openvino_dir}")
+    else:
+        runner.warn(f"ASR OpenVINO artifact directory is missing: {asr_openvino_dir}")
     if punct_dir.exists():
         runner.ok(f"Punctuation model directory exists: {punct_dir}")
     else:
         runner.warn(f"Punctuation model directory is missing: {punct_dir}")
+    if manifest_path.exists():
+        runner.ok(f"Model artifact manifest cache exists: {manifest_path}")
+    else:
+        runner.warn(f"Model artifact manifest cache is missing: {manifest_path}")
+
+
+def check_model_artifact_helpers():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        payload = b"hello model"
+        target = root / "models" / "test" / "artifact.bin"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(payload)
+        digest = hashlib.sha256(payload).hexdigest()
+        artifact = {
+            "profile_id": "unit-test-profile",
+            "component": "unit",
+            "repo_path": "unit/artifact.bin",
+            "install_path": "models/test/artifact.bin",
+            "size_bytes": len(payload),
+            "sha256": digest,
+        }
+        manifest = {"artifacts": [artifact]}
+
+        assert model_setup.safe_install_path("models/test/artifact.bin", root) == target.resolve()
+        assert model_setup.artifact_ready(artifact, root)
+        assert model_setup.profile_artifacts_ready(manifest, "unit-test-profile", "unit", root)
+
+        target.write_bytes(b"bad")
+        assert not model_setup.artifact_ready(artifact, root, verify_hash=False)
+        assert not model_setup.artifact_ready(artifact, root, verify_hash=True)
+
+        for unsafe in ("../outside.bin", "/absolute.bin", "models/../outside.bin"):
+            try:
+                model_setup.safe_install_path(unsafe, root)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"unsafe path accepted: {unsafe}")
 
 
 def check_rupunct_cpu(timeout_sec):
@@ -272,6 +320,7 @@ def main():
     runner.check("CPU-only fallback profile normalizes", check_cpu_fallback_profile)
     runner.check("hardware device filtering falls back to CPU", check_hardware_device_filtering)
     runner.check("OpenVINO hardware probe runs", check_openvino_probe)
+    runner.check("model artifact downloader helpers pass", check_model_artifact_helpers)
     runner.check("context-aware insertion spacing cases pass", check_insertion_spacing)
     runner.check("clipboard paste/restore behavior passes with mocks", check_clipboard_paste_behavior)
     check_model_paths(runner)

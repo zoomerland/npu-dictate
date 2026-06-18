@@ -29,6 +29,7 @@ v0.1 should be source-only or script-based:
 - Publish source code.
 - Publish setup instructions.
 - Publish model download/conversion code.
+- Download current converted OpenVINO artifacts from `Zoomerland/local-voice-dictation-openvino` at first setup.
 - Do not ship a packaged `.exe` yet.
 - Do not ship an installer yet.
 - Do not bundle model weights or converted OpenVINO artifacts.
@@ -63,6 +64,7 @@ Model-license audit completed on 2026-06-18. Current ASR, punctuation, VAD, and 
 - Long dictation passed the v0.1 manual acceptance pass; fast speech and exact repeated-word counts still need more tuning.
 - GPU profiles are not considered tested yet.
 - First model preparation and first OpenVINO/NPU compilation can be slow.
+- First converted-artifact download requires internet access and about 566 MB of model files.
 - No packaged app, installer, or code signing yet.
 
 ## Suggested Pre-Release Checklist

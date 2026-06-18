@@ -105,6 +105,8 @@ Current upstream sources:
 - Punctuation: `RUPunct/RUPunct_big`, downloaded from Hugging Face and converted locally to a static OpenVINO FP16 model.
 - Converted OpenVINO artifacts for the current tested NPU profiles: `Zoomerland/local-voice-dictation-openvino`.
 
+The current NPU OpenVINO artifacts are downloaded from Hugging Face into the app-local `models/` directory. The downloader reads `MANIFEST.json`, downloads required files with retries, verifies file size and SHA256, then installs them into their final `models/...` paths.
+
 Generated local artifacts:
 
 - `models/asr/gigaam-v3-ctc/`
@@ -226,6 +228,7 @@ Saved-sample ASR tuning report:
 
 - Make sure internet access is available for first model preparation.
 - Delete only the incomplete model subfolder under `models/` and start again.
+- Converted OpenVINO artifacts are downloaded from `Zoomerland/local-voice-dictation-openvino`; incomplete files use a temporary `.download` suffix and are replaced only after checksum verification.
 - Keep virtual environment dependencies aligned with `requirements.txt`.
 
 ### NPU is not available

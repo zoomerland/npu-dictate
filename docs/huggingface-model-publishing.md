@@ -82,14 +82,21 @@ Current public repository:
 - Hugging Face API verification after upload: `private=false`, `license=mit`, 17 repository files.
 - Remote `MANIFEST.json`: 13 artifacts, `total_size_bytes=594057141`.
 
-## App Downloader Contract
+## App Downloader
 
-The future in-app downloader should:
+The in-app downloader is implemented in `tools/model_setup.py`.
 
-- Download `MANIFEST.json` first.
-- Download each listed `repo_path`.
-- Verify `size_bytes` and `sha256`.
-- Move files to the listed `install_path`.
-- Retry failed downloads.
-- Leave partial files with a temporary suffix until verification succeeds.
-- Show per-model progress and clear failure messages.
+It currently:
+
+- Downloads `MANIFEST.json` first.
+- Downloads each required `repo_path` for the selected app model profile.
+- Verifies `size_bytes` and `sha256` after download.
+- Moves files to the listed app-local `install_path` under `models/`.
+- Retries failed downloads.
+- Leaves partial files with a temporary `.download` suffix until verification succeeds.
+- Emits status updates for manifest download, file download, verification, and retry attempts.
+
+Still pending:
+
+- A richer settings UI for installed models, disk usage, manual rebuild, and cache clearing.
+- A determinate progress widget instead of only status-text updates plus the existing busy indicator.

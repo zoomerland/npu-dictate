@@ -56,9 +56,16 @@ def dependency_versions():
 def model_path_checks():
     paths = {
         "asr_model_dir": app.asr_model_dir(),
+        "asr_openvino_artifact_dir": app.repo_root() / "models" / "asr" / "gigaam-v3-ctc-openvino-int8-calib96",
         "punct_model_dir": app.default_punct_model_dir(),
         "openvino_cache_dir": app.repo_root() / "models" / "openvino" / "cache",
     }
+    try:
+        import model_setup
+
+        paths["model_artifact_manifest"] = model_setup.artifact_manifest_cache_path()
+    except Exception:
+        pass
     items = []
     for name, path in paths.items():
         status = "ok" if path.exists() else "warn"
