@@ -311,10 +311,23 @@ Do this last.
 
 - [ ] Choose final app name.
 - [ ] Choose app icon and visual identity.
-- [ ] Package to `.exe`.
+- [x] Decide initial executable packaging approach:
+  - Use PyInstaller one-directory builds for the first Windows packaged alpha.
+  - Keep model artifacts out of the executable.
+  - Treat the executable directory as the app-local root in frozen mode.
+  - Added `docs/packaging-plan.md` and `tools/build_windows_exe.ps1`.
+- [x] Package to `.exe`:
+  - Built `dist/LocalVoiceDictation/LocalVoiceDictation.exe`.
+  - Added packaged smoke checks in `tools/smoke_packaged_exe.ps1`.
+  - Import-only smoke passed.
+  - Full packaged model-load smoke passed on 2026-06-18.
+  - Packaged OpenVINO sees `CPU,GPU,NPU`; NPU ASR and NPU punctuation load successfully.
 - [ ] Create installer.
 - [ ] Decide installer technology.
-- [ ] Decide model download location and cache location for installed builds.
+- [x] Decide initial model download location and cache location for packaged builds:
+  - In source mode, keep using the repository root.
+  - In frozen `.exe` mode, use the directory containing `LocalVoiceDictation.exe`.
+  - For MSI, prefer a user-writable install directory unless model/config/cache paths are moved under `%LOCALAPPDATA%`.
 - [ ] Add uninstall behavior.
 - [ ] Add startup toggle for installed builds.
 - [ ] Research code signing:

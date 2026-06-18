@@ -9,6 +9,7 @@ import threading
 import time
 import tkinter as tk
 import tkinter.font as tkfont
+import traceback
 from collections import deque
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -21,6 +22,7 @@ import sounddevice as sd
 import soundfile as sf
 from pynput import keyboard
 
+from app_paths import app_root
 from model_setup import (
     artifact_manifest_cache_path,
     ensure_asr_model,
@@ -38,7 +40,10 @@ except ImportError:
 
 
 APP_NAME = "Local Voice Dictation"
-SINGLE_INSTANCE_MUTEX_NAME = r"Local\LocalVoiceDictation.SingleInstance"
+SINGLE_INSTANCE_MUTEX_NAME = os.environ.get(
+    "LOCAL_VOICE_DICTATION_MUTEX_NAME",
+    r"Local\LocalVoiceDictation.SingleInstance",
+)
 CONFIG_VERSION = 1
 OVERLAY_TRANSPARENT_COLOR = "#ff00ff"
 OVERLAY_PANEL_BG = "#20242b"
@@ -290,7 +295,7 @@ CHOICE_TRANSLATION_KEYS = {
 
 
 def repo_root():
-    return Path(__file__).resolve().parents[1]
+    return app_root()
 
 
 class FileTime(ctypes.Structure):
@@ -830,6 +835,8 @@ def startup_shortcut_path():
 
 
 def startup_target_python():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable)
     venv_pythonw = repo_root() / ".venv" / "Scripts" / "pythonw.exe"
     if venv_pythonw.exists():
         return venv_pythonw
@@ -854,11 +861,14 @@ def set_startup_enabled(enabled):
 
         shortcut_path.parent.mkdir(parents=True, exist_ok=True)
         target = startup_target_python()
-        script = repo_root() / "tools" / "voice_dictation_app.py"
         shell = comtypes.client.CreateObject("WScript.Shell", dynamic=True)
         shortcut = shell.CreateShortcut(str(shortcut_path))
         shortcut.TargetPath = str(target)
-        shortcut.Arguments = f'"{script}"'
+        if getattr(sys, "frozen", False):
+            shortcut.Arguments = ""
+        else:
+            script = repo_root() / "tools" / "voice_dictation_app.py"
+            shortcut.Arguments = f'"{script}"'
         shortcut.WorkingDirectory = str(repo_root())
         shortcut.IconLocation = str(target)
         shortcut.Description = APP_NAME
@@ -2132,7 +2142,9 @@ class DictationEngine:
         except Exception as exc:
             with self.lock:
                 self.loading = False
-            log_debug(f"load error type={type(exc).__name__}")
+            log_debug(f"load error type={type(exc).__name__} message={exc}")
+            for line in traceback.format_exc().splitlines():
+                log_debug(f"load traceback {line}")
             self.set_status(f"Load error: {type(exc).__name__}")
 
     def resolve_sample_rate(self):
@@ -4213,6 +4225,10 @@ class VoiceDictationApp:
 
 
 def main():
+    if os.environ.get("LOCAL_VOICE_DICTATION_SMOKE_IMPORT") == "1":
+        log_debug("package smoke import ok")
+        return 0
+
     with SingleInstanceLock(SINGLE_INSTANCE_MUTEX_NAME) as single_instance:
         if not single_instance.acquired:
             return 0

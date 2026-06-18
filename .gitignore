@@ -3,6 +3,8 @@
 models/
 recordings/
 hf_export/
+build/
+dist/
 
 __pycache__/
 *.py[cod]

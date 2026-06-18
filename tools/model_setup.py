@@ -7,6 +7,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from app_paths import app_root
+
 
 ASR_MODEL_NAME = "gigaam-v3-ctc"
 ASR_MODEL_REPO = "istupakov/gigaam-v3-onnx"
@@ -21,7 +23,7 @@ PUNCT_OPENVINO_FP16_PROFILE = "rupunct-big-openvino-fp16-static128"
 
 
 def repo_root():
-    return Path(__file__).resolve().parents[1]
+    return app_root()
 
 
 def hf_cache_dir():

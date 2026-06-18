@@ -2,7 +2,7 @@
 
 Local Voice Dictation is a Windows-first, local-first dictation utility. It records microphone audio, recognizes speech with GigaAM v3 CTC, optionally restores Russian punctuation/capitalization with RUPunct, and inserts the final text into the active text field.
 
-The project is still an alpha/prototype. There is no packaged `.exe` or installer yet; run it from source.
+The project is still an alpha/prototype. A developer `.exe` build now exists, but there is no installer or signed release yet. Source mode remains the main development path.
 
 See [ROADMAP.md](ROADMAP.md) for the current development plan.
 
@@ -68,6 +68,34 @@ Default controls:
 - `Ctrl+Alt+Shift+D`: show or hide the overlay.
 - Default mode is `hold`: hold `F8`, speak, release.
 - In settings, switch to `toggle` to press once to start and once to stop.
+
+## Developer Packaged Build
+
+Build a PyInstaller one-directory `.exe`:
+
+```powershell
+.\tools\build_windows_exe.ps1 -Clean
+```
+
+Output:
+
+```text
+dist\LocalVoiceDictation\LocalVoiceDictation.exe
+```
+
+Run a fast packaged import smoke check:
+
+```powershell
+.\tools\smoke_packaged_exe.ps1 -ImportOnly
+```
+
+Run a full packaged model-load smoke check:
+
+```powershell
+.\tools\smoke_packaged_exe.ps1 -FullLoad
+```
+
+See [docs/packaging-plan.md](docs/packaging-plan.md) for the current packaging plan and known installer/signing decisions.
 
 ## Local Smoke Checks
 
@@ -186,7 +214,7 @@ Saved-sample ASR tuning report:
 - Punctuation quality depends on ASR quality and available text context before the cursor.
 - Long dictation passed the v0.1 manual acceptance pass, but fast speech, heavy system/NPU load, and exact repeated-word counts still need more tuning.
 - First model preparation and first OpenVINO/NPU compile can be slow.
-- There is no installer, code signing, or packaged app yet.
+- There is no installer, code signing, or signed public packaged release yet.
 
 ## Troubleshooting
 
