@@ -14,6 +14,7 @@ $Manufacturer = "Zoomerland"
 $UpgradeCode = "76C70DAD-4971-4037-AA4E-7067FD465BB2"
 $DistDir = Join-Path $Root "dist\LocalVoiceDictation"
 $ExePath = Join-Path $DistDir "LocalVoiceDictation.exe"
+$IconPath = Join-Path $Root "assets\app-icon.ico"
 $InstallerDir = Join-Path $Root "dist\installer"
 $IntermediateDir = Join-Path $Root "build\msi"
 $WxsPath = Join-Path $IntermediateDir "LocalVoiceDictation.generated.wxs"
@@ -65,6 +66,9 @@ if (-not $SkipExeBuild) {
 
 if (-not (Test-Path $ExePath)) {
     throw "Packaged executable not found: $ExePath"
+}
+if (-not (Test-Path $IconPath)) {
+    throw "Application icon not found: $IconPath"
 }
 
 $toolList = dotnet tool list --local
@@ -150,6 +154,8 @@ $wxs = @"
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of $AppName is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Icon Id="AppIcon.ico" SourceFile="$(ConvertTo-XmlAttribute $IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="INSTALLFOLDER" Name="$AppId">
@@ -169,7 +175,8 @@ $componentsXml    </ComponentGroup>
         Name="$AppName"
         Description="Local offline voice dictation"
         Target="[INSTALLFOLDER]LocalVoiceDictation.exe"
-        WorkingDirectory="INSTALLFOLDER" />
+        WorkingDirectory="INSTALLFOLDER"
+        Icon="AppIcon.ico" />
       <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
       <RegistryValue
         Root="HKCU"

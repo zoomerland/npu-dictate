@@ -22,7 +22,7 @@ import sounddevice as sd
 import soundfile as sf
 from pynput import keyboard
 
-from app_paths import app_root
+from app_paths import app_root, bundled_resource_root
 from model_setup import (
     artifact_manifest_cache_path,
     ensure_asr_model,
@@ -40,6 +40,7 @@ except ImportError:
 
 
 APP_NAME = "Local Voice Dictation"
+APP_ICON_PNG = Path("assets") / "app-icon-256.png"
 SINGLE_INSTANCE_MUTEX_NAME = os.environ.get(
     "LOCAL_VOICE_DICTATION_MUTEX_NAME",
     r"Local\LocalVoiceDictation.SingleInstance",
@@ -3155,6 +3156,17 @@ class VoiceDictationApp:
     def make_tray_image(self):
         if Image is None or ImageDraw is None:
             return None
+
+        for root in dict.fromkeys([app_root(), bundled_resource_root()]):
+            icon_path = root / APP_ICON_PNG
+            if not icon_path.exists():
+                continue
+            try:
+                resample = getattr(Image, "Resampling", Image).LANCZOS
+                with Image.open(icon_path) as icon:
+                    return icon.convert("RGBA").resize((64, 64), resample)
+            except Exception as exc:
+                log_debug(f"tray icon asset error={type(exc).__name__}")
 
         image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)

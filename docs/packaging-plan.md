@@ -128,12 +128,13 @@ The .NET SDK is required to restore and run the local WiX 5 tool.
 
 ## Icon And Identity
 
-The current packaged `.exe`, tray icon, and installer shortcut still use generated/default visuals. Before a public packaged release:
+The first app icon has been generated and checked into `assets/`:
 
-- Create a real app icon as a multi-size `.ico`.
-- Use the icon in PyInstaller.
-- Use the same icon in the MSI Start Menu shortcut.
-- Recheck the tray icon so it matches the packaged identity.
+- `assets/app-icon-source.png` keeps the generated source image.
+- `assets/app-icon-1024.png` and `assets/app-icon-256.png` are stable PNG derivatives.
+- `assets/app-icon.ico` is the multi-size Windows icon used by PyInstaller and the MSI shortcut.
+
+The tray icon loads the packaged PNG and falls back to the simple generated icon if the asset is missing.
 
 ## Code Signing Direction
 

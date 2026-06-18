@@ -310,10 +310,10 @@ Goal: ship a normal Windows app after the UX is stable.
 Do this last.
 
 - [ ] Choose final app name.
-- [ ] Choose app icon and visual identity:
-  - Replace the default packaged executable icon.
-  - Use the same icon for the tray and Start Menu shortcut.
-  - Generate a multi-size `.ico` before public packaged release.
+- [x] Choose app icon and visual identity:
+  - Generated the first app icon source image.
+  - Added stable PNG derivatives and a multi-size `.ico` under `assets/`.
+  - Use the same icon for the packaged executable, tray, and MSI Start Menu shortcut.
 - [x] Decide initial executable packaging approach:
   - Use PyInstaller one-directory builds for the first Windows packaged alpha.
   - Keep model artifacts out of the executable.
@@ -330,7 +330,7 @@ Do this last.
   - Built developer MSI at `dist/installer/LocalVoiceDictation-0.1.0-dev.msi`.
   - MSI administrative extraction smoke passed on 2026-06-18.
   - The MSI installs app binaries only; app-local model artifacts are still downloaded after launch.
-  - The MSI is not signed and still uses the default app icon.
+  - The MSI is not signed yet.
 - [x] Decide installer technology:
   - Use WiX 5 as a repository-local .NET tool for the first MSI path.
   - Avoid WiX 7 because it requires accepting the OSMF EULA.

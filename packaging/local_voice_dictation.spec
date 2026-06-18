@@ -6,6 +6,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 
 
 project_root = Path(SPECPATH).parent
+icon_path = project_root / "assets" / "app-icon.ico"
 
 block_cipher = None
 
@@ -57,6 +58,8 @@ a = Analysis(
         (str(project_root / "README.md"), "."),
         (str(project_root / "voice_dictation_config.example.json"), "."),
         (str(project_root / "docs" / "model-sources-and-licenses.md"), "docs"),
+        (str(project_root / "assets" / "app-icon-256.png"), "assets"),
+        (str(project_root / "assets" / "app-icon.ico"), "assets"),
     ]
     + metadata_datas
     + onnx_asr_datas
@@ -103,6 +106,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(icon_path),
 )
 
 coll = COLLECT(
