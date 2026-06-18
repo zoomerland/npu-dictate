@@ -238,7 +238,9 @@ Saved-sample ASR tuning report:
 
 The application code is MIT licensed.
 
-Do not publish converted model artifacts until each upstream license is checked again. GigaAM and `istupakov/gigaam-v3-onnx` have been treated as MIT during local testing, but all upstream model cards should be reviewed before redistributing converted derivatives.
+The current source-only v0.1 model-license audit was completed on 2026-06-18. Current ASR, punctuation, VAD, and model-loading upstreams are observed as MIT-licensed, and model weights / converted artifacts are not bundled in this repository.
+
+Do not publish converted model artifacts until each upstream license is checked again and the published artifact includes upstream attribution, MIT notices, exact source metadata where practical, conversion metadata, and a clear derivative-conversion note.
 
 See [docs/model-sources-and-licenses.md](docs/model-sources-and-licenses.md) for the current model source and license matrix.
 

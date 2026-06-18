@@ -49,8 +49,9 @@ See `docs/tested-hardware.md`.
 
 - GigaAM-v3 ONNX: `istupakov/gigaam-v3-onnx`.
 - RUPunct big: `RUPunct/RUPunct_big`.
+- Silero VAD: loaded through `onnx-asr` for VAD-segmented NPU ASR.
 
-See `docs/model-sources-and-licenses.md`.
+Model-license audit completed on 2026-06-18. Current ASR, punctuation, VAD, and model-loading upstreams are observed as MIT-licensed. See `docs/model-sources-and-licenses.md`.
 
 ## Known Limitations
 
@@ -69,4 +70,4 @@ See `docs/model-sources-and-licenses.md`.
 - Run `tools/doctor.py`.
 - Paste matrix: completed for Codex/ChatGPT-style inputs, Chrome/browser fields, Telegram Desktop, Notepad, Windows Search, and standard Windows text fields.
 - Long dictation matrix: completed for immediate start, long paragraphs, pauses, silence, repeated words, fast speech, accidental silence, too-short recording, and overlay drag cancellation.
-- Re-check upstream model licenses before publishing any converted artifacts.
+- Do not publish converted model artifacts without bundled upstream attribution, MIT notices, exact source metadata where practical, conversion metadata, and a derivative-conversion note.

@@ -169,7 +169,10 @@ Goal: make model setup transparent and legally clean.
   - Disk usage.
   - Download/rebuild action.
   - Clear cache action.
-- [ ] Review upstream licenses before redistributing any converted model.
+- [x] Review upstream licenses before the current source-only v0.1 release.
+  - Completed on 2026-06-18; current ASR, punctuation, VAD, and model-loading upstreams are observed as MIT-licensed.
+  - Recorded source links and checked revisions in `docs/model-sources-and-licenses.md`.
+  - Converted-artifact redistribution still requires bundled MIT notices, exact source metadata, and derivative-conversion notes.
 - [x] Document exact upstream sources and licenses:
   - Added `docs/model-sources-and-licenses.md`.
   - Recorded current GigaAM, ONNX ASR, and RUPunct upstream links and observed license labels.
