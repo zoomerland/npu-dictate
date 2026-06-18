@@ -215,7 +215,7 @@ Goal: make model setup transparent and legally clean.
   - Published at https://huggingface.co/Zoomerland/local-voice-dictation-openvino on 2026-06-18.
   - Verified through the Hugging Face API: public model repo, MIT license metadata, 13 manifest artifacts, 594057141 total artifact bytes.
 - [x] Keep user-provided custom models out of v0.1 unless core flow is stable:
-  - v0.1 release notes draft lists custom user models as out of scope.
+  - v0.1 alpha release notes list custom user models as out of scope.
 
 ## Milestone 4: NPU Work
 
@@ -319,7 +319,7 @@ Goal: publish a usable alpha for technical users.
   - Added MIT `LICENSE` for application code.
   - Kept model weights and converted artifacts under upstream model licenses.
 - [x] Create GitHub release notes:
-  - Added `docs/release-notes-v0.1-draft.md` as the v0.1 alpha release notes draft.
+  - Added `docs/release-notes-v0.1.0-alpha.1.md` as the v0.1 alpha release notes.
 - [x] Prepare unsigned packaged pre-release path:
   - `0.1.0-alpha.1` may publish unsigned packaged artifacts while SignPath Foundation signing is pending.
   - Model weights and converted artifacts remain outside the installer.

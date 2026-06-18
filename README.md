@@ -308,4 +308,4 @@ See [docs/model-sources-and-licenses.md](docs/model-sources-and-licenses.md) for
 
 For now, publish code plus download/conversion scripts, not bundled model weights.
 
-The current `0.1.0-alpha.1` release notes draft is in [docs/release-notes-v0.1-draft.md](docs/release-notes-v0.1-draft.md).
+The current `0.1.0-alpha.1` release notes are in [docs/release-notes-v0.1.0-alpha.1.md](docs/release-notes-v0.1.0-alpha.1.md).

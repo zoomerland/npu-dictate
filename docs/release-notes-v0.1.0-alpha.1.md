@@ -1,4 +1,4 @@
-# NPU Dictate 0.1.0-alpha.1 Release Notes Draft
+# NPU Dictate 0.1.0-alpha.1 Release Notes
 
 Status: unsigned public pre-release candidate for SignPath Foundation application prep.
 
