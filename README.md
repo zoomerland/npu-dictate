@@ -97,6 +97,21 @@ Run a full packaged model-load smoke check:
 
 See [docs/packaging-plan.md](docs/packaging-plan.md) for the current packaging plan and known installer/signing decisions.
 
+Build a developer MSI from the packaged `.exe` directory:
+
+```powershell
+dotnet tool restore
+.\tools\build_windows_msi.ps1 -SkipExeBuild
+```
+
+The MSI path is `dist\installer\LocalVoiceDictation-0.1.0-dev.msi`. The installer is not signed yet and does not bundle model artifacts.
+
+Smoke-check the MSI without installing it:
+
+```powershell
+.\tools\smoke_windows_msi.ps1
+```
+
 ## Local Smoke Checks
 
 Run the lightweight developer smoke checks after changing model profiles, paste behavior, insertion spacing, or diagnostics:

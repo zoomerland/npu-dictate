@@ -310,7 +310,10 @@ Goal: ship a normal Windows app after the UX is stable.
 Do this last.
 
 - [ ] Choose final app name.
-- [ ] Choose app icon and visual identity.
+- [ ] Choose app icon and visual identity:
+  - Replace the default packaged executable icon.
+  - Use the same icon for the tray and Start Menu shortcut.
+  - Generate a multi-size `.ico` before public packaged release.
 - [x] Decide initial executable packaging approach:
   - Use PyInstaller one-directory builds for the first Windows packaged alpha.
   - Keep model artifacts out of the executable.
@@ -322,8 +325,16 @@ Do this last.
   - Import-only smoke passed.
   - Full packaged model-load smoke passed on 2026-06-18.
   - Packaged OpenVINO sees `CPU,GPU,NPU`; NPU ASR and NPU punctuation load successfully.
-- [ ] Create installer.
-- [ ] Decide installer technology.
+- [x] Create installer:
+  - Added `tools/build_windows_msi.ps1`.
+  - Built developer MSI at `dist/installer/LocalVoiceDictation-0.1.0-dev.msi`.
+  - MSI administrative extraction smoke passed on 2026-06-18.
+  - The MSI installs app binaries only; app-local model artifacts are still downloaded after launch.
+  - The MSI is not signed and still uses the default app icon.
+- [x] Decide installer technology:
+  - Use WiX 5 as a repository-local .NET tool for the first MSI path.
+  - Avoid WiX 7 because it requires accepting the OSMF EULA.
+  - Keep Inno Setup/NSIS as fallback options for `.exe` installers if MSI becomes impractical.
 - [x] Decide initial model download location and cache location for packaged builds:
   - In source mode, keep using the repository root.
   - In frozen `.exe` mode, use the directory containing `LocalVoiceDictation.exe`.

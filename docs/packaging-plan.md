@@ -75,11 +75,65 @@ The installer should come after the `.exe` build is stable.
 
 Recommended first installer route:
 
-- User-scope MSI or another per-user installer layout.
+- User-scope MSI built with the repository-local WiX 5 tool.
 - Install into a user-writable directory, likely under `%LOCALAPPDATA%`.
 - Do not install model files into `Program Files` unless model/config/cache paths are moved to `%LOCALAPPDATA%`.
 - Add uninstall cleanup for app binaries, shortcuts, and optional model cache cleanup.
 - Reuse the existing startup toggle, but verify it points at the installed `.exe`.
+
+Build the MSI from an existing packaged `.exe` directory:
+
+```powershell
+.\tools\build_windows_msi.ps1 -SkipExeBuild
+```
+
+Output:
+
+```text
+dist\installer\LocalVoiceDictation-0.1.0-dev.msi
+```
+
+Smoke-check the MSI by extracting an administrative image into a temporary directory:
+
+```powershell
+.\tools\smoke_windows_msi.ps1
+```
+
+Current installer decisions:
+
+- Use WiX 5 as a local .NET tool from `.config/dotnet-tools.json`.
+- Avoid WiX 7 because it requires accepting the OSMF EULA.
+- Do not bundle downloaded model artifacts in the MSI.
+- Install per-user under `%LOCALAPPDATA%\LocalVoiceDictation` so models, config, logs, and OpenVINO cache can stay app-local and writable.
+- Add a Start Menu shortcut.
+- Defer icon integration until the app icon is designed.
+
+Last local MSI smoke result:
+
+- Date: 2026-06-18.
+- Result: passed.
+- MSI output: `dist\installer\LocalVoiceDictation-0.1.0-dev.msi`.
+- MSI size: about 253 MB.
+- Administrative extraction succeeded with `msiexec /a`.
+- Extracted executable was present.
+- App-local `models/` directory was not included.
+
+Tool setup:
+
+```powershell
+dotnet tool restore
+```
+
+The .NET SDK is required to restore and run the local WiX 5 tool.
+
+## Icon And Identity
+
+The current packaged `.exe`, tray icon, and installer shortcut still use generated/default visuals. Before a public packaged release:
+
+- Create a real app icon as a multi-size `.ico`.
+- Use the icon in PyInstaller.
+- Use the same icon in the MSI Start Menu shortcut.
+- Recheck the tray icon so it matches the packaged identity.
 
 ## Code Signing Direction
 
