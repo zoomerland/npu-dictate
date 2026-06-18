@@ -94,6 +94,44 @@ def check_hardware_device_filtering():
     assert app.model_available_devices(asr_profile, cpu_only_hardware) == ("CPU",)
 
 
+def check_model_display_labels():
+    label = app.model_display_label(app.ASR_MODEL_PROFILES, app.DEFAULT_ASR_MODEL, app.DEFAULT_ASR_MODEL, "en")
+    assert "Russian" in label
+    assert "speech" in label
+    assert "CPU" in label
+    assert app.model_id_from_label(app.ASR_MODEL_PROFILES, label, app.DEFAULT_ASR_MODEL) == app.DEFAULT_ASR_MODEL
+
+    ru_label = app.model_display_label(
+        app.PUNCT_MODEL_PROFILES,
+        app.DEFAULT_PUNCT_MODEL,
+        app.DEFAULT_PUNCT_MODEL,
+        "ru",
+    )
+    assert "русский" in ru_label
+    assert "пунктуация" in ru_label
+    assert app.model_id_from_label(app.PUNCT_MODEL_PROFILES, ru_label, app.DEFAULT_PUNCT_MODEL) == app.DEFAULT_PUNCT_MODEL
+
+
+def check_download_status_format():
+    status = model_setup.format_download_status(
+        512 * 1024,
+        1024 * 1024,
+        started_at=1.0,
+        now=2.0,
+        label="model.bin",
+        item_index=2,
+        item_count=5,
+        overall_done=1024 * 1024,
+        overall_total=2 * 1024 * 1024,
+    )
+    assert status.startswith("Downloading models 75%")
+    assert "1.5 MB/2.0 MB" in status
+    assert "512.0 KB left" in status
+    assert "512.0 KB/s" in status
+    assert "ETA" in status
+    assert "2/5 model.bin" in status
+
+
 def check_openvino_probe():
     info = app.probe_openvino_hardware(app.load_config())
     assert "available" in info
@@ -319,6 +357,8 @@ def main():
     runner.check("config and model profiles normalize", check_config_profiles)
     runner.check("CPU-only fallback profile normalizes", check_cpu_fallback_profile)
     runner.check("hardware device filtering falls back to CPU", check_hardware_device_filtering)
+    runner.check("model display labels map back to profile ids", check_model_display_labels)
+    runner.check("download progress status includes size, speed, and ETA", check_download_status_format)
     runner.check("OpenVINO hardware probe runs", check_openvino_probe)
     runner.check("model artifact downloader helpers pass", check_model_artifact_helpers)
     runner.check("context-aware insertion spacing cases pass", check_insertion_spacing)

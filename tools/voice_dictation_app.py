@@ -25,9 +25,13 @@ from pynput import keyboard
 from app_paths import app_root, bundled_resource_root
 from model_setup import (
     artifact_manifest_cache_path,
+    asr_model_ready,
+    asr_openvino_artifact_model_ready,
+    asr_openvino_model_ready,
     ensure_asr_model,
     ensure_asr_openvino_model,
     ensure_punct_model,
+    punct_model_ready,
 )
 
 try:
@@ -83,6 +87,13 @@ TRANSLATIONS = {
         "asr_device": "Speech recognition device",
         "punct_model": "Punctuation model",
         "punct_device": "Punctuation device",
+        "models_language_notice": "Dictation language: Russian only in this alpha. English, German, and French are planned next.",
+        "models_download_notice": "Missing selected models are downloaded from Hugging Face on first use. Progress shows percent, speed, remaining size, and ETA.",
+        "models_device_notice": "Disabled device choices are unsupported by the model or unavailable on this computer.",
+        "model_status_installed": "downloaded",
+        "model_status_missing": "needs download",
+        "model_status_asr": "Speech files",
+        "model_status_punct": "Punctuation files",
         "warmup_models": "Warm up models on startup",
         "compare_asr": "Compare ASR CPU/NPU",
         "overlay_size": "Overlay size",
@@ -114,6 +125,7 @@ TRANSLATIONS = {
         "button_punct": "PUNCT",
         "button_text": "TEXT",
         "button_busy": "BUSY",
+        "button_download": "DL",
         "button_ok": "OK",
         "button_copy": "COPY",
         "button_paste": "PASTE",
@@ -132,6 +144,8 @@ TRANSLATIONS = {
         "Downloading ASR": "Downloading ASR",
         "Downloading ASR NPU": "Downloading ASR NPU",
         "Downloading model manifest": "Downloading model manifest",
+        "Preparing model download": "Preparing model download",
+        "First model setup": "First model setup",
         "Downloading models": "Downloading models",
         "Verifying models": "Verifying models",
         "Retrying models": "Retrying models",
@@ -189,6 +203,13 @@ TRANSLATIONS = {
         "asr_device": "Устройство распознавания",
         "punct_model": "Модель пунктуации",
         "punct_device": "Устройство пунктуации",
+        "models_language_notice": "Язык диктовки: сейчас только русский. Английский, немецкий и французский запланированы следующими.",
+        "models_download_notice": "Если выбранные модели не скачаны, приложение загрузит их с Hugging Face при первом использовании. В прогрессе будет процент, скорость, остаток и ETA.",
+        "models_device_notice": "Неактивные устройства не поддерживаются моделью или недоступны на этом компьютере.",
+        "model_status_installed": "скачано",
+        "model_status_missing": "нужно скачать",
+        "model_status_asr": "Файлы распознавания",
+        "model_status_punct": "Файлы пунктуации",
         "warmup_models": "Прогревать модели при запуске",
         "compare_asr": "Сравнивать ASR CPU/NPU",
         "overlay_size": "Размер кнопки",
@@ -220,6 +241,7 @@ TRANSLATIONS = {
         "button_punct": "ПУНКТ",
         "button_text": "ТЕКСТ",
         "button_busy": "ЗАНЯТ",
+        "button_download": "СКАЧ",
         "button_ok": "ОК",
         "button_copy": "КОПИЯ",
         "button_paste": "ВСТ",
@@ -238,6 +260,8 @@ TRANSLATIONS = {
         "Downloading ASR": "Загрузка ASR",
         "Downloading ASR NPU": "Загрузка ASR NPU",
         "Downloading model manifest": "Загрузка манифеста моделей",
+        "Preparing model download": "Подготовка загрузки моделей",
+        "First model setup": "Первичная загрузка моделей",
         "Downloading models": "Загрузка моделей",
         "Verifying models": "Проверка моделей",
         "Retrying models": "Повтор загрузки моделей",
@@ -380,6 +404,10 @@ ASR_PAD_MODES = {"zero", "silence", "edge", "min"}
 ASR_MODEL_PROFILES = {
     DEFAULT_ASR_MODEL: {
         "label": "GigaAM v3 CTC (ONNX INT8)",
+        "role": "speech",
+        "role_ru": "речь",
+        "language": "Russian",
+        "language_ru": "русский",
         "backend": "onnx_asr",
         "onnx_asr_name": "gigaam-v3-ctc",
         "quantization": "int8",
@@ -389,6 +417,10 @@ ASR_MODEL_PROFILES = {
     },
     OPENVINO_ASR_MODEL: {
         "label": "GigaAM v3 CTC (OpenVINO FP32)",
+        "role": "speech",
+        "role_ru": "речь",
+        "language": "Russian",
+        "language_ru": "русский",
         "backend": "openvino_ctc",
         "model_file": "v3_ctc.onnx",
         "model_dir": asr_model_dir,
@@ -397,6 +429,10 @@ ASR_MODEL_PROFILES = {
     },
     OPENVINO_ASR_NNCF_INT8_MODEL: {
         "label": "GigaAM v3 CTC (OpenVINO NNCF INT8 b400)",
+        "role": "speech",
+        "role_ru": "речь",
+        "language": "Russian",
+        "language_ru": "русский",
         "backend": "openvino_ctc",
         "model_file": "../gigaam-v3-ctc-openvino-int8-calib96/v3_ctc_bucket400_nncf_int8.xml",
         "model_dir": asr_model_dir,
@@ -409,6 +445,10 @@ ASR_MODEL_PROFILES = {
 PUNCT_MODEL_PROFILES = {
     DEFAULT_PUNCT_MODEL: {
         "label": "RUPunct big (OpenVINO FP16 static 128)",
+        "role": "punctuation",
+        "role_ru": "пунктуация",
+        "language": "Russian",
+        "language_ru": "русский",
         "model_dir": default_punct_model_dir,
         "devices": ("CPU", "NPU"),
         "default_device": "NPU",
@@ -443,11 +483,76 @@ def model_label(profiles, value, default):
     return model_profile(profiles, value, default)["label"]
 
 
+def model_profile_local_tag(profile, key, ui_language="en"):
+    if normalize_ui_language(ui_language) == "ru":
+        return profile.get(f"{key}_ru", profile.get(key, ""))
+    return profile.get(key, "")
+
+
+def model_is_installed(profiles, value, default):
+    model_id = normalize_model_id(profiles, value, default)
+    if profiles is ASR_MODEL_PROFILES:
+        if model_id == DEFAULT_ASR_MODEL:
+            return asr_model_ready()
+        if model_id == OPENVINO_ASR_MODEL:
+            return asr_openvino_model_ready()
+        if model_id == OPENVINO_ASR_NNCF_INT8_MODEL:
+            return asr_openvino_artifact_model_ready()
+    if profiles is PUNCT_MODEL_PROFILES and model_id == DEFAULT_PUNCT_MODEL:
+        return punct_model_ready()
+    return False
+
+
+def model_install_state_label(installed, ui_language="en"):
+    if normalize_ui_language(ui_language) == "ru":
+        return "скачано" if installed else "нужно скачать"
+    return "downloaded" if installed else "needs download"
+
+
+def model_display_label(profiles, value, default, ui_language="en"):
+    model_id = normalize_model_id(profiles, value, default)
+    profile = model_profile(profiles, model_id, default)
+    language = model_profile_local_tag(profile, "language", ui_language)
+    role = model_profile_local_tag(profile, "role", ui_language)
+    devices = "/".join(profile.get("devices", ()))
+    installed = model_install_state_label(model_is_installed(profiles, model_id, default), ui_language)
+    return f"{profile['label']} [{language}, {role}, {devices}, {installed}]"
+
+
+def model_display_labels(profiles, default, ui_language="en"):
+    return [model_display_label(profiles, model_id, default, ui_language) for model_id in profiles]
+
+
 def model_id_from_label(profiles, label, default):
+    label = str(label or "")
     for model_id, profile in profiles.items():
-        if profile["label"] == label:
+        if profile["label"] == label or label.startswith(f"{profile['label']} ["):
             return model_id
     return default
+
+
+def model_status_line(profiles, value, default, title, hardware_info=None, ui_language="en"):
+    model_id = normalize_model_id(profiles, value, default)
+    profile = model_profile(profiles, model_id, default)
+    language = model_profile_local_tag(profile, "language", ui_language)
+    supported = "/".join(profile.get("devices", ())) or "-"
+    available = "/".join(model_available_devices(profile, hardware_info)) or "-"
+    installed = model_install_state_label(model_is_installed(profiles, model_id, default), ui_language)
+    if normalize_ui_language(ui_language) == "ru":
+        return f"{title}: {installed}. Язык: {language}. Модель: {supported}. На этом ПК: {available}."
+    return f"{title}: {installed}. Language: {language}. Model: {supported}. This PC: {available}."
+
+
+def pending_model_downloads(cfg):
+    pending = []
+    asr_model = normalize_model_id(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
+    if not model_is_installed(ASR_MODEL_PROFILES, asr_model, DEFAULT_ASR_MODEL):
+        pending.append("ASR")
+    if cfg.get("use_punctuation", True):
+        punct_model = normalize_model_id(PUNCT_MODEL_PROFILES, cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
+        if not model_is_installed(PUNCT_MODEL_PROFILES, punct_model, DEFAULT_PUNCT_MODEL):
+            pending.append("punctuation")
+    return pending
 
 
 def profile_uses_openvino(profile):
@@ -2092,6 +2197,9 @@ class DictationEngine:
             with self.lock:
                 self.hardware_info = hardware_info
                 self.cfg = cfg
+            pending_downloads = pending_model_downloads(cfg)
+            if pending_downloads:
+                self.set_status(f"First model setup: {', '.join(pending_downloads)}")
             asr_profile = model_profile(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
             self.set_status("Loading ASR")
             asr_start = time.perf_counter()
@@ -2762,6 +2870,8 @@ class VoiceDictationApp:
         if status.startswith("Error: "):
             return f"{self.t('error')}: {status.split(': ', 1)[1]}"
         for prefix in (
+            "First model setup",
+            "Preparing model download",
             "Downloading models",
             "Verifying models",
             "Retrying models",
@@ -3339,6 +3449,18 @@ class VoiceDictationApp:
             "config_path": str(config_path()),
             "config": self.cfg,
             "models": {
+                "asr_model": self.cfg.get("asr_model"),
+                "asr_model_installed": model_is_installed(
+                    ASR_MODEL_PROFILES,
+                    self.cfg.get("asr_model"),
+                    DEFAULT_ASR_MODEL,
+                ),
+                "punct_model": self.cfg.get("punct_model"),
+                "punct_model_installed": model_is_installed(
+                    PUNCT_MODEL_PROFILES,
+                    self.cfg.get("punct_model"),
+                    DEFAULT_PUNCT_MODEL,
+                ),
                 "asr_dir_exists": asr_model_dir().exists(),
                 "asr_openvino_artifact_dir_exists": (
                     repo_root() / "models" / "asr" / "gigaam-v3-ctc-openvino-int8-calib96"
@@ -3457,7 +3579,9 @@ class VoiceDictationApp:
             self.set_display_status(self.localize_status(status))
 
         busy = (
-            status.startswith("Downloading")
+            status.startswith("First model setup")
+            or status.startswith("Preparing model download")
+            or status.startswith("Downloading")
             or status.startswith("Verifying")
             or status.startswith("Retrying")
             or status.startswith("Converting")
@@ -3475,6 +3599,12 @@ class VoiceDictationApp:
             self.set_overlay_button_state("button_punct", "#81612b", "#6d5124")
         elif status == "Transcribing":
             self.set_overlay_button_state("button_text", "#81612b", "#6d5124")
+        elif (
+            status.startswith("First model setup")
+            or status.startswith("Preparing model download")
+            or status.startswith("Downloading")
+        ):
+            self.set_overlay_button_state("button_download", "#81612b", "#6d5124")
         elif busy:
             self.set_overlay_button_state("button_busy", "#81612b", "#6d5124")
         elif status == "Pasted":
@@ -3637,12 +3767,16 @@ class VoiceDictationApp:
         settings_style.configure("TRadiobutton", font=settings_font, padding=(0, scaled(3)))
         settings_style.configure("TButton", font=settings_font, padding=(scaled(14), scaled(8)))
         settings_style.configure("Settings.TNotebook.Tab", font=settings_tab_font, padding=(scaled(12), scaled(7)))
+        settings_style.configure("SettingsHint.TLabel", font=settings_small_font, foreground="#555555")
         win.option_add("*TCombobox*Listbox.font", settings_font)
 
         hardware_info = self.engine.hardware_info or probe_openvino_hardware(self.cfg)
+        ui_lang_code = normalize_ui_language(self.cfg.get("ui_language", "en"))
         mode = tk.StringVar(value=self.choice_label("mode", self.cfg.get("mode", "hold")))
-        ui_language = tk.StringVar(value=UI_LANGUAGE_NAMES[normalize_ui_language(self.cfg.get("ui_language", "en"))])
-        asr_model = tk.StringVar(value=model_label(ASR_MODEL_PROFILES, self.cfg.get("asr_model"), DEFAULT_ASR_MODEL))
+        ui_language = tk.StringVar(value=UI_LANGUAGE_NAMES[ui_lang_code])
+        asr_model = tk.StringVar(
+            value=model_display_label(ASR_MODEL_PROFILES, self.cfg.get("asr_model"), DEFAULT_ASR_MODEL, ui_lang_code)
+        )
         asr_device = tk.StringVar(
             value=normalize_model_device(
                 ASR_MODEL_PROFILES,
@@ -3652,7 +3786,12 @@ class VoiceDictationApp:
             )
         )
         punct_model = tk.StringVar(
-            value=model_label(PUNCT_MODEL_PROFILES, self.cfg.get("punct_model"), DEFAULT_PUNCT_MODEL)
+            value=model_display_label(
+                PUNCT_MODEL_PROFILES,
+                self.cfg.get("punct_model"),
+                DEFAULT_PUNCT_MODEL,
+                ui_lang_code,
+            )
         )
         punct_device = tk.StringVar(
             value=normalize_model_device(
@@ -3678,6 +3817,8 @@ class VoiceDictationApp:
         use_context = tk.BooleanVar(value=bool(self.cfg.get("use_context", True)))
         append_space = tk.BooleanVar(value=bool(self.cfg.get("append_space", False)))
         start_with_windows = tk.BooleanVar(value=is_startup_enabled())
+        asr_model_status = tk.StringVar()
+        punct_model_status = tk.StringVar()
         dirty = tk.BooleanVar(value=False)
 
         def remember_i18n(widget, key):
@@ -3700,6 +3841,10 @@ class VoiceDictationApp:
 
         def i18n_checkbutton(parent, key, **kwargs):
             return remember_i18n(ttk.Checkbutton(parent, text=self.t(key), **kwargs), key)
+
+        def settings_t(key, ui_language_code=None):
+            language = normalize_ui_language(ui_language_code or UI_LANGUAGE_BY_NAME.get(ui_language.get(), ui_lang_code))
+            return TRANSLATIONS.get(language, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
 
         def clear_i18n_registry(event):
             if event.widget == win:
@@ -3756,6 +3901,61 @@ class VoiceDictationApp:
 
         overlay_opacity.trace_add("write", update_opacity_label)
         update_opacity_label()
+
+        model_combo_widgets = {}
+
+        def settings_ui_language_code():
+            return normalize_ui_language(UI_LANGUAGE_BY_NAME.get(ui_language.get(), ui_lang_code))
+
+        def refresh_model_status_texts(*_):
+            language = settings_ui_language_code()
+            asr_id = model_id_from_label(ASR_MODEL_PROFILES, asr_model.get(), DEFAULT_ASR_MODEL)
+            punct_id = model_id_from_label(PUNCT_MODEL_PROFILES, punct_model.get(), DEFAULT_PUNCT_MODEL)
+            asr_model_status.set(
+                model_status_line(
+                    ASR_MODEL_PROFILES,
+                    asr_id,
+                    DEFAULT_ASR_MODEL,
+                    settings_t("model_status_asr", language),
+                    hardware_info,
+                    language,
+                )
+            )
+            punct_model_status.set(
+                model_status_line(
+                    PUNCT_MODEL_PROFILES,
+                    punct_id,
+                    DEFAULT_PUNCT_MODEL,
+                    settings_t("model_status_punct", language),
+                    hardware_info,
+                    language,
+                )
+            )
+
+        def refresh_model_option_texts(*_):
+            language = settings_ui_language_code()
+            asr_id = model_id_from_label(ASR_MODEL_PROFILES, asr_model.get(), DEFAULT_ASR_MODEL)
+            punct_id = model_id_from_label(PUNCT_MODEL_PROFILES, punct_model.get(), DEFAULT_PUNCT_MODEL)
+            if "asr" in model_combo_widgets:
+                model_combo_widgets["asr"].configure(
+                    values=model_display_labels(ASR_MODEL_PROFILES, DEFAULT_ASR_MODEL, language)
+                )
+            if "punct" in model_combo_widgets:
+                model_combo_widgets["punct"].configure(
+                    values=model_display_labels(PUNCT_MODEL_PROFILES, DEFAULT_PUNCT_MODEL, language)
+                )
+            next_asr_label = model_display_label(ASR_MODEL_PROFILES, asr_id, DEFAULT_ASR_MODEL, language)
+            next_punct_label = model_display_label(PUNCT_MODEL_PROFILES, punct_id, DEFAULT_PUNCT_MODEL, language)
+            if asr_model.get() != next_asr_label:
+                asr_model.set(next_asr_label)
+            if punct_model.get() != next_punct_label:
+                punct_model.set(next_punct_label)
+            refresh_model_status_texts()
+
+        for variable in (ui_language, asr_model, asr_device, punct_model, punct_device):
+            variable.trace_add("write", refresh_model_status_texts)
+        ui_language.trace_add("write", refresh_model_option_texts)
+        refresh_model_status_texts()
 
         def create_device_selector(parent, model_var, device_var, profiles, default_model):
             frame = ttk.Frame(parent)
@@ -3967,15 +4167,53 @@ class VoiceDictationApp:
 
         models_section = settings_section("settings_section_models")
         row = 0
+        i18n_label(
+            models_section,
+            "models_language_notice",
+            style="SettingsHint.TLabel",
+            wraplength=scaled(760),
+            justify="left",
+        ).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+
+        row += 1
+        i18n_label(
+            models_section,
+            "models_download_notice",
+            style="SettingsHint.TLabel",
+            wraplength=scaled(760),
+            justify="left",
+        ).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+
+        row += 1
+        i18n_label(
+            models_section,
+            "models_device_notice",
+            style="SettingsHint.TLabel",
+            wraplength=scaled(760),
+            justify="left",
+        ).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 14))
+
+        row += 1
         i18n_label(models_section, "asr_model").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
-        ttk.Combobox(
+        asr_model_combo = ttk.Combobox(
             models_section,
             textvariable=asr_model,
-            values=model_labels(ASR_MODEL_PROFILES),
+            values=model_display_labels(ASR_MODEL_PROFILES, DEFAULT_ASR_MODEL, settings_ui_language_code()),
             state="readonly",
-            width=42,
+            width=74,
             font=settings_font,
-        ).grid(row=row, column=1, sticky="ew", pady=6)
+        )
+        asr_model_combo.grid(row=row, column=1, sticky="ew", pady=6)
+        model_combo_widgets["asr"] = asr_model_combo
+
+        row += 1
+        ttk.Label(
+            models_section,
+            textvariable=asr_model_status,
+            style="SettingsHint.TLabel",
+            wraplength=scaled(760),
+            justify="left",
+        ).grid(row=row, column=1, sticky="ew", pady=(0, 6))
 
         row += 1
         i18n_label(models_section, "asr_device").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
@@ -3999,14 +4237,25 @@ class VoiceDictationApp:
 
         row += 1
         i18n_label(models_section, "punct_model").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
-        ttk.Combobox(
+        punct_model_combo = ttk.Combobox(
             models_section,
             textvariable=punct_model,
-            values=model_labels(PUNCT_MODEL_PROFILES),
+            values=model_display_labels(PUNCT_MODEL_PROFILES, DEFAULT_PUNCT_MODEL, settings_ui_language_code()),
             state="readonly",
-            width=42,
+            width=74,
             font=settings_font,
-        ).grid(row=row, column=1, sticky="ew", pady=6)
+        )
+        punct_model_combo.grid(row=row, column=1, sticky="ew", pady=6)
+        model_combo_widgets["punct"] = punct_model_combo
+
+        row += 1
+        ttk.Label(
+            models_section,
+            textvariable=punct_model_status,
+            style="SettingsHint.TLabel",
+            wraplength=scaled(760),
+            justify="left",
+        ).grid(row=row, column=1, sticky="ew", pady=(0, 6))
 
         row += 1
         i18n_label(models_section, "punct_device").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
@@ -4017,6 +4266,7 @@ class VoiceDictationApp:
             PUNCT_MODEL_PROFILES,
             DEFAULT_PUNCT_MODEL,
         ).grid(row=row, column=1, sticky="w", pady=6)
+        refresh_model_option_texts()
 
         overlay_section = settings_section("settings_section_overlay")
         row = 0

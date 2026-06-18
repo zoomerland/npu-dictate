@@ -56,6 +56,59 @@ def format_bytes(value):
     return f"{value:.1f} GB"
 
 
+def format_duration(seconds):
+    if seconds is None or seconds < 0:
+        return "--:--"
+    seconds = int(round(seconds))
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def format_download_status(
+    downloaded,
+    total=None,
+    *,
+    started_at=None,
+    now=None,
+    label="models",
+    item_index=None,
+    item_count=None,
+    overall_done=0,
+    overall_total=None,
+):
+    now = time.monotonic() if now is None else now
+    elapsed = max(0.001, now - (started_at or now))
+    speed = downloaded / elapsed if downloaded > 0 else 0
+    speed_text = f"{format_bytes(speed)}/s" if speed > 0 else "--"
+    item_text = f"{item_index}/{item_count} " if item_index and item_count else ""
+
+    if overall_total:
+        overall_downloaded = min(int(overall_total), int(overall_done or 0) + int(downloaded or 0))
+        pct = min(100, int(overall_downloaded * 100 / overall_total))
+        remaining = max(0, int(overall_total) - overall_downloaded)
+        eta = format_duration(remaining / speed) if speed > 0 else "--:--"
+        return (
+            f"Downloading models {pct}% "
+            f"{format_bytes(overall_downloaded)}/{format_bytes(overall_total)}, "
+            f"{format_bytes(remaining)} left, {speed_text}, ETA {eta}, {item_text}{label}"
+        )
+
+    if total:
+        pct = min(100, int(downloaded * 100 / total))
+        remaining = max(0, int(total) - int(downloaded or 0))
+        eta = format_duration(remaining / speed) if speed > 0 else "--:--"
+        return (
+            f"Downloading models {pct}% "
+            f"{format_bytes(downloaded)}/{format_bytes(total)}, "
+            f"{format_bytes(remaining)} left, {speed_text}, ETA {eta}, {item_text}{label}"
+        )
+
+    return f"Downloading models {format_bytes(downloaded)}, {speed_text}, {item_text}{label}"
+
+
 def artifact_url(repo_path, repo_id=ARTIFACT_MODEL_REPO, revision=ARTIFACT_MODEL_REVISION):
     return (
         f"https://huggingface.co/{repo_id}/resolve/{quote(revision, safe='')}/"
@@ -151,7 +204,17 @@ def profile_artifacts_ready(manifest, profile_id, component=None, root=None, ver
     )
 
 
-def download_url_to_file(url, target, expected_size=None, status_callback=None, label="models"):
+def download_url_to_file(
+    url,
+    target,
+    expected_size=None,
+    status_callback=None,
+    label="models",
+    item_index=None,
+    item_count=None,
+    overall_done=0,
+    overall_total=None,
+):
     target = Path(target)
     tmp = target.with_name(target.name + ".download")
     tmp.parent.mkdir(parents=True, exist_ok=True)
@@ -164,6 +227,7 @@ def download_url_to_file(url, target, expected_size=None, status_callback=None, 
             total = expected_size or response.headers.get("Content-Length")
             total = int(total) if total else None
             downloaded = 0
+            started_at = time.monotonic()
             last_emit = 0.0
             while True:
                 chunk = response.read(DOWNLOAD_CHUNK_SIZE)
@@ -174,11 +238,20 @@ def download_url_to_file(url, target, expected_size=None, status_callback=None, 
                 now = time.monotonic()
                 if status_callback and (now - last_emit >= 0.5 or (total and downloaded >= total)):
                     last_emit = now
-                    if total:
-                        pct = min(100, int(downloaded * 100 / total))
-                        emit(status_callback, f"Downloading models {pct}% {label}")
-                    else:
-                        emit(status_callback, f"Downloading models {format_bytes(downloaded)} {label}")
+                    emit(
+                        status_callback,
+                        format_download_status(
+                            downloaded,
+                            total,
+                            started_at=started_at,
+                            now=now,
+                            label=label,
+                            item_index=item_index,
+                            item_count=item_count,
+                            overall_done=overall_done,
+                            overall_total=overall_total,
+                        ),
+                    )
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
@@ -192,7 +265,15 @@ def download_url_to_file(url, target, expected_size=None, status_callback=None, 
     return tmp
 
 
-def install_artifact(artifact, status_callback=None, root=None):
+def install_artifact(
+    artifact,
+    status_callback=None,
+    root=None,
+    item_index=None,
+    item_count=None,
+    overall_done=0,
+    overall_total=None,
+):
     target = safe_install_path(artifact["install_path"], root)
     if artifact_ready(artifact, root):
         return target
@@ -209,6 +290,10 @@ def install_artifact(artifact, status_callback=None, root=None):
                 expected_size=artifact.get("size_bytes"),
                 status_callback=status_callback,
                 label=label,
+                item_index=item_index,
+                item_count=item_count,
+                overall_done=overall_done,
+                overall_total=overall_total,
             )
             emit(status_callback, f"Verifying models {label}")
             actual_hash = sha256_file(tmp)
@@ -236,8 +321,27 @@ def ensure_profile_artifacts(profile_id, component=None, status_callback=None):
     artifacts = artifacts_for_profile(manifest, profile_id, component)
     if not artifacts:
         raise RuntimeError(f"No model artifacts found for profile: {profile_id}")
-    for artifact in artifacts:
-        install_artifact(artifact, status_callback=status_callback)
+
+    missing = [artifact for artifact in artifacts if not artifact_ready(artifact, verify_hash=True)]
+    total_size = sum(int(artifact.get("size_bytes") or 0) for artifact in missing) or None
+    if missing:
+        emit(
+            status_callback,
+            f"Preparing model download {len(missing)} files"
+            + (f", {format_bytes(total_size)}" if total_size else ""),
+        )
+
+    downloaded_size = 0
+    for index, artifact in enumerate(missing, 1):
+        install_artifact(
+            artifact,
+            status_callback=status_callback,
+            item_index=index,
+            item_count=len(missing),
+            overall_done=downloaded_size,
+            overall_total=total_size,
+        )
+        downloaded_size += int(artifact.get("size_bytes") or 0)
     return manifest
 
 
@@ -280,10 +384,34 @@ def ensure_asr_model(status_callback=None):
         return asr_model_dir()
 
     emit(status_callback, "Downloading ASR")
-    import onnx_asr
+    model_dir = asr_model_dir()
+    model_dir.mkdir(parents=True, exist_ok=True)
+    filenames = ("config.json", "v3_vocab.txt", "v3_ctc.int8.onnx")
+    total_size = None
+    downloaded_size = 0
+    for index, filename in enumerate(filenames, 1):
+        target = model_dir / filename
+        if target.exists():
+            downloaded_size += target.stat().st_size
+            continue
+        tmp = download_url_to_file(
+            artifact_url(filename, repo_id=ASR_MODEL_REPO),
+            target,
+            status_callback=status_callback,
+            label=filename,
+            item_index=index,
+            item_count=len(filenames),
+            overall_done=downloaded_size,
+            overall_total=total_size,
+        )
+        target.unlink(missing_ok=True)
+        shutil.move(str(tmp), str(target))
+        downloaded_size += target.stat().st_size
 
-    asr_model_dir().parent.mkdir(parents=True, exist_ok=True)
-    onnx_asr.load_model(ASR_MODEL_NAME, asr_model_dir(), quantization="int8")
+    if not asr_model_ready():
+        import onnx_asr
+
+        onnx_asr.load_model(ASR_MODEL_NAME, model_dir, quantization="int8")
     return asr_model_dir()
 
 
@@ -298,12 +426,26 @@ def ensure_asr_openvino_model(status_callback=None, profile_id=None):
         return asr_model_dir()
 
     emit(status_callback, "Downloading ASR NPU")
-    from huggingface_hub import hf_hub_download
-
     model_dir = asr_model_dir()
     model_dir.mkdir(parents=True, exist_ok=True)
-    for filename in ("config.json", "v3_vocab.txt", "v3_ctc.onnx"):
-        hf_hub_download(ASR_MODEL_REPO, filename, local_dir=model_dir)
+    filenames = ("config.json", "v3_vocab.txt", "v3_ctc.onnx")
+    downloaded_size = 0
+    for index, filename in enumerate(filenames, 1):
+        target = model_dir / filename
+        if target.exists():
+            downloaded_size += target.stat().st_size
+            continue
+        tmp = download_url_to_file(
+            artifact_url(filename, repo_id=ASR_MODEL_REPO),
+            target,
+            status_callback=status_callback,
+            label=filename,
+            item_index=index,
+            item_count=len(filenames),
+            overall_done=downloaded_size,
+        )
+        target.unlink(missing_ok=True)
+        shutil.move(str(tmp), str(target))
     return model_dir
 
 

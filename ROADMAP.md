@@ -181,20 +181,24 @@ Goal: make model setup transparent and legally clean.
 
 - [x] Keep model artifacts out of Git.
 - [x] Download/prepare models on first run.
-- [ ] Add visible progress for model downloads and conversion.
+- [x] Add visible progress for model downloads and conversion.
+  - Added first-run model setup status plus download percent, speed, remaining bytes, ETA, and per-file labels.
 - [x] Add downloader for published Hugging Face converted artifacts:
   - Downloads `MANIFEST.json` from `Zoomerland/local-voice-dictation-openvino`.
   - Installs files into the app-local `models/` directory.
   - Uses temporary `.download` files, retries, file-size checks, and SHA256 verification.
   - Leaves OpenVINO cache files and local Hugging Face caches out of the published artifact set.
   - Fresh-download verification passed on 2026-06-18: 13 artifacts, 594057141 bytes, all SHA256 checks passed.
-- [ ] Replace indeterminate progress with per-model progress where possible.
+- [x] Replace indeterminate progress with per-model progress where possible.
+  - Hugging Face converted artifacts now report aggregate download progress.
+  - Direct ASR CPU/FP32 downloads now go through the app downloader instead of a silent library call.
 - [ ] Add retry and failure messages for model setup.
   - [x] Hugging Face converted-artifact downloader retries failed file downloads and surfaces load errors.
   - [ ] Add user-facing retry/rebuild controls in the Models settings section.
 - [ ] Add "Models" settings section:
-  - Installed models.
-  - Disk usage.
+  - [x] Show selected model language, purpose, supported devices, current-PC devices, and downloaded/missing status.
+  - [x] State clearly that v0.1 alpha dictation currently supports Russian only.
+  - [ ] Disk usage.
   - Download/rebuild action.
   - Clear cache action.
 - [x] Review upstream licenses before the current source-only v0.1 release.
