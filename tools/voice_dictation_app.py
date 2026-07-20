@@ -2057,6 +2057,7 @@ class DictationEngine:
         self._punct_loading_signature = None
         self._punct_loaded_generation = None
         self._punct_error_generation = None
+        self._audio_generation = 0
         self.loaded = False
         self.loading = False
         self.recording = False
@@ -2086,6 +2087,7 @@ class DictationEngine:
         self.transcription_done.set()
         self.hardware_info = None
         self.lock = threading.RLock()
+        self.audio_lifecycle_lock = threading.RLock()
         self.compare_lock = threading.RLock()
         self.punct_lock = threading.RLock()
         self.punct_condition = threading.Condition(self.punct_lock)
@@ -2106,6 +2108,8 @@ class DictationEngine:
             )
             punct_changed = punct_model_signature(old_cfg) != punct_model_signature(cfg)
             self.cfg = cfg
+            if restart_audio:
+                self._audio_generation += 1
             if reload_asr:
                 self._asr_generation += 1
                 self.asr = None
@@ -2117,7 +2121,7 @@ class DictationEngine:
             if punct_changed:
                 self._invalidate_punct_locked(cfg)
         if restart_audio:
-            self.close_audio_stream()
+            self.close_audio_stream(invalidate=False)
             if self.loaded:
                 self.ensure_audio_stream()
         if reload_asr:
@@ -2614,92 +2618,127 @@ class DictationEngine:
             elif retry_latest:
                 self.load_async()
 
-    def resolve_sample_rate(self):
-        configured = int(self.cfg.get("sample_rate") or 0)
+    def resolve_sample_rate(self, cfg=None):
+        cfg = cfg or self.cfg
+        configured = int(cfg.get("sample_rate") or 0)
         if configured:
             return configured
-        device_index = self.cfg.get("input_device_index")
+        device_index = cfg.get("input_device_index")
         info = sd.query_devices(device_index, "input")
         return int(info["default_samplerate"])
 
-    def audio_stream_signature(self):
-        sample_rate = self.resolve_sample_rate()
+    def audio_stream_signature(self, cfg=None):
+        cfg = cfg or self.cfg
+        sample_rate = self.resolve_sample_rate(cfg)
         return (
-            self.cfg.get("input_device_index"),
-            int(self.cfg.get("channels") or 1),
+            cfg.get("input_device_index"),
+            int(cfg.get("channels") or 1),
             sample_rate,
         )
 
-    def close_audio_stream(self):
-        with self.lock:
-            stream = self.stream
-            self.stream = None
-            self.stream_signature = None
-            self.pre_roll_blocks.clear()
-            self.pre_roll_samples = 0
+    @staticmethod
+    def _dispose_audio_stream(stream, reason):
+        if stream is None:
+            return
+        try:
+            stream.stop()
+        except Exception as exc:
+            log_debug(f"audio stream {reason} stop error={type(exc).__name__}")
+        try:
+            stream.close()
+        except Exception as exc:
+            log_debug(f"audio stream {reason} close error={type(exc).__name__}")
 
-        if stream:
-            try:
-                stream.stop()
-                stream.close()
-            except Exception as exc:
-                log_debug(f"audio stream close error={type(exc).__name__}")
+    def close_audio_stream(self, invalidate=True):
+        with self.audio_lifecycle_lock:
+            with self.lock:
+                if invalidate:
+                    self._audio_generation += 1
+                stream = self.stream
+                self.stream = None
+                self.stream_signature = None
+                self.sample_rate = None
+                self.pre_roll_blocks.clear()
+                self.pre_roll_samples = 0
+            self._dispose_audio_stream(stream, "close")
 
     def ensure_audio_stream(self):
-        try:
-            signature = self.audio_stream_signature()
-        except Exception as exc:
-            log_debug(f"audio stream signature error={type(exc).__name__}")
-            self.set_status(f"Audio error: {type(exc).__name__}")
-            return False
-
-        with self.lock:
-            if self.stream and self.stream_signature == signature:
-                self.sample_rate = signature[2]
-                return True
-            old_stream = self.stream
-            self.stream = None
-            self.stream_signature = None
-            self.pre_roll_blocks.clear()
-            self.pre_roll_samples = 0
-
-        if old_stream:
-            try:
-                old_stream.stop()
-                old_stream.close()
-            except Exception as exc:
-                log_debug(f"audio stream restart close error={type(exc).__name__}")
-
-        device_index, channels, sample_rate = signature
-        try:
-            stream = sd.InputStream(
-                samplerate=sample_rate,
-                channels=channels,
-                dtype="float32",
-                device=device_index,
-                callback=self._audio_callback,
-            )
+        with self.audio_lifecycle_lock:
             with self.lock:
-                self.stream = stream
-                self.stream_signature = signature
+                if self.closing:
+                    return False
+                generation = self._audio_generation
+                cfg = dict(self.cfg)
+            try:
+                signature = self.audio_stream_signature(cfg)
+            except Exception as exc:
+                log_debug(f"audio stream signature error={type(exc).__name__}")
+                if self._audio_generation_is_current(generation):
+                    self.set_status(f"Audio error: {type(exc).__name__}")
+                return False
+
+            device_index, channels, sample_rate = signature
+            with self.lock:
+                if self.closing or generation != self._audio_generation:
+                    return False
+                if self.stream and self.stream_signature == signature:
+                    self.sample_rate = signature[2]
+                    return True
+                old_stream = self.stream
+                self.stream = None
+                self.stream_signature = None
                 self.sample_rate = sample_rate
                 self.pre_roll_blocks.clear()
                 self.pre_roll_samples = 0
-            stream.start()
-            log_debug(
-                "audio stream ready "
-                f"device={device_index} channels={channels} sample_rate={sample_rate} "
-                f"pre_roll_ms={int(self.cfg.get('audio_pre_roll_ms') or 0)}"
-            )
-            return True
-        except Exception as exc:
-            with self.lock:
-                if self.stream is locals().get("stream"):
-                    self.stream = None
-                    self.stream_signature = None
-            log_debug(f"audio stream error={type(exc).__name__}")
-            self.set_status(f"Audio error: {type(exc).__name__}")
-            return False
+
+            self._dispose_audio_stream(old_stream, "restart")
+
+            stream = None
+            try:
+                stream = sd.InputStream(
+                    samplerate=sample_rate,
+                    channels=channels,
+                    dtype="float32",
+                    device=device_index,
+                    callback=self._audio_callback,
+                )
+                stream.start()
+                with self.lock:
+                    current = not self.closing and generation == self._audio_generation
+                    if current:
+                        self.stream = stream
+                        self.stream_signature = signature
+                        self.sample_rate = sample_rate
+                if not current:
+                    self._dispose_audio_stream(stream, "stale")
+                    with self.lock:
+                        if self.stream is None:
+                            self.sample_rate = None
+                            self.pre_roll_blocks.clear()
+                            self.pre_roll_samples = 0
+                    return False
+                log_debug(
+                    "audio stream ready "
+                    f"device={device_index} channels={channels} sample_rate={sample_rate} "
+                    f"pre_roll_ms={int(cfg.get('audio_pre_roll_ms') or 0)}"
+                )
+                return True
+            except Exception as exc:
+                self._dispose_audio_stream(stream, "failed")
+                with self.lock:
+                    current = not self.closing and generation == self._audio_generation
+                    if current and (self.stream is None or self.stream is stream):
+                        self.stream = None
+                        self.stream_signature = None
+                        self.sample_rate = None
+                log_debug(f"audio stream error={type(exc).__name__}")
+                if current:
+                    self.set_status(f"Audio error: {type(exc).__name__}")
+                return False
+
+    def _audio_generation_is_current(self, generation):
+        with self.lock:
+            return not self.closing and generation == self._audio_generation
 
     def append_pre_roll_block_locked(self, block):
         pre_roll_ms = int(self.cfg.get("audio_pre_roll_ms") or 0)
@@ -2829,6 +2868,7 @@ class DictationEngine:
     def request_shutdown(self):
         with self.lock:
             self.closing = True
+            self._audio_generation += 1
             should_stop = self.recording
         if should_stop:
             self.stop_recording()

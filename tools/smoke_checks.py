@@ -496,6 +496,116 @@ def check_stale_punct_load_is_discarded():
         wait_until(lambda: engine._punct_loading_generation is None)
 
 
+class FakeAudioStream:
+    def __init__(self, start_entered=None, start_release=None, fail_start=False):
+        self.start_entered = start_entered
+        self.start_release = start_release
+        self.fail_start = fail_start
+        self.start_count = 0
+        self.stop_count = 0
+        self.close_count = 0
+
+    def start(self):
+        self.start_count += 1
+        if self.start_entered is not None:
+            self.start_entered.set()
+        if self.start_release is not None and not self.start_release.wait(timeout=3):
+            raise TimeoutError("audio start test timed out")
+        if self.fail_start:
+            raise RuntimeError("audio start failed")
+
+    def stop(self):
+        self.stop_count += 1
+
+    def close(self):
+        self.close_count += 1
+
+
+class FakeInputStreamFactory:
+    def __init__(self, start_entered=None, start_release=None, fail_start=False):
+        self.start_entered = start_entered
+        self.start_release = start_release
+        self.fail_start = fail_start
+        self.instances = []
+
+    def __call__(self, **_kwargs):
+        stream = FakeAudioStream(self.start_entered, self.start_release, self.fail_start)
+        self.instances.append(stream)
+        return stream
+
+
+def check_audio_stream_lifecycle_is_serialized():
+    original_input_stream = app.sd.InputStream
+    cfg = app.default_config()
+    cfg["sample_rate"] = 16000
+    try:
+        factory = FakeInputStreamFactory()
+        app.sd.InputStream = factory
+        engine = app.DictationEngine(cfg, lambda _status: None, lambda *_args: None)
+        start_barrier = threading.Barrier(3)
+        results = []
+
+        def ensure_stream():
+            start_barrier.wait(timeout=2)
+            results.append(engine.ensure_audio_stream())
+
+        workers = [threading.Thread(target=ensure_stream) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        start_barrier.wait(timeout=2)
+        for worker in workers:
+            worker.join(timeout=2)
+            assert not worker.is_alive()
+
+        assert results == [True, True]
+        assert len(factory.instances) == 1
+        stream = factory.instances[0]
+        assert stream.start_count == 1
+        engine.close_audio_stream()
+        assert stream.stop_count == 1
+        assert stream.close_count == 1
+
+        start_entered = threading.Event()
+        start_release = threading.Event()
+        factory = FakeInputStreamFactory(start_entered, start_release)
+        app.sd.InputStream = factory
+        engine = app.DictationEngine(cfg, lambda _status: None, lambda *_args: None)
+        ensure_result = []
+        ensure_worker = threading.Thread(target=lambda: ensure_result.append(engine.ensure_audio_stream()))
+        ensure_worker.start()
+        assert start_entered.wait(timeout=2)
+        close_done = threading.Event()
+
+        def close_stream():
+            engine.close_audio_stream()
+            close_done.set()
+
+        close_worker = threading.Thread(target=close_stream)
+        close_worker.start()
+        assert not close_done.wait(timeout=0.05)
+        start_release.set()
+        ensure_worker.join(timeout=2)
+        close_worker.join(timeout=2)
+        assert not ensure_worker.is_alive() and not close_worker.is_alive()
+        assert ensure_result == [True]
+        assert close_done.is_set()
+        stream = factory.instances[0]
+        assert stream.stop_count == 1 and stream.close_count == 1
+        assert engine.stream is None
+
+        statuses = []
+        factory = FakeInputStreamFactory(fail_start=True)
+        app.sd.InputStream = factory
+        engine = app.DictationEngine(cfg, statuses.append, lambda *_args: None)
+        assert engine.ensure_audio_stream() is False
+        stream = factory.instances[0]
+        assert stream.stop_count == 1 and stream.close_count == 1
+        assert engine.stream is None and engine.stream_signature is None
+        assert any(status.startswith("Audio error:") for status in statuses)
+    finally:
+        app.sd.InputStream = original_input_stream
+
+
 def check_clipboard_paste_behavior():
     original_clipboard = app.pyperclip
     original_windll = app.ctypes.WinDLL
@@ -692,6 +802,7 @@ def main():
     runner.check("recording handoff is atomic and shutdown waits", check_recording_job_is_atomic)
     runner.check("stale ASR generations are discarded", check_stale_asr_load_is_discarded)
     runner.check("stale punctuation generations are discarded", check_stale_punct_load_is_discarded)
+    runner.check("audio stream lifecycle is serialized", check_audio_stream_lifecycle_is_serialized)
     check_model_paths(runner)
 
     if args.skip_rupunct:
