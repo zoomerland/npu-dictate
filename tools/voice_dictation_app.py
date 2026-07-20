@@ -116,6 +116,7 @@ TRANSLATIONS = {
         "use_punctuation": "Use punctuation",
         "paste_into_active_field": "Paste into active field",
         "restore_clipboard_after_paste": "Restore text clipboard after paste",
+        "press_enter_after_paste": "Press Enter after successful paste",
         "use_context": "Use text before cursor",
         "append_trailing_space": "Add trailing space when appropriate",
         "start_with_windows": "Start with Windows",
@@ -164,6 +165,7 @@ TRANSLATIONS = {
         "Recording": "Recording",
         "Transcribing": "Transcribing",
         "Pasted": "Pasted",
+        "Pasted + Enter": "Pasted + Enter",
         "Copied": "Copied",
         "Copied - paste manually": "Copied - paste manually",
         "No audio": "No audio",
@@ -234,6 +236,7 @@ TRANSLATIONS = {
         "use_punctuation": "Использовать пунктуацию",
         "paste_into_active_field": "Вставлять в активное поле",
         "restore_clipboard_after_paste": "Восстанавливать текстовый буфер после вставки",
+        "press_enter_after_paste": "Нажимать Enter после успешной вставки",
         "use_context": "Учитывать текст перед курсором",
         "append_trailing_space": "Добавлять пробел после вставки по контексту",
         "start_with_windows": "Запускать вместе с Windows",
@@ -282,6 +285,7 @@ TRANSLATIONS = {
         "Recording": "Запись",
         "Transcribing": "Распознавание",
         "Pasted": "Вставлено",
+        "Pasted + Enter": "Вставлено + Enter",
         "Copied": "Скопировано",
         "Copied - paste manually": "Скопировано - вставьте вручную",
         "No audio": "Нет звука",
@@ -724,6 +728,7 @@ def normalize_model_config(cfg, hardware_info=None):
     cfg["asr_retry_fragmented"] = bool(cfg.get("asr_retry_fragmented", True))
     cfg["asr_retry_buckets"] = normalize_asr_retry_buckets(cfg.get("asr_retry_buckets"))
     cfg["restore_clipboard_after_paste"] = bool(cfg.get("restore_clipboard_after_paste", True))
+    cfg["press_enter_after_paste"] = bool(cfg.get("press_enter_after_paste", False))
     cfg["overlay_shape"] = normalize_overlay_shape(cfg.get("overlay_shape"))
     return cfg
 
@@ -893,6 +898,7 @@ def default_config():
         "punct_device": "NPU",
         "auto_paste": True,
         "restore_clipboard_after_paste": True,
+        "press_enter_after_paste": False,
         "use_context": True,
         "context_chars": 320,
         "append_space": True,
@@ -2677,7 +2683,10 @@ class DictationEngine:
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
                 if cfg.get("auto_paste", True):
                     if self.paste_text(final_text):
-                        self.set_status("Pasted")
+                        if cfg.get("press_enter_after_paste", False) and self.press_enter_after_paste():
+                            self.set_status("Pasted + Enter")
+                        else:
+                            self.set_status("Pasted")
                     else:
                         self.set_status("Copied - paste manually")
                 else:
@@ -2788,6 +2797,20 @@ class DictationEngine:
             log_debug(f"paste failed fallback_error={type(exc).__name__}")
             return False
 
+    def press_enter_after_paste(self):
+        time.sleep(0.08)
+        if self.send_enter():
+            log_debug("post paste enter send_input=True")
+            return True
+        try:
+            self.keyboard.press(keyboard.Key.enter)
+            self.keyboard.release(keyboard.Key.enter)
+            log_debug("post paste enter fallback=pynput")
+            return True
+        except Exception as exc:
+            log_debug(f"post paste enter failed error={type(exc).__name__}")
+            return False
+
     def send_ctrl_v(self):
         if os.name != "nt":
             return False
@@ -2855,6 +2878,72 @@ class DictationEngine:
         sent = user32.SendInput(len(events), events, ctypes.sizeof(INPUT))
         if sent != len(events):
             log_debug(f"sendinput failed sent={sent} error={ctypes.get_last_error()} input_size={ctypes.sizeof(INPUT)}")
+        return sent == len(events)
+
+    def send_enter(self):
+        if os.name != "nt":
+            return False
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
+        INPUT_KEYBOARD = 1
+        KEYEVENTF_KEYUP = 0x0002
+        VK_RETURN = 0x0D
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [
+                ("wVk", wintypes.WORD),
+                ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ULONG_PTR),
+            ]
+
+        class MOUSEINPUT(ctypes.Structure):
+            _fields_ = [
+                ("dx", wintypes.LONG),
+                ("dy", wintypes.LONG),
+                ("mouseData", wintypes.DWORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ULONG_PTR),
+            ]
+
+        class HARDWAREINPUT(ctypes.Structure):
+            _fields_ = [
+                ("uMsg", wintypes.DWORD),
+                ("wParamL", wintypes.WORD),
+                ("wParamH", wintypes.WORD),
+            ]
+
+        class INPUT_UNION(ctypes.Union):
+            _fields_ = [
+                ("mi", MOUSEINPUT),
+                ("ki", KEYBDINPUT),
+                ("hi", HARDWAREINPUT),
+            ]
+
+        class INPUT(ctypes.Structure):
+            _anonymous_ = ("union",)
+            _fields_ = [("type", wintypes.DWORD), ("union", INPUT_UNION)]
+
+        def key_event(vk, flags=0):
+            item = INPUT()
+            item.type = INPUT_KEYBOARD
+            item.ki = KEYBDINPUT(wVk=vk, wScan=0, dwFlags=flags, time=0, dwExtraInfo=0)
+            return item
+
+        events = (INPUT * 2)(
+            key_event(VK_RETURN),
+            key_event(VK_RETURN, KEYEVENTF_KEYUP),
+        )
+
+        user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+        user32.SendInput.restype = wintypes.UINT
+        ctypes.set_last_error(0)
+        sent = user32.SendInput(len(events), events, ctypes.sizeof(INPUT))
+        if sent != len(events):
+            log_debug(f"send enter failed sent={sent} error={ctypes.get_last_error()} input_size={ctypes.sizeof(INPUT)}")
         return sent == len(events)
 
 
@@ -3710,7 +3799,7 @@ class VoiceDictationApp:
             )
         elif busy:
             self.set_overlay_button_state("button_load", "#81612b", "#6d5124")
-        elif status == "Pasted":
+        elif status in {"Pasted", "Pasted + Enter"}:
             self.set_overlay_button_state("button_ok", "#267d45", "#206b3b")
         elif status == "Copied":
             self.set_overlay_button_state("button_copy", "#2b7281", "#245f6c")
@@ -3917,6 +4006,7 @@ class VoiceDictationApp:
         compare_asr = tk.BooleanVar(value=bool(self.cfg.get("compare_asr", False)))
         auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
         restore_clipboard = tk.BooleanVar(value=bool(self.cfg.get("restore_clipboard_after_paste", True)))
+        press_enter_after_paste = tk.BooleanVar(value=bool(self.cfg.get("press_enter_after_paste", False)))
         use_context = tk.BooleanVar(value=bool(self.cfg.get("use_context", True)))
         append_space = tk.BooleanVar(value=bool(self.cfg.get("append_space", False)))
         start_with_windows = tk.BooleanVar(value=is_startup_enabled())
@@ -3993,6 +4083,7 @@ class VoiceDictationApp:
             compare_asr,
             auto_paste,
             restore_clipboard,
+            press_enter_after_paste,
             use_context,
             append_space,
             start_with_windows,
@@ -4193,6 +4284,7 @@ class VoiceDictationApp:
                 "compare_asr": bool(compare_asr.get()),
                 "auto_paste": bool(auto_paste.get()),
                 "restore_clipboard_after_paste": bool(restore_clipboard.get()),
+                "press_enter_after_paste": bool(press_enter_after_paste.get()),
                 "use_context": bool(use_context.get()),
                 "append_space": bool(append_space.get()),
                 "start_with_windows": bool(start_with_windows.get()),
@@ -4527,6 +4619,11 @@ class VoiceDictationApp:
 
         row += 1
         i18n_checkbutton(insertion_section, "restore_clipboard_after_paste", variable=restore_clipboard).grid(
+            row=row, column=1, sticky="w", pady=6
+        )
+
+        row += 1
+        i18n_checkbutton(insertion_section, "press_enter_after_paste", variable=press_enter_after_paste).grid(
             row=row, column=1, sticky="w", pady=6
         )
 

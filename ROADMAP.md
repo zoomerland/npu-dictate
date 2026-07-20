@@ -26,6 +26,10 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Temporarily use clipboard for reliable paste.
   - Restore previous text clipboard after successful paste.
   - Keep dictated text in clipboard when paste fails so the user can paste manually.
+- [x] Add optional "paste and press Enter" flow:
+  - Disabled by default.
+  - Press Enter only after successful auto-paste.
+  - Do not press Enter after paste failure/manual-copy fallback.
 - [x] First-run model preparation for ASR and punctuation.
 - [x] Debug log for paste/focus behavior.
 - [x] Test paste reliability in:
@@ -257,6 +261,11 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Tune overlap and silence-biased cut points.
   - Test fast speech and long dictation from saved WAV files.
   - Compare against the CPU dynamic-shape baseline.
+- [ ] Make NPU warmup states explicit:
+  - Distinguish cold OpenVINO/NPU compile/cache creation from quick startup load and already-warm in-memory inference.
+  - Do not let the first real dictation silently absorb the long first compile.
+  - Add user-facing progress/status for first NPU preparation when cache is new or model/device/bucket settings change.
+  - Keep the current observation: after the long first NPU compile/cache pass, repeated dictation becomes fast and stable.
 - [ ] Benchmark CPU vs NPU:
   - [x] Preliminary warm ASR benchmark on 9 live post-pre-roll debug WAV files:
     - CPU INT8 total: 10.643 seconds.
