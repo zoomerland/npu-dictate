@@ -575,6 +575,39 @@ class FakeAudioStream:
         self.close_count += 1
 
 
+class FakeAudioBackend:
+    def __init__(self, fail_query=False):
+        self.fail_query = fail_query
+        self.stream_factory = FakeInputStreamFactory()
+        self.InputStream = self.stream_factory
+
+    def query_devices(self, device=None, kind=None):
+        if self.fail_query:
+            raise RuntimeError("device query failed")
+        devices = [
+            {
+                "name": "Microphone Array",
+                "hostapi": 0,
+                "default_samplerate": 48000,
+                "max_input_channels": 2,
+            },
+            {
+                "name": "Output only",
+                "hostapi": 0,
+                "default_samplerate": 48000,
+                "max_input_channels": 0,
+            },
+        ]
+        if kind == "input":
+            return devices[0]
+        if device is not None:
+            return devices[int(device)]
+        return devices
+
+    def query_hostapis(self, _index):
+        return {"name": "Windows WASAPI"}
+
+
 class FakeInputStreamFactory:
     def __init__(self, start_entered=None, start_release=None, fail_start=False):
         self.start_entered = start_entered
@@ -589,12 +622,14 @@ class FakeInputStreamFactory:
 
 
 def check_audio_stream_lifecycle_is_serialized():
-    original_input_stream = app.sd.InputStream
+    original_sd = app.sd
     cfg = app.default_config()
     cfg["sample_rate"] = 16000
     try:
         factory = FakeInputStreamFactory()
-        app.sd.InputStream = factory
+        backend = FakeAudioBackend()
+        backend.InputStream = factory
+        app.sd = backend
         engine = app.DictationEngine(cfg, lambda _status: None, lambda *_args: None)
         start_barrier = threading.Barrier(3)
         results = []
@@ -622,7 +657,9 @@ def check_audio_stream_lifecycle_is_serialized():
         start_entered = threading.Event()
         start_release = threading.Event()
         factory = FakeInputStreamFactory(start_entered, start_release)
-        app.sd.InputStream = factory
+        backend = FakeAudioBackend()
+        backend.InputStream = factory
+        app.sd = backend
         engine = app.DictationEngine(cfg, lambda _status: None, lambda *_args: None)
         ensure_result = []
         ensure_worker = threading.Thread(target=lambda: ensure_result.append(engine.ensure_audio_stream()))
@@ -649,15 +686,121 @@ def check_audio_stream_lifecycle_is_serialized():
 
         statuses = []
         factory = FakeInputStreamFactory(fail_start=True)
-        app.sd.InputStream = factory
+        backend = FakeAudioBackend()
+        backend.InputStream = factory
+        app.sd = backend
         engine = app.DictationEngine(cfg, statuses.append, lambda *_args: None)
         assert engine.ensure_audio_stream() is False
         stream = factory.instances[0]
         assert stream.stop_count == 1 and stream.close_count == 1
         assert engine.stream is None and engine.stream_signature is None
-        assert any(status.startswith("Audio error:") for status in statuses)
+        assert "Audio unavailable" in statuses
     finally:
-        app.sd.InputStream = original_input_stream
+        app.sd = original_sd
+
+
+def check_audio_discovery_is_recoverable():
+    original_sd = app.sd
+    try:
+        app.sd = None
+        assert app.input_devices() == []
+        assert app.choose_default_device_index() is None
+        cfg = app.default_config()
+        assert cfg["input_device_index"] is None
+
+        statuses = []
+        engine = app.DictationEngine(cfg, statuses.append, lambda *_args: None)
+        assert engine.ensure_audio_stream() is False
+        assert statuses[-1] == "Audio unavailable"
+
+        failing_backend = FakeAudioBackend(fail_query=True)
+        assert app.input_devices(failing_backend) == []
+        assert app.choose_default_device_index(failing_backend) is None
+
+        working_backend = FakeAudioBackend()
+        assert len(app.input_devices(working_backend)) == 1
+        assert app.choose_default_device_index(working_backend) == 0
+        app.sd = working_backend
+        engine.cfg["sample_rate"] = 16000
+        assert engine.ensure_audio_stream() is True
+        engine.close_audio_stream()
+    finally:
+        app.sd = original_sd
+
+
+class FakeCtypesFunction:
+    def __init__(self, callback):
+        self.callback = callback
+        self.argtypes = None
+        self.restype = None
+
+    def __call__(self, *args):
+        return self.callback(*args)
+
+
+class FakeKernel32:
+    def __init__(self, handle, error_ref=None, error=0):
+        self.release_count = 0
+        self.close_count = 0
+        self.handle = handle
+        self.error_ref = error_ref
+        self.error = error
+        self.CreateMutexW = FakeCtypesFunction(self._create)
+        self.ReleaseMutex = FakeCtypesFunction(self._release)
+        self.CloseHandle = FakeCtypesFunction(self._close)
+
+    def _create(self, *_args):
+        if self.error_ref is not None:
+            self.error_ref[0] = self.error
+        return self.handle
+
+    def _release(self, _handle):
+        self.release_count += 1
+        return 1
+
+    def _close(self, _handle):
+        self.close_count += 1
+        return 1
+
+
+def check_single_instance_lock_states():
+    original_system = app.platform.system
+    original_windll = app.ctypes.WinDLL
+    original_get_last_error = app.ctypes.get_last_error
+    original_set_last_error = app.ctypes.set_last_error
+    error_code = [0]
+    app.platform.system = lambda: "Windows"
+    app.ctypes.get_last_error = lambda: error_code[0]
+    app.ctypes.set_last_error = lambda value: error_code.__setitem__(0, value)
+    try:
+        kernel = FakeKernel32(101, error_code, 0)
+        app.ctypes.WinDLL = lambda *_args, **_kwargs: kernel
+        lock = app.SingleInstanceLock("test-success")
+        assert lock.acquire() is True and lock.acquired is True
+        lock.release()
+        assert kernel.release_count == 1 and kernel.close_count == 1
+
+        kernel = FakeKernel32(202, error_code, app.SingleInstanceLock.ERROR_ALREADY_EXISTS)
+        app.ctypes.WinDLL = lambda *_args, **_kwargs: kernel
+        lock = app.SingleInstanceLock("test-existing")
+        assert lock.acquire() is False and lock.acquired is False
+        assert kernel.release_count == 0 and kernel.close_count == 1
+
+        kernel = FakeKernel32(0, error_code, 5)
+        app.ctypes.WinDLL = lambda *_args, **_kwargs: kernel
+        lock = app.SingleInstanceLock("test-failure")
+        try:
+            lock.acquire()
+        except app.SingleInstanceInitializationError as exc:
+            assert exc.error_code == 5
+        else:
+            raise AssertionError("mutex initialization failure was accepted")
+        assert lock.acquired is False
+    finally:
+        app.platform.system = original_system
+        app.ctypes.WinDLL = original_windll
+        app.ctypes.get_last_error = original_get_last_error
+        app.ctypes.set_last_error = original_set_last_error
 
 
 def check_clipboard_paste_behavior():
@@ -920,6 +1063,8 @@ def main():
     runner.check("stale ASR generations are discarded", check_stale_asr_load_is_discarded)
     runner.check("stale punctuation generations are discarded", check_stale_punct_load_is_discarded)
     runner.check("audio stream lifecycle is serialized", check_audio_stream_lifecycle_is_serialized)
+    runner.check("audio discovery failure is recoverable", check_audio_discovery_is_recoverable)
+    runner.check("single-instance lock distinguishes all states", check_single_instance_lock_states)
     check_model_paths(runner)
 
     if args.skip_rupunct:

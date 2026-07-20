@@ -19,9 +19,16 @@ from ctypes import wintypes
 import numpy as np
 import onnx_asr
 import pyperclip
-import sounddevice as sd
 import soundfile as sf
 from pynput import keyboard
+
+try:
+    import sounddevice as sd
+except (ImportError, OSError) as exc:
+    sd = None
+    SOUNDDEVICE_IMPORT_ERROR = type(exc).__name__
+else:
+    SOUNDDEVICE_IMPORT_ERROR = None
 
 from app_paths import app_root, bundled_resource_root
 from model_setup import (
@@ -178,6 +185,7 @@ TRANSLATIONS = {
         "No audio": "No audio",
         "Too short": "Too short",
         "No speech": "No speech",
+        "Audio unavailable": "Audio unavailable",
         "Debug copied": "Debug copied",
         "Hotkey captured": "Hotkey captured",
         "Hotkey capture canceled": "Hotkey capture canceled",
@@ -304,6 +312,7 @@ TRANSLATIONS = {
         "No audio": "Нет звука",
         "Too short": "Слишком коротко",
         "No speech": "Речь не найдена",
+        "Audio unavailable": "Микрофон недоступен",
         "Debug copied": "Диагностика скопирована",
         "Hotkey captured": "Клавиша назначена",
         "Hotkey capture canceled": "Назначение отменено",
@@ -843,36 +852,59 @@ def active_asr_warmup_buckets(asr, cfg):
     return filtered or [bucket for bucket in DEFAULT_ASR_WARMUP_BUCKETS if bucket in active_buckets]
 
 
-def input_devices():
+_DEFAULT_SOUNDDEVICE = object()
+
+
+def input_devices(backend=_DEFAULT_SOUNDDEVICE):
+    backend = sd if backend is _DEFAULT_SOUNDDEVICE else backend
+    if backend is None:
+        log_debug(f"audio devices unavailable import_error={SOUNDDEVICE_IMPORT_ERROR or 'none'}")
+        return []
+    try:
+        raw_devices = backend.query_devices()
+    except Exception as exc:
+        log_debug(f"audio devices query error={type(exc).__name__}")
+        return []
+
     devices = []
-    for index, info in enumerate(sd.query_devices()):
-        if int(info.get("max_input_channels", 0)) <= 0:
-            continue
-        hostapi = sd.query_hostapis(info["hostapi"])
-        devices.append(
-            {
-                "index": index,
-                "name": str(info["name"]),
-                "hostapi": str(hostapi["name"]),
-                "sample_rate": int(info["default_samplerate"]),
-                "channels": int(info["max_input_channels"]),
-            }
-        )
+    for index, info in enumerate(raw_devices):
+        try:
+            if int(info.get("max_input_channels", 0)) <= 0:
+                continue
+            hostapi = backend.query_hostapis(info["hostapi"])
+            devices.append(
+                {
+                    "index": index,
+                    "name": str(info["name"]),
+                    "hostapi": str(hostapi["name"]),
+                    "sample_rate": int(info["default_samplerate"]),
+                    "channels": int(info["max_input_channels"]),
+                }
+            )
+        except Exception as exc:
+            log_debug(f"audio device skipped index={index} error={type(exc).__name__}")
     return devices
 
 
-def choose_default_device_index():
-    devices = input_devices()
+def choose_default_device_index(backend=_DEFAULT_SOUNDDEVICE):
+    backend = sd if backend is _DEFAULT_SOUNDDEVICE else backend
+    devices = input_devices(backend)
+    if not devices:
+        return None
     for device in devices:
         name = device["name"].lower()
         hostapi = device["hostapi"].lower()
         if "microphone array" in name and "wasapi" in hostapi:
             return device["index"]
-    default = sd.query_devices(kind="input")
+    try:
+        default = backend.query_devices(kind="input")
+    except Exception as exc:
+        log_debug(f"audio default query error={type(exc).__name__}")
+        return devices[0]["index"]
     for device in devices:
         if device["name"] == default["name"]:
             return device["index"]
-    return devices[0]["index"] if devices else None
+    return devices[0]["index"]
 
 
 def default_config():
@@ -1056,6 +1088,12 @@ def log_debug(message):
         pass
 
 
+class SingleInstanceInitializationError(RuntimeError):
+    def __init__(self, error_code):
+        self.error_code = int(error_code or 0)
+        super().__init__(f"single-instance mutex initialization failed: {self.error_code}")
+
+
 class SingleInstanceLock:
     ERROR_ALREADY_EXISTS = 183
 
@@ -1082,7 +1120,7 @@ class SingleInstanceLock:
         error = ctypes.get_last_error()
         if not handle:
             log_debug(f"single instance mutex failed error={error}")
-            return True
+            raise SingleInstanceInitializationError(error)
         if error == self.ERROR_ALREADY_EXISTS:
             kernel32.CloseHandle(handle)
             log_debug("single instance already running")
@@ -1111,6 +1149,17 @@ class SingleInstanceLock:
 
     def __exit__(self, exc_type, exc, traceback):
         self.release()
+
+
+def show_startup_error(message):
+    log_debug(f"startup fatal error={message}")
+    if platform.system() == "Windows":
+        try:
+            ctypes.windll.user32.MessageBoxW(None, str(message), APP_NAME, 0x10)
+            return
+        except Exception as exc:
+            log_debug(f"startup error dialog failed error={type(exc).__name__}")
+    print(f"{APP_NAME}: {message}", file=sys.stderr)
 
 
 def token_from_virtual_key(vk):
@@ -2635,6 +2684,8 @@ class DictationEngine:
 
     def resolve_sample_rate(self, cfg=None):
         cfg = cfg or self.cfg
+        if sd is None:
+            raise RuntimeError("sounddevice backend unavailable")
         configured = int(cfg.get("sample_rate") or 0)
         if configured:
             return configured
@@ -2689,7 +2740,7 @@ class DictationEngine:
             except Exception as exc:
                 log_debug(f"audio stream signature error={type(exc).__name__}")
                 if self._audio_generation_is_current(generation):
-                    self.set_status(f"Audio error: {type(exc).__name__}")
+                    self.set_status("Audio unavailable")
                 return False
 
             device_index, channels, sample_rate = signature
@@ -2748,7 +2799,7 @@ class DictationEngine:
                         self.sample_rate = None
                 log_debug(f"audio stream error={type(exc).__name__}")
                 if current:
-                    self.set_status(f"Audio error: {type(exc).__name__}")
+                    self.set_status("Audio unavailable")
                 return False
 
     def _audio_generation_is_current(self, generation):
@@ -4316,6 +4367,7 @@ class VoiceDictationApp:
             "Bad overlay key",
             "Hotkey conflict",
             "Startup error",
+            "Audio unavailable",
         }:
             self.set_overlay_button_state("button_error", "#9f3030", "#832929")
         else:
@@ -5312,11 +5364,18 @@ def main():
         log_debug("package smoke import ok")
         return 0
 
-    with SingleInstanceLock(SINGLE_INSTANCE_MUTEX_NAME) as single_instance:
-        if not single_instance.acquired:
-            return 0
-        app = VoiceDictationApp()
-        app.run()
+    try:
+        with SingleInstanceLock(SINGLE_INSTANCE_MUTEX_NAME) as single_instance:
+            if not single_instance.acquired:
+                return 0
+            app = VoiceDictationApp()
+            app.run()
+    except SingleInstanceInitializationError as exc:
+        show_startup_error(
+            "NPU Dictate could not initialize its single-instance lock. "
+            f"Windows error: {exc.error_code}."
+        )
+        return 1
     return 0
 
 
