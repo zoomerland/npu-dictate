@@ -10,6 +10,7 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 import traceback
+import unicodedata
 from collections import deque
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -1408,6 +1409,14 @@ def should_append_insert_space(inserted_text):
     return last_non_space(stripped) not in set("([{«“‘/\\-—")
 
 
+def strip_leading_punctuation(text):
+    text = str(text or "").lstrip()
+    for index, char in enumerate(text):
+        if not char.isspace() and not unicodedata.category(char).startswith("P"):
+            return text[index:].lstrip()
+    return ""
+
+
 def apply_insertion_spacing(inserted_text, context="", append_trailing_space=False):
     inserted_text = str(inserted_text or "").strip()
     if not inserted_text:
@@ -2657,6 +2666,7 @@ class DictationEngine:
                     final_text = adjust_inserted_casing(raw_text, final_text)
                 punct_sec = time.perf_counter() - start
 
+            final_text = strip_leading_punctuation(final_text)
             final_text = apply_insertion_spacing(
                 final_text,
                 context,

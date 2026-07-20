@@ -193,6 +193,20 @@ def check_insertion_spacing():
         assert actual == expected, f"{context!r} + {inserted!r}: {actual!r} != {expected!r}"
 
 
+def check_leading_punctuation_removal():
+    cases = [
+        ("- Начало фразы", "Начало фразы"),
+        ("...: «Начало фразы", "Начало фразы"),
+        ("— (Текст)", "Текст)"),
+        ("?!…", ""),
+        ("  :\tТекст", "Текст"),
+        ("123: начало", "123: начало"),
+    ]
+    for source, expected in cases:
+        actual = app.strip_leading_punctuation(source)
+        assert actual == expected, f"{source!r}: {actual!r} != {expected!r}"
+
+
 class FakeClipboard:
     def __init__(self, value):
         self.value = value
@@ -395,6 +409,7 @@ def main():
     runner.check("OpenVINO hardware probe runs", check_openvino_probe)
     runner.check("model artifact downloader helpers pass", check_model_artifact_helpers)
     runner.check("context-aware insertion spacing cases pass", check_insertion_spacing)
+    runner.check("leading punctuation is removed before insertion", check_leading_punctuation_removal)
     runner.check("clipboard paste/restore behavior passes with mocks", check_clipboard_paste_behavior)
     check_model_paths(runner)
 
