@@ -31,6 +31,8 @@
   "punct_device": "NPU",
   "auto_paste": true,
   "restore_clipboard_after_paste": true,
+  "press_enter_after_paste": false,
+  "show_stop_without_enter_button": false,
   "use_context": true,
   "context_chars": 320,
   "append_space": true,

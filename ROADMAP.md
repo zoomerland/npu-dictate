@@ -30,6 +30,10 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Disabled by default.
   - Press Enter only after successful auto-paste.
   - Do not press Enter after paste failure/manual-copy fallback.
+- [x] Add optional "stop without Enter" overlay button for Enter-send mode:
+  - Hidden unless "paste and press Enter" is enabled.
+  - Stop the current recording and paste text without sending it.
+  - Keep the default stop button behavior unchanged.
 - [x] First-run model preparation for ASR and punctuation.
 - [x] Debug log for paste/focus behavior.
 - [x] Test paste reliability in:

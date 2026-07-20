@@ -117,6 +117,7 @@ TRANSLATIONS = {
         "paste_into_active_field": "Paste into active field",
         "restore_clipboard_after_paste": "Restore text clipboard after paste",
         "press_enter_after_paste": "Press Enter after successful paste",
+        "show_stop_without_enter_button": "Show stop-without-Enter button",
         "use_context": "Use text before cursor",
         "append_trailing_space": "Add trailing space when appropriate",
         "start_with_windows": "Start with Windows",
@@ -134,6 +135,7 @@ TRANSLATIONS = {
         "button_paste": "PASTE",
         "button_empty": "EMPTY",
         "button_error": "ERR",
+        "button_no_enter": "TEXT",
         "assign": "Assign",
         "press_keys": "Press keys...",
         "apply": "Apply",
@@ -166,6 +168,7 @@ TRANSLATIONS = {
         "Transcribing": "Transcribing",
         "Pasted": "Pasted",
         "Pasted + Enter": "Pasted + Enter",
+        "Pasted without Enter": "Pasted without Enter",
         "Copied": "Copied",
         "Copied - paste manually": "Copied - paste manually",
         "No audio": "No audio",
@@ -237,6 +240,7 @@ TRANSLATIONS = {
         "paste_into_active_field": "Вставлять в активное поле",
         "restore_clipboard_after_paste": "Восстанавливать текстовый буфер после вставки",
         "press_enter_after_paste": "Нажимать Enter после успешной вставки",
+        "show_stop_without_enter_button": "Показывать кнопку завершения без Enter",
         "use_context": "Учитывать текст перед курсором",
         "append_trailing_space": "Добавлять пробел после вставки по контексту",
         "start_with_windows": "Запускать вместе с Windows",
@@ -254,6 +258,7 @@ TRANSLATIONS = {
         "button_paste": "ВСТ",
         "button_empty": "ПУСТО",
         "button_error": "ОШИБ",
+        "button_no_enter": "ТЕКСТ",
         "assign": "Назначить",
         "press_keys": "Нажмите клавиши...",
         "apply": "Применить",
@@ -286,6 +291,7 @@ TRANSLATIONS = {
         "Transcribing": "Распознавание",
         "Pasted": "Вставлено",
         "Pasted + Enter": "Вставлено + Enter",
+        "Pasted without Enter": "Вставлено без Enter",
         "Copied": "Скопировано",
         "Copied - paste manually": "Скопировано - вставьте вручную",
         "No audio": "Нет звука",
@@ -729,6 +735,7 @@ def normalize_model_config(cfg, hardware_info=None):
     cfg["asr_retry_buckets"] = normalize_asr_retry_buckets(cfg.get("asr_retry_buckets"))
     cfg["restore_clipboard_after_paste"] = bool(cfg.get("restore_clipboard_after_paste", True))
     cfg["press_enter_after_paste"] = bool(cfg.get("press_enter_after_paste", False))
+    cfg["show_stop_without_enter_button"] = bool(cfg.get("show_stop_without_enter_button", False))
     cfg["overlay_shape"] = normalize_overlay_shape(cfg.get("overlay_shape"))
     return cfg
 
@@ -899,6 +906,7 @@ def default_config():
         "auto_paste": True,
         "restore_clipboard_after_paste": True,
         "press_enter_after_paste": False,
+        "show_stop_without_enter_button": False,
         "use_context": True,
         "context_chars": 320,
         "append_space": True,
@@ -1943,6 +1951,7 @@ class DictationEngine:
         self.recording_wall_start = None
         self.recording_wall_end = None
         self.recording_context = ""
+        self.recording_suppress_enter_after_paste = False
         self.hardware_info = None
         self.lock = threading.RLock()
         self.compare_lock = threading.RLock()
@@ -2479,6 +2488,7 @@ class DictationEngine:
             self.recording_wall_start = time.perf_counter()
             self.recording_wall_end = None
             self.recording_context = ""
+            self.recording_suppress_enter_after_paste = False
             self.recording = True
             self.set_status("Recording")
 
@@ -2489,20 +2499,21 @@ class DictationEngine:
                 if self.recording:
                     self.recording_context = context
 
-    def stop_recording(self):
+    def stop_recording(self, suppress_enter_after_paste=False):
         with self.lock:
             if not self.recording:
                 return
             self.recording = False
+            self.recording_suppress_enter_after_paste = bool(suppress_enter_after_paste)
             self.recording_cpu_end = system_cpu_times()
             self.recording_wall_end = time.perf_counter()
             self.clear_pre_roll_locked()
 
         threading.Thread(target=self._transcribe_recording, daemon=True).start()
 
-    def toggle_recording(self):
+    def toggle_recording(self, suppress_enter_after_paste=False):
         if self.recording:
-            self.stop_recording()
+            self.stop_recording(suppress_enter_after_paste=suppress_enter_after_paste)
         else:
             self.start_recording()
 
@@ -2513,6 +2524,7 @@ class DictationEngine:
             self.recording = False
             self.audio_blocks = []
             self.recording_context = ""
+            self.recording_suppress_enter_after_paste = False
             self.clear_pre_roll_locked()
 
         self.set_status("Ready" if self.loaded else "Starting")
@@ -2551,6 +2563,7 @@ class DictationEngine:
             recording_cpu_end = self.recording_cpu_end
             recording_wall_start = self.recording_wall_start
             recording_wall_end = self.recording_wall_end
+            suppress_enter_after_paste = self.recording_suppress_enter_after_paste
             self.transcribing = True
 
         try:
@@ -2683,8 +2696,15 @@ class DictationEngine:
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
                 if cfg.get("auto_paste", True):
                     if self.paste_text(final_text):
-                        if cfg.get("press_enter_after_paste", False) and self.press_enter_after_paste():
+                        if (
+                            cfg.get("press_enter_after_paste", False)
+                            and not suppress_enter_after_paste
+                            and self.press_enter_after_paste()
+                        ):
                             self.set_status("Pasted + Enter")
+                        elif cfg.get("press_enter_after_paste", False) and suppress_enter_after_paste:
+                            log_debug("press enter after paste skipped reason=user_requested_review")
+                            self.set_status("Pasted without Enter")
                         else:
                             self.set_status("Pasted")
                     else:
@@ -2700,6 +2720,7 @@ class DictationEngine:
             with self.lock:
                 self.transcribing = False
                 self.recording_context = ""
+                self.recording_suppress_enter_after_paste = False
 
     def context_before_cursor(self):
         if not self.cfg.get("use_context", True) or self.context_callback is None:
@@ -2978,6 +2999,7 @@ class VoiceDictationApp:
         self.overlay_button_bg = "#2864d8"
         self.overlay_button_active_bg = "#1f55bd"
         self.overlay_button_bounds = (0, 0, 0, 0)
+        self.overlay_secondary_button_bounds = None
         self.overlay_window_size = (1, 1)
         self.tray_icon = None
         self.recording_started_at = None
@@ -2991,6 +3013,7 @@ class VoiceDictationApp:
         self.dragging_overlay = False
         self.mouse_recording_active = False
         self.mouse_pressed_on_button = False
+        self.mouse_pressed_button_kind = None
 
         self.foreground_tracker = ForegroundWindowTracker()
         self.input_tracker = FocusedInputTracker()
@@ -3157,6 +3180,15 @@ class VoiceDictationApp:
         value = self.cfg.get("overlay_details", "full")
         return value if value in {"button", "status", "full"} else "full"
 
+    def stop_without_enter_button_enabled(self):
+        return bool(
+            self.cfg.get("press_enter_after_paste", False)
+            and self.cfg.get("show_stop_without_enter_button", False)
+        )
+
+    def stop_without_enter_button_visible(self, status=None):
+        return self.stop_without_enter_button_enabled() and (status or self.current_status) == "Recording"
+
     def apply_overlay_layout(self):
         profile = self.overlay_size_profile()
         details = self.overlay_details_mode()
@@ -3165,6 +3197,12 @@ class VoiceDictationApp:
         button_height = int(profile["button_height"])
         if shape == "circle":
             button_width = button_height = max(button_width, button_height)
+        secondary_visible = self.stop_without_enter_button_visible()
+        secondary_width = 0
+        primary_width = button_width
+        if secondary_visible:
+            secondary_width = max(38, min(int(button_width * 0.42), button_height))
+            primary_width = max(1, button_width - int(profile["gap"]) - secondary_width)
 
         if details == "button":
             width = button_width
@@ -3202,13 +3240,24 @@ class VoiceDictationApp:
         self.overlay_button_bounds = (
             int(button_x),
             int(button_y),
-            int(button_x + button_width),
+            int(button_x + primary_width),
             int(button_y + button_height),
         )
+        if secondary_visible:
+            secondary_x = button_x + primary_width + int(profile["gap"])
+            self.overlay_secondary_button_bounds = (
+                int(secondary_x),
+                int(button_y),
+                int(button_x + button_width),
+                int(button_y + button_height),
+            )
+        else:
+            self.overlay_secondary_button_bounds = None
         self.overlay_geometry = {
             "profile": profile,
             "details": details,
             "shape": shape,
+            "secondary_visible": secondary_visible,
             "content_width": int(content_width),
             "status_y": status_y,
             "hotkey_y": hotkey_y,
@@ -3279,6 +3328,8 @@ class VoiceDictationApp:
         shape = geometry.get("shape", self.overlay_shape_mode())
         radius = int(profile.get("radius", 16))
         x1, y1, x2, y2 = self.overlay_button_bounds
+        secondary_bounds = self.overlay_secondary_button_bounds
+        button_shape = "rounded" if secondary_bounds is not None else shape
 
         if details != "button":
             panel_shape = shape if shape != "circle" else "rounded"
@@ -3300,7 +3351,7 @@ class VoiceDictationApp:
             y1,
             x2,
             y2,
-            shape,
+            button_shape,
             self.overlay_button_bg,
             outline=self.overlay_button_active_bg,
             radius=radius,
@@ -3314,6 +3365,28 @@ class VoiceDictationApp:
             width=max(20, x2 - x1 - 12),
             justify="center",
         )
+        if secondary_bounds is not None:
+            sx1, sy1, sx2, sy2 = secondary_bounds
+            self._draw_shape(
+                canvas,
+                sx1,
+                sy1,
+                sx2,
+                sy2,
+                button_shape,
+                "#2b7281",
+                outline="#245f6c",
+                radius=radius,
+            )
+            canvas.create_text(
+                (sx1 + sx2) / 2,
+                (sy1 + sy2) / 2,
+                text=self.t("button_no_enter"),
+                fill="white",
+                font=profile["button_font"],
+                width=max(20, sx2 - sx1 - 8),
+                justify="center",
+            )
 
         content_width = int(geometry.get("content_width", x2 - x1))
         text_x = width / 2
@@ -3741,6 +3814,7 @@ class VoiceDictationApp:
 
     def update_status(self, status):
         previous_status = self.current_status
+        previous_secondary_visible = self.stop_without_enter_button_visible(previous_status)
         self.current_status = status
         percent = status_percent(status)
 
@@ -3776,6 +3850,9 @@ class VoiceDictationApp:
         show_progress = busy and self.overlay_details_mode() != "button"
         self.set_overlay_progress_running(show_progress)
 
+        if previous_secondary_visible != self.stop_without_enter_button_visible(status):
+            self.apply_overlay_layout()
+
         if status == "Recording":
             self.set_overlay_button_state("button_record", "#b83030", "#982727")
         elif status == "Loading ASR":
@@ -3799,7 +3876,7 @@ class VoiceDictationApp:
             )
         elif busy:
             self.set_overlay_button_state("button_load", "#81612b", "#6d5124")
-        elif status in {"Pasted", "Pasted + Enter"}:
+        elif status in {"Pasted", "Pasted + Enter", "Pasted without Enter"}:
             self.set_overlay_button_state("button_ok", "#267d45", "#206b3b")
         elif status == "Copied":
             self.set_overlay_button_state("button_copy", "#2b7281", "#245f6c")
@@ -3823,10 +3900,11 @@ class VoiceDictationApp:
         self.overlay_start_x = self.root.winfo_x()
         self.overlay_start_y = self.root.winfo_y()
         self.dragging_overlay = False
-        self.mouse_pressed_on_button = self.event_inside_overlay_button(event)
+        self.mouse_pressed_button_kind = self.event_overlay_button_kind(event)
+        self.mouse_pressed_on_button = self.mouse_pressed_button_kind is not None
         self.mouse_recording_active = False
 
-        if self.mouse_pressed_on_button and self.cfg.get("mode", "hold") == "hold":
+        if self.mouse_pressed_button_kind == "primary" and self.cfg.get("mode", "hold") == "hold":
             self.engine.start_recording()
             self.mouse_recording_active = True
 
@@ -3850,18 +3928,33 @@ class VoiceDictationApp:
             self.persist_overlay_position()
         elif self.mouse_pressed_on_button:
             mode = self.cfg.get("mode", "hold")
+            release_kind = self.event_overlay_button_kind(event)
+            suppress_enter = self.mouse_pressed_button_kind == "no_enter" or release_kind == "no_enter"
             if mode == "hold" and self.mouse_recording_active:
-                self.engine.stop_recording()
+                self.engine.stop_recording(suppress_enter_after_paste=suppress_enter)
+            elif self.mouse_pressed_button_kind == "no_enter" and self.engine.recording:
+                self.engine.stop_recording(suppress_enter_after_paste=True)
             elif mode == "toggle":
-                self.engine.toggle_recording()
+                self.engine.toggle_recording(suppress_enter_after_paste=suppress_enter)
 
         self.dragging_overlay = False
         self.mouse_recording_active = False
         self.mouse_pressed_on_button = False
+        self.mouse_pressed_button_kind = None
 
     def event_inside_overlay_button(self, event):
+        return self.event_overlay_button_kind(event) is not None
+
+    def event_overlay_button_kind(self, event):
+        secondary_bounds = self.overlay_secondary_button_bounds
+        if secondary_bounds is not None:
+            sx1, sy1, sx2, sy2 = secondary_bounds
+            if sx1 <= int(event.x) <= sx2 and sy1 <= int(event.y) <= sy2:
+                return "no_enter"
         x1, y1, x2, y2 = self.overlay_button_bounds
-        return x1 <= int(event.x) <= x2 and y1 <= int(event.y) <= y2
+        if x1 <= int(event.x) <= x2 and y1 <= int(event.y) <= y2:
+            return "primary"
+        return None
 
     def move_overlay(self, x, y):
         x, y = self.clamp_overlay_position(x, y)
@@ -4007,6 +4100,7 @@ class VoiceDictationApp:
         auto_paste = tk.BooleanVar(value=bool(self.cfg.get("auto_paste", True)))
         restore_clipboard = tk.BooleanVar(value=bool(self.cfg.get("restore_clipboard_after_paste", True)))
         press_enter_after_paste = tk.BooleanVar(value=bool(self.cfg.get("press_enter_after_paste", False)))
+        show_stop_without_enter_button = tk.BooleanVar(value=bool(self.cfg.get("show_stop_without_enter_button", False)))
         use_context = tk.BooleanVar(value=bool(self.cfg.get("use_context", True)))
         append_space = tk.BooleanVar(value=bool(self.cfg.get("append_space", False)))
         start_with_windows = tk.BooleanVar(value=is_startup_enabled())
@@ -4084,6 +4178,7 @@ class VoiceDictationApp:
             auto_paste,
             restore_clipboard,
             press_enter_after_paste,
+            show_stop_without_enter_button,
             use_context,
             append_space,
             start_with_windows,
@@ -4285,6 +4380,7 @@ class VoiceDictationApp:
                 "auto_paste": bool(auto_paste.get()),
                 "restore_clipboard_after_paste": bool(restore_clipboard.get()),
                 "press_enter_after_paste": bool(press_enter_after_paste.get()),
+                "show_stop_without_enter_button": bool(show_stop_without_enter_button.get()),
                 "use_context": bool(use_context.get()),
                 "append_space": bool(append_space.get()),
                 "start_with_windows": bool(start_with_windows.get()),
@@ -4626,6 +4722,23 @@ class VoiceDictationApp:
         i18n_checkbutton(insertion_section, "press_enter_after_paste", variable=press_enter_after_paste).grid(
             row=row, column=1, sticky="w", pady=6
         )
+
+        row += 1
+        stop_without_enter_checkbox = i18n_checkbutton(
+            insertion_section,
+            "show_stop_without_enter_button",
+            variable=show_stop_without_enter_button,
+        )
+        stop_without_enter_row = row
+
+        def refresh_stop_without_enter_checkbox(*_):
+            if press_enter_after_paste.get():
+                stop_without_enter_checkbox.grid(row=stop_without_enter_row, column=1, sticky="w", pady=6)
+            else:
+                stop_without_enter_checkbox.grid_remove()
+
+        press_enter_after_paste.trace_add("write", refresh_stop_without_enter_checkbox)
+        refresh_stop_without_enter_checkbox()
 
         row += 1
         i18n_checkbutton(insertion_section, "use_context", variable=use_context).grid(

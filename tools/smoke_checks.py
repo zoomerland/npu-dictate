@@ -54,6 +54,12 @@ def check_config_profiles():
     assert normalized["asr_model"] == app.DEFAULT_ASR_MODEL
     assert normalized["asr_device"] == "CPU"
     assert normalized["punct_device"] == "NPU"
+    assert normalized["press_enter_after_paste"] is False
+    assert normalized["show_stop_without_enter_button"] is False
+
+    default_cfg["show_stop_without_enter_button"] = 1
+    normalized = app.normalize_model_config(default_cfg)
+    assert normalized["show_stop_without_enter_button"] is True
 
 
 def check_cpu_fallback_profile():
