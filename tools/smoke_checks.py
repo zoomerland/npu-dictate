@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 
@@ -303,6 +304,69 @@ class BrokenKeyboard:
         return None
 
 
+class CapturingTranscriptionEngine(app.DictationEngine):
+    def __init__(self, cfg):
+        super().__init__(cfg, lambda _status: None, lambda *_args: None)
+        self.job_ready = threading.Event()
+        self.release_job = threading.Event()
+        self.captured_job = None
+
+    def _transcribe_recording(self, job):
+        self.captured_job = job
+        self.job_ready.set()
+        try:
+            self.release_job.wait(timeout=3)
+        finally:
+            self._finish_transcription_worker()
+
+
+def check_recording_job_is_atomic():
+    cfg = app.default_config()
+    engine = CapturingTranscriptionEngine(cfg)
+    old_asr = object()
+    old_block = app.np.ones((1600, 1), dtype=app.np.float32)
+    engine.loaded = True
+    engine.asr = old_asr
+    engine.sample_rate = 16000
+    engine.recording = True
+    engine.audio_blocks = [old_block]
+    engine.audio_callback_count = 1
+    engine.audio_callback_statuses = ["old-status"]
+    engine.recording_context = "old context"
+
+    assert engine.stop_recording(suppress_enter_after_paste=True) is True
+    assert engine.transcribing is True
+    assert engine.recording is False
+    assert engine.audio_blocks == []
+    assert not engine.transcription_done.is_set()
+    assert engine.job_ready.wait(timeout=2)
+
+    job = engine.captured_job
+    assert job is not None
+    assert len(job.blocks) == 1 and job.blocks[0] is old_block
+    assert job.asr is old_asr
+    assert job.context == "old context"
+    assert job.audio_callback_statuses == ("old-status",)
+    assert job.suppress_enter_after_paste is True
+
+    engine.audio_blocks = [app.np.zeros((800, 1), dtype=app.np.float32)]
+    engine.recording_context = "new context"
+    engine.asr = object()
+    engine.start_recording()
+    assert engine.recording is False
+
+    assert engine.request_shutdown() is True
+    assert engine.closing is True
+    worker = engine.transcription_thread
+    engine.release_job.set()
+    assert engine.transcription_done.wait(timeout=2)
+    if worker is not None:
+        worker.join(timeout=2)
+    assert engine.is_idle()
+    engine.start_recording()
+    assert engine.recording is False
+
+
 def check_clipboard_paste_behavior():
     original_clipboard = app.pyperclip
     original_windll = app.ctypes.WinDLL
@@ -496,6 +560,7 @@ def main():
     runner.check("leading punctuation is removed before insertion", check_leading_punctuation_removal)
     runner.check("post-paste Enter statuses are explicit", check_post_paste_statuses)
     runner.check("clipboard paste/restore behavior passes with mocks", check_clipboard_paste_behavior)
+    runner.check("recording handoff is atomic and shutdown waits", check_recording_job_is_atomic)
     check_model_paths(runner)
 
     if args.skip_rupunct:

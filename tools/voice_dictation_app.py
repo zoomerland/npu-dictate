@@ -11,6 +11,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 import traceback
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import messagebox, ttk
 from ctypes import wintypes
@@ -166,6 +167,7 @@ TRANSLATIONS = {
         "Still loading": "Still loading",
         "Recording": "Recording",
         "Transcribing": "Transcribing",
+        "Finishing": "Finishing",
         "Pasted": "Pasted",
         "Pasted + Enter": "Pasted + Enter",
         "Pasted without Enter": "Pasted without Enter",
@@ -291,6 +293,7 @@ TRANSLATIONS = {
         "Still loading": "Еще загружается",
         "Recording": "Запись",
         "Transcribing": "Распознавание",
+        "Finishing": "Завершение",
         "Pasted": "Вставлено",
         "Pasted + Enter": "Вставлено + Enter",
         "Pasted without Enter": "Вставлено без Enter",
@@ -1976,6 +1979,25 @@ class HotkeyManager:
                 self.dispatch("stop_recording")
 
 
+@dataclass(frozen=True)
+class RecordingJob:
+    blocks: tuple
+    sample_rate: object
+    cfg: dict
+    asr: object
+    audio_callback_count: int
+    audio_callback_statuses: tuple
+    audio_first_callback_perf: object
+    audio_max_callback_gap: float
+    recording_pre_roll_sec: float
+    recording_cpu_start: object
+    recording_cpu_end: object
+    recording_wall_start: object
+    recording_wall_end: object
+    context: object
+    suppress_enter_after_paste: bool
+
+
 class DictationEngine:
     def __init__(
         self,
@@ -2020,9 +2042,12 @@ class DictationEngine:
         self.recording_wall_start = None
         self.recording_wall_end = None
         self.recording_context = None
-        self.recording_suppress_enter_after_paste = False
         self.last_paste_target_identity = None
         self.last_enter_failure_reason = None
+        self.closing = False
+        self.transcription_thread = None
+        self.transcription_done = threading.Event()
+        self.transcription_done.set()
         self.hardware_info = None
         self.lock = threading.RLock()
         self.compare_lock = threading.RLock()
@@ -2252,10 +2277,10 @@ class DictationEngine:
 
         threading.Thread(target=run_compare, daemon=True).start()
 
-    def _retry_fragmented_asr(self, audio, sample_rate, raw_text, raw_bucket, cfg):
+    def _retry_fragmented_asr(self, asr, audio, sample_rate, raw_text, raw_bucket, cfg):
         if not cfg.get("asr_retry_fragmented", True):
             return raw_text, raw_bucket, []
-        if not hasattr(self.asr, "recognize_with_bucket"):
+        if not hasattr(asr, "recognize_with_bucket"):
             return raw_text, raw_bucket, []
 
         best_text = raw_text
@@ -2277,9 +2302,9 @@ class DictationEngine:
                 continue
             try:
                 start = time.perf_counter()
-                candidate_result = self.asr.recognize_with_bucket(audio, sample_rate=sample_rate, bucket=bucket)
+                candidate_result = asr.recognize_with_bucket(audio, sample_rate=sample_rate, bucket=bucket)
                 candidate_text = result_to_text(candidate_result).strip()
-                candidate_bucket = asr_bucket_label(self.asr)
+                candidate_bucket = asr_bucket_label(asr)
                 candidate_score = asr_fragmentation_score(candidate_text)
                 retry_results.append(
                     {
@@ -2533,7 +2558,7 @@ class DictationEngine:
 
     def start_recording(self):
         with self.lock:
-            if self.recording or self.transcribing:
+            if self.closing or self.recording or self.transcribing:
                 return
             if not self.loaded:
                 self.set_status("Still loading")
@@ -2544,7 +2569,7 @@ class DictationEngine:
             return
 
         with self.lock:
-            if self.recording or self.transcribing:
+            if self.closing or self.recording or self.transcribing:
                 return
             pre_roll_blocks, pre_roll_sec = self.pre_roll_snapshot_locked()
             self.audio_blocks = pre_roll_blocks
@@ -2559,7 +2584,6 @@ class DictationEngine:
             self.recording_wall_start = time.perf_counter()
             self.recording_wall_end = None
             self.recording_context = None
-            self.recording_suppress_enter_after_paste = False
             self.recording = True
             self.set_status("Recording")
 
@@ -2572,14 +2596,47 @@ class DictationEngine:
     def stop_recording(self, suppress_enter_after_paste=False):
         with self.lock:
             if not self.recording:
-                return
+                return False
             self.recording = False
-            self.recording_suppress_enter_after_paste = bool(suppress_enter_after_paste)
             self.recording_cpu_end = system_cpu_times()
             self.recording_wall_end = time.perf_counter()
+            job = RecordingJob(
+                blocks=tuple(self.audio_blocks),
+                sample_rate=self.sample_rate,
+                cfg=dict(self.cfg),
+                asr=self.asr,
+                audio_callback_count=self.audio_callback_count,
+                audio_callback_statuses=tuple(self.audio_callback_statuses),
+                audio_first_callback_perf=self.audio_first_callback_perf,
+                audio_max_callback_gap=self.audio_max_callback_gap,
+                recording_pre_roll_sec=self.recording_pre_roll_sec,
+                recording_cpu_start=self.recording_cpu_start,
+                recording_cpu_end=self.recording_cpu_end,
+                recording_wall_start=self.recording_wall_start,
+                recording_wall_end=self.recording_wall_end,
+                context=self.recording_context,
+                suppress_enter_after_paste=bool(suppress_enter_after_paste),
+            )
+            self.audio_blocks = []
+            self.recording_context = None
+            self.transcribing = True
+            self.transcription_done.clear()
             self.clear_pre_roll_locked()
+            worker = threading.Thread(target=self._transcribe_recording, args=(job,), daemon=True)
+            self.transcription_thread = worker
 
-        threading.Thread(target=self._transcribe_recording, daemon=True).start()
+        try:
+            worker.start()
+        except Exception as exc:
+            with self.lock:
+                if self.transcription_thread is worker:
+                    self.transcription_thread = None
+                self.transcribing = False
+                self.transcription_done.set()
+            log_debug(f"transcription thread start error={type(exc).__name__}")
+            self.set_status(f"Error: {type(exc).__name__}")
+            return False
+        return True
 
     def toggle_recording(self, suppress_enter_after_paste=False):
         if self.recording:
@@ -2594,10 +2651,21 @@ class DictationEngine:
             self.recording = False
             self.audio_blocks = []
             self.recording_context = None
-            self.recording_suppress_enter_after_paste = False
             self.clear_pre_roll_locked()
 
         self.set_status("Ready" if self.loaded else "Starting")
+
+    def request_shutdown(self):
+        with self.lock:
+            self.closing = True
+            should_stop = self.recording
+        if should_stop:
+            self.stop_recording()
+        return not self.is_idle()
+
+    def is_idle(self):
+        with self.lock:
+            return not self.recording and not self.transcribing
 
     def _audio_callback(self, indata, frames, time_info, status):
         now = time.perf_counter()
@@ -2619,22 +2687,21 @@ class DictationEngine:
             log_debug(f"audio callback status={status_text}")
             self.set_status(status_text)
 
-    def _transcribe_recording(self):
-        with self.lock:
-            blocks = self.audio_blocks
-            sample_rate = self.sample_rate
-            cfg = dict(self.cfg)
-            audio_callback_count = self.audio_callback_count
-            audio_callback_statuses = list(self.audio_callback_statuses)
-            audio_first_callback_perf = self.audio_first_callback_perf
-            audio_max_callback_gap = self.audio_max_callback_gap
-            recording_pre_roll_sec = self.recording_pre_roll_sec
-            recording_cpu_start = self.recording_cpu_start
-            recording_cpu_end = self.recording_cpu_end
-            recording_wall_start = self.recording_wall_start
-            recording_wall_end = self.recording_wall_end
-            suppress_enter_after_paste = self.recording_suppress_enter_after_paste
-            self.transcribing = True
+    def _transcribe_recording(self, job):
+        blocks = job.blocks
+        sample_rate = job.sample_rate
+        cfg = job.cfg
+        asr = job.asr
+        audio_callback_count = job.audio_callback_count
+        audio_callback_statuses = job.audio_callback_statuses
+        audio_first_callback_perf = job.audio_first_callback_perf
+        audio_max_callback_gap = job.audio_max_callback_gap
+        recording_pre_roll_sec = job.recording_pre_roll_sec
+        recording_cpu_start = job.recording_cpu_start
+        recording_cpu_end = job.recording_cpu_end
+        recording_wall_start = job.recording_wall_start
+        recording_wall_end = job.recording_wall_end
+        suppress_enter_after_paste = job.suppress_enter_after_paste
 
         try:
             if not blocks:
@@ -2685,38 +2752,39 @@ class DictationEngine:
             start = time.perf_counter()
             asr_cpu_start = system_cpu_times()
             vad = self._get_vad() if cfg.get("asr_vad_segments", False) else None
-            asr_mode = "vad" if should_use_vad_asr(self.asr, vad, cfg) else (
-                "chunked" if should_use_chunked_asr(self.asr, cfg) else "full"
+            asr_mode = "vad" if should_use_vad_asr(asr, vad, cfg) else (
+                "chunked" if should_use_chunked_asr(asr, cfg) else "full"
             )
             if asr_mode == "vad":
-                audio16 = self.asr.audio_16k(audio, sample_rate=sample_rate)
+                audio16 = asr.audio_16k(audio, sample_rate=sample_rate)
                 segments = vad_segment_ranges(vad, audio16, cfg)
                 log_vad_segments(segments)
-                raw_result = self.asr.recognize_segments_16k(
+                raw_result = asr.recognize_segments_16k(
                     audio16,
                     segments,
                     bucket=normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket")),
                     stitch=bool(cfg.get("asr_vad_stitch", False)),
                     fuzzy_stitch=bool(cfg.get("asr_vad_fuzzy_stitch", False)),
                 )
-                log_asr_chunks(self.asr)
+                log_asr_chunks(asr)
             elif asr_mode == "chunked":
-                raw_result = self.asr.recognize_chunked(
+                raw_result = asr.recognize_chunked(
                     audio,
                     sample_rate=sample_rate,
                     bucket=normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket")),
                     overlap_ms=normalize_asr_chunk_overlap_ms(cfg.get("asr_chunk_overlap_ms")),
                 )
-                log_asr_chunks(self.asr)
+                log_asr_chunks(asr)
             else:
-                raw_result = self.asr.recognize(audio, sample_rate=sample_rate)
+                raw_result = asr.recognize(audio, sample_rate=sample_rate)
             raw_text = result_to_text(raw_result).strip()
-            asr_bucket = asr_bucket_label(self.asr)
-            asr_pad_mode = asr_pad_mode_label(self.asr)
+            asr_bucket = asr_bucket_label(asr)
+            asr_pad_mode = asr_pad_mode_label(asr)
             asr_sec = time.perf_counter() - start
             asr_cpu_load = cpu_load_percent(asr_cpu_start, system_cpu_times())
             if asr_mode == "full":
                 raw_text, asr_bucket, retry_results = self._retry_fragmented_asr(
+                    asr,
                     audio,
                     sample_rate,
                     raw_text,
@@ -2728,13 +2796,13 @@ class DictationEngine:
             self._compare_asr_async(audio, sample_rate, duration, raw_text, asr_sec, cfg)
 
             final_text = raw_text
-            context = self.recording_context
+            context = job.context
             punct_sec = 0.0
             if raw_text and cfg.get("use_punctuation", True):
                 punct = self._get_punct(cfg, self.set_status)
                 start = time.perf_counter()
                 if context is None:
-                    context = self.context_before_cursor()
+                    context = self.context_before_cursor(cfg)
                 if context:
                     if hasattr(punct, "restore_inserted"):
                         final_text = punct.restore_inserted(context, raw_text)
@@ -2767,7 +2835,7 @@ class DictationEngine:
                 )
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
                 if cfg.get("auto_paste", True):
-                    if self.paste_text(final_text):
+                    if self.paste_text(final_text, cfg):
                         press_enter = bool(cfg.get("press_enter_after_paste", False))
                         enter_sent = None
                         if press_enter and not suppress_enter_after_paste:
@@ -2792,16 +2860,21 @@ class DictationEngine:
         except Exception as exc:
             self.set_status(f"Error: {type(exc).__name__}")
         finally:
-            with self.lock:
-                self.transcribing = False
-                self.recording_context = None
-                self.recording_suppress_enter_after_paste = False
+            self._finish_transcription_worker()
 
-    def context_before_cursor(self):
-        if not self.cfg.get("use_context", True) or self.context_callback is None:
+    def _finish_transcription_worker(self):
+        with self.lock:
+            if self.transcription_thread is threading.current_thread():
+                self.transcription_thread = None
+            self.transcribing = False
+            self.transcription_done.set()
+
+    def context_before_cursor(self, cfg=None):
+        cfg = cfg or self.cfg
+        if not cfg.get("use_context", True) or self.context_callback is None:
             return None
         try:
-            max_chars = int(self.cfg.get("context_chars", 320) or 320)
+            max_chars = int(cfg.get("context_chars", 320) or 320)
         except (TypeError, ValueError):
             max_chars = 320
         raw_context = self.context_callback(max_chars)
@@ -2812,10 +2885,11 @@ class DictationEngine:
             log_debug(f"punct context normalized_chars={len(context)}")
         return context
 
-    def paste_text(self, text):
+    def paste_text(self, text, cfg=None):
+        cfg = cfg or self.cfg
         self.last_paste_target_identity = None
         self.last_enter_failure_reason = None
-        restore_clipboard = bool(self.cfg.get("restore_clipboard_after_paste", True))
+        restore_clipboard = bool(cfg.get("restore_clipboard_after_paste", True))
         previous_clipboard = ""
         has_previous_clipboard = False
         if restore_clipboard:
@@ -3120,6 +3194,8 @@ class VoiceDictationApp:
         self.recording_started_at = None
         self.transcribing_started_at = None
         self.status_tick_after_id = None
+        self.exit_requested = False
+        self.exit_poll_after_id = None
         self.drag_threshold = 8
         self.drag_start_x = 0
         self.drag_start_y = 0
@@ -3967,7 +4043,7 @@ class VoiceDictationApp:
             or status.startswith("Retrying")
             or status.startswith("Converting")
             or status.startswith("Loading")
-            or status in {"Still loading", "Transcribing"}
+            or status in {"Still loading", "Transcribing", "Finishing"}
         )
         self.overlay_progress_percent = percent if busy else None
         show_progress = busy and self.overlay_details_mode() != "button"
@@ -4950,7 +5026,34 @@ class VoiceDictationApp:
         return True
 
     def exit_app(self):
+        if self.exit_requested:
+            log_debug("exit forced by repeated request")
+            self._finalize_exit()
+            return
+
+        self.exit_requested = True
         save_config(self.cfg)
+        self.hotkeys.stop()
+        if self.engine.request_shutdown():
+            self.update_status("Finishing")
+            self.exit_poll_after_id = self.root.after(50, self._finish_exit_when_idle)
+            return
+        self._finalize_exit()
+
+    def _finish_exit_when_idle(self):
+        self.exit_poll_after_id = None
+        if not self.engine.is_idle():
+            self.exit_poll_after_id = self.root.after(50, self._finish_exit_when_idle)
+            return
+        self._finalize_exit()
+
+    def _finalize_exit(self):
+        if self.exit_poll_after_id is not None:
+            try:
+                self.root.after_cancel(self.exit_poll_after_id)
+            except tk.TclError:
+                pass
+            self.exit_poll_after_id = None
         if self.status_tick_after_id is not None:
             try:
                 self.root.after_cancel(self.status_tick_after_id)
@@ -4971,8 +5074,6 @@ class VoiceDictationApp:
             except Exception as exc:
                 log_debug(f"tray stop error={type(exc).__name__}")
         self.hotkeys.stop()
-        if self.engine.recording:
-            self.engine.stop_recording()
         self.engine.close_audio_stream()
         self.root.destroy()
 
