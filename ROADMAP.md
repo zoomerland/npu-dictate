@@ -68,6 +68,8 @@ Goal: make the current Russian dictation loop reliable enough for daily use.
   - Avoid adding a leading space before inserted punctuation such as commas or periods.
   - Avoid duplicating a space when the context already ends with whitespace.
   - Keep trailing-space behavior controlled by the existing setting, but apply it through the same insertion-boundary cleanup.
+- [x] Strip punctuation accidentally added before the first dictated word:
+  - Remove leading dashes, colons, quotes, ellipses, and other Unicode punctuation before insertion.
 - [x] Fix startup state transitions:
   - Avoid briefly showing an idle/ready-looking state before model loading begins.
   - Show model-loading/busy state immediately after app start.
