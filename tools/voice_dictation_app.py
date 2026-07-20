@@ -1985,6 +1985,7 @@ class RecordingJob:
     sample_rate: object
     cfg: dict
     asr: object
+    punct: object
     audio_callback_count: int
     audio_callback_statuses: tuple
     audio_first_callback_perf: object
@@ -1996,6 +1997,32 @@ class RecordingJob:
     recording_wall_end: object
     context: object
     suppress_enter_after_paste: bool
+
+
+ASR_RELOAD_CONFIG_KEYS = (
+    "asr_model",
+    "asr_device",
+    "asr_pad_mode",
+    "asr_bucket_frames",
+    "asr_chunked",
+    "asr_chunk_bucket",
+    "asr_vad_segments",
+    "asr_vad_max_speech_s",
+    "asr_vad_min_silence_ms",
+    "asr_vad_speech_pad_ms",
+    "asr_vad_first_pad_ms",
+    "asr_vad_min_segment_ms",
+    "asr_vad_stitch",
+    "asr_vad_fuzzy_stitch",
+)
+
+
+def config_signature(cfg, keys):
+    return tuple(cfg.get(key) for key in keys)
+
+
+def punct_model_signature(cfg):
+    return cfg.get("punct_model"), cfg.get("punct_device")
 
 
 class DictationEngine:
@@ -2021,6 +2048,15 @@ class DictationEngine:
         self.punct = None
         self.punct_loading = False
         self.punct_error = None
+        self._asr_generation = 0
+        self._asr_loading_generation = None
+        self._asr_loaded_generation = None
+        self._punct_generation = 0
+        self._punct_signature = punct_model_signature(cfg)
+        self._punct_loading_generation = None
+        self._punct_loading_signature = None
+        self._punct_loaded_generation = None
+        self._punct_error_generation = None
         self.loaded = False
         self.loading = False
         self.recording = False
@@ -2052,64 +2088,78 @@ class DictationEngine:
         self.lock = threading.RLock()
         self.compare_lock = threading.RLock()
         self.punct_lock = threading.RLock()
+        self.punct_condition = threading.Condition(self.punct_lock)
         self.keyboard = keyboard.Controller()
 
     def update_config(self, cfg):
         cfg = normalize_model_config(cfg, self.hardware_info)
-        reload_asr = False
-        restart_audio = False
         with self.lock:
             old_cfg = self.cfg
-            reload_asr = (
-                old_cfg.get("asr_model") != cfg.get("asr_model")
-                or old_cfg.get("asr_device") != cfg.get("asr_device")
-                or old_cfg.get("asr_pad_mode") != cfg.get("asr_pad_mode")
-                or old_cfg.get("asr_bucket_frames") != cfg.get("asr_bucket_frames")
-                or old_cfg.get("asr_chunked") != cfg.get("asr_chunked")
-                or old_cfg.get("asr_chunk_bucket") != cfg.get("asr_chunk_bucket")
-                or old_cfg.get("asr_vad_segments") != cfg.get("asr_vad_segments")
-                or old_cfg.get("asr_vad_max_speech_s") != cfg.get("asr_vad_max_speech_s")
-                or old_cfg.get("asr_vad_min_silence_ms") != cfg.get("asr_vad_min_silence_ms")
-                or old_cfg.get("asr_vad_speech_pad_ms") != cfg.get("asr_vad_speech_pad_ms")
-                or old_cfg.get("asr_vad_first_pad_ms") != cfg.get("asr_vad_first_pad_ms")
-                or old_cfg.get("asr_vad_min_segment_ms") != cfg.get("asr_vad_min_segment_ms")
-                or old_cfg.get("asr_vad_stitch") != cfg.get("asr_vad_stitch")
-                or old_cfg.get("asr_vad_fuzzy_stitch") != cfg.get("asr_vad_fuzzy_stitch")
+            reload_asr = config_signature(old_cfg, ASR_RELOAD_CONFIG_KEYS) != config_signature(
+                cfg,
+                ASR_RELOAD_CONFIG_KEYS,
             )
             restart_audio = (
                 old_cfg.get("input_device_index") != cfg.get("input_device_index")
                 or old_cfg.get("sample_rate") != cfg.get("sample_rate")
                 or old_cfg.get("channels") != cfg.get("channels")
             )
+            punct_changed = punct_model_signature(old_cfg) != punct_model_signature(cfg)
             self.cfg = cfg
             if reload_asr:
+                self._asr_generation += 1
                 self.asr = None
                 self.vad = None
                 self.compare_asr = None
                 self.compare_asr_signature = None
                 self.loaded = False
-            if (
-                old_cfg.get("punct_model") != cfg.get("punct_model")
-                or old_cfg.get("punct_device") != cfg.get("punct_device")
-            ):
-                with self.punct_lock:
-                    self.punct = None
-                    self.punct_error = None
+                self._asr_loaded_generation = None
+            if punct_changed:
+                self._invalidate_punct_locked(cfg)
         if restart_audio:
             self.close_audio_stream()
             if self.loaded:
                 self.ensure_audio_stream()
         if reload_asr:
             self.load_async()
+        elif punct_changed and cfg.get("use_punctuation", True):
+            self.load_punct_async(cfg)
 
     def set_status(self, status):
         self.status_callback(status)
 
     def load_async(self):
-        if self.loading or self.loaded:
-            return
-        self.loading = True
-        threading.Thread(target=self._load_models, daemon=True).start()
+        with self.lock:
+            generation = self._asr_generation
+            if self.closing:
+                return False
+            if self.loaded and self._asr_loaded_generation == generation and self.asr is not None:
+                return False
+            if self._asr_loading_generation is not None:
+                return False
+            cfg = dict(self.cfg)
+            self._asr_loading_generation = generation
+            self.loading = True
+            worker = threading.Thread(target=self._load_models, args=(generation, cfg), daemon=True)
+        try:
+            worker.start()
+        except Exception:
+            with self.lock:
+                if self._asr_loading_generation == generation:
+                    self._asr_loading_generation = None
+                    self.loading = False
+            raise
+        return True
+
+    def _invalidate_punct_locked(self, cfg):
+        with self.punct_condition:
+            self._punct_generation += 1
+            self._punct_signature = punct_model_signature(cfg)
+            self.punct = None
+            self.punct_error = None
+            self._punct_loaded_generation = None
+            self._punct_error_generation = None
+            self.punct_condition.notify_all()
 
     def _load_asr_profile(self, model_id, device, status_callback=None, cfg=None):
         profile = model_profile(ASR_MODEL_PROFILES, model_id, DEFAULT_ASR_MODEL)
@@ -2198,48 +2248,119 @@ class DictationEngine:
 
     def _get_punct(self, cfg, status_callback=None):
         while True:
-            with self.punct_lock:
-                if self.punct is not None:
+            requested_signature = punct_model_signature(cfg)
+            with self.punct_condition:
+                generation = self._punct_generation
+                if requested_signature != self._punct_signature:
+                    if self._punct_loading_signature == requested_signature:
+                        self.punct_condition.wait()
+                        continue
+                    generation = None
+                    break
+                if self.punct is not None and self._punct_loaded_generation == generation:
                     return self.punct
-                if not self.punct_loading:
+                if self.punct_error is not None and self._punct_error_generation == generation:
+                    raise self.punct_error
+                if self._punct_loading_generation is None:
+                    self._punct_loading_generation = generation
+                    self._punct_loading_signature = requested_signature
                     self.punct_loading = True
                     self.punct_error = None
                     break
-                error = self.punct_error
-            if error is not None:
-                raise error
-            time.sleep(0.05)
+                self.punct_condition.wait()
 
+        if generation is None:
+            return self._load_punct_profile(cfg, status_callback)
+
+        return self._load_punct_generation(generation, requested_signature, cfg, status_callback)
+
+    def _load_punct_generation(self, generation, signature, cfg, status_callback=None):
         try:
             punct = self._load_punct_profile(cfg, status_callback)
-            with self.punct_lock:
+        except Exception as exc:
+            with self.punct_condition:
+                owns_load = self._punct_loading_generation == generation
+                current = generation == self._punct_generation and signature == self._punct_signature
+                if owns_load:
+                    self._punct_loading_generation = None
+                    self._punct_loading_signature = None
+                    self.punct_loading = False
+                if current:
+                    self.punct_error = exc
+                    self._punct_error_generation = generation
+                self.punct_condition.notify_all()
+            if not current:
+                self._queue_current_punct_preload()
+            raise
+
+        with self.punct_condition:
+            owns_load = self._punct_loading_generation == generation
+            current = (
+                generation == self._punct_generation
+                and signature == self._punct_signature
+                and not self.closing
+            )
+            if current:
                 self.punct = punct
                 self.punct_error = None
-                return self.punct
-        except Exception as exc:
-            with self.punct_lock:
-                self.punct_error = exc
-            raise
-        finally:
-            with self.punct_lock:
+                self._punct_loaded_generation = generation
+                self._punct_error_generation = None
+            if owns_load:
+                self._punct_loading_generation = None
+                self._punct_loading_signature = None
                 self.punct_loading = False
+            self.punct_condition.notify_all()
+
+        if not current:
+            self._queue_current_punct_preload()
+        return punct
 
     def load_punct_async(self, cfg):
-        with self.punct_lock:
-            if self.punct is not None or self.punct_loading:
-                return
-
         cfg = dict(cfg)
+        signature = punct_model_signature(cfg)
+        with self.punct_condition:
+            generation = self._punct_generation
+            if self.closing or signature != self._punct_signature:
+                return False
+            if self.punct is not None and self._punct_loaded_generation == generation:
+                return False
+            if self._punct_loading_generation is not None:
+                return False
+            self._punct_loading_generation = generation
+            self._punct_loading_signature = signature
+            self.punct_loading = True
+            self.punct_error = None
 
         def run():
             try:
-                self._get_punct(cfg)
-                if not self.recording and not self.transcribing:
+                self._load_punct_generation(generation, signature, cfg)
+                with self.punct_condition:
+                    current = self._punct_loaded_generation == generation and self.punct is not None
+                if current and self.loaded and self.is_idle() and not self.closing:
                     self.set_status("Ready")
             except Exception as exc:
                 log_debug(f"load punct async error type={type(exc).__name__}")
 
-        threading.Thread(target=run, daemon=True).start()
+        worker = threading.Thread(target=run, daemon=True)
+        try:
+            worker.start()
+        except Exception:
+            with self.punct_condition:
+                if self._punct_loading_generation == generation:
+                    self._punct_loading_generation = None
+                    self._punct_loading_signature = None
+                    self.punct_loading = False
+                    self.punct_condition.notify_all()
+            raise
+        return True
+
+    def _queue_current_punct_preload(self):
+        with self.lock:
+            if self.closing:
+                return
+            cfg = dict(self.cfg)
+        if cfg.get("use_punctuation", True):
+            self.load_punct_async(cfg)
 
     def _compare_asr_async(self, audio, sample_rate, duration, active_text, active_sec, cfg):
         if not cfg.get("compare_asr", False):
@@ -2335,12 +2456,13 @@ class DictationEngine:
             )
         return best_text, best_bucket, retry_results
 
-    def _warmup_models(self, asr, punct, cfg):
+    def _warmup_models(self, asr, punct, cfg, status_callback=None):
         if not cfg.get("warmup_models", True):
             log_debug("warmup skipped disabled=True")
             return
 
-        self.set_status("Warming models")
+        emit_status = status_callback or self.set_status
+        emit_status("Warming models")
         if hasattr(asr, "warmup"):
             if str(cfg.get("asr_device", "")).upper().startswith("NPU"):
                 log_debug(
@@ -2387,11 +2509,23 @@ class DictationEngine:
             except Exception as exc:
                 log_debug(f"warmup punct error type={type(exc).__name__}")
 
-    def _load_models(self):
+    def _asr_generation_is_current(self, generation, asr=None):
+        with self.lock:
+            if self.closing or generation != self._asr_generation:
+                return False
+            return asr is None or self.asr is asr
+
+    def _set_asr_status(self, generation, status):
+        if not self._asr_generation_is_current(generation):
+            return False
+        self.set_status(status)
+        return True
+
+    def _load_models(self, generation, cfg):
         try:
             load_start = time.perf_counter()
-            log_debug("load start")
-            cfg = dict(self.cfg)
+            log_debug(f"load start generation={generation}")
+            emit_status = lambda status: self._set_asr_status(generation, status)
             hardware_info = probe_openvino_hardware(cfg)
             log_openvino_hardware(hardware_info)
             normalized_cfg = normalize_model_config(dict(cfg), hardware_info)
@@ -2404,21 +2538,18 @@ class DictationEngine:
                     f"asr={cfg.get('asr_device')}->{normalized_cfg.get('asr_device')} "
                     f"punct={cfg.get('punct_device')}->{normalized_cfg.get('punct_device')}"
                 )
-                cfg = normalized_cfg
-                hardware_info["selected_devices"] = selected_openvino_devices(cfg, hardware_info)
-            with self.lock:
-                self.hardware_info = hardware_info
-                self.cfg = cfg
+            cfg = normalized_cfg
+            hardware_info["selected_devices"] = selected_openvino_devices(cfg, hardware_info)
             pending_downloads = pending_model_downloads(cfg)
             if pending_downloads:
-                self.set_status(f"First model setup: {', '.join(pending_downloads)}")
+                emit_status(f"First model setup: {', '.join(pending_downloads)}")
             asr_profile = model_profile(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
-            self.set_status("Loading ASR")
+            emit_status("Loading ASR")
             asr_start = time.perf_counter()
             asr = self._load_asr_profile(
                 cfg.get("asr_model"),
                 cfg.get("asr_device", asr_profile["default_device"]),
-                self.set_status,
+                emit_status,
                 cfg,
             )
             log_debug(
@@ -2427,24 +2558,61 @@ class DictationEngine:
                 f"seconds={time.perf_counter() - asr_start:.3f}"
             )
 
-            self._warmup_models(asr, None, cfg)
+            self._warmup_models(asr, None, cfg, emit_status)
 
             with self.lock:
-                self.asr = asr
-                self.loaded = True
-                self.loading = False
-            self.ensure_audio_stream()
-            log_debug(f"load ready seconds={time.perf_counter() - load_start:.3f}")
-            self.set_status("Ready")
-            if cfg.get("use_punctuation", True):
-                self.load_punct_async(cfg)
+                current = generation == self._asr_generation and not self.closing
+                if current:
+                    current_cfg = normalize_model_config(dict(self.cfg), hardware_info)
+                    current = config_signature(current_cfg, ASR_RELOAD_CONFIG_KEYS) == config_signature(
+                        cfg,
+                        ASR_RELOAD_CONFIG_KEYS,
+                    )
+                if current:
+                    hardware_info["selected_devices"] = selected_openvino_devices(current_cfg, hardware_info)
+                    self.hardware_info = hardware_info
+                    self.cfg = current_cfg
+                    self.asr = asr
+                    self.loaded = True
+                    self._asr_loaded_generation = generation
+                    if self._punct_signature != punct_model_signature(current_cfg):
+                        self._invalidate_punct_locked(current_cfg)
+                if self._asr_loading_generation == generation:
+                    self._asr_loading_generation = None
+                    self.loading = False
+                retry_latest = not current and not self.closing
+
+            if not current:
+                log_debug(f"load discarded stale generation={generation} current={self._asr_generation}")
+                if retry_latest:
+                    self.load_async()
+                return
+
+            audio_ready = self.ensure_audio_stream()
+            if not self._asr_generation_is_current(generation, asr):
+                return
+            log_debug(f"load ready generation={generation} seconds={time.perf_counter() - load_start:.3f}")
+            if audio_ready:
+                self.set_status("Ready")
+            if current_cfg.get("use_punctuation", True):
+                self.load_punct_async(current_cfg)
         except Exception as exc:
             with self.lock:
-                self.loading = False
-            log_debug(f"load error type={type(exc).__name__} message={exc}")
+                current = generation == self._asr_generation and not self.closing
+                if self._asr_loading_generation == generation:
+                    self._asr_loading_generation = None
+                    self.loading = False
+                if current:
+                    self.loaded = False
+                    self._asr_loaded_generation = None
+                retry_latest = not current and not self.closing
+            log_debug(f"load error generation={generation} type={type(exc).__name__} message={exc}")
             for line in traceback.format_exc().splitlines():
                 log_debug(f"load traceback {line}")
-            self.set_status(f"Load error: {type(exc).__name__}")
+            if current:
+                self.set_status(f"Load error: {type(exc).__name__}")
+            elif retry_latest:
+                self.load_async()
 
     def resolve_sample_rate(self):
         configured = int(self.cfg.get("sample_rate") or 0)
@@ -2600,11 +2768,14 @@ class DictationEngine:
             self.recording = False
             self.recording_cpu_end = system_cpu_times()
             self.recording_wall_end = time.perf_counter()
+            with self.punct_lock:
+                punct = self.punct
             job = RecordingJob(
                 blocks=tuple(self.audio_blocks),
                 sample_rate=self.sample_rate,
                 cfg=dict(self.cfg),
                 asr=self.asr,
+                punct=punct,
                 audio_callback_count=self.audio_callback_count,
                 audio_callback_statuses=tuple(self.audio_callback_statuses),
                 audio_first_callback_perf=self.audio_first_callback_perf,
@@ -2799,7 +2970,7 @@ class DictationEngine:
             context = job.context
             punct_sec = 0.0
             if raw_text and cfg.get("use_punctuation", True):
-                punct = self._get_punct(cfg, self.set_status)
+                punct = job.punct or self._get_punct(cfg, self.set_status)
                 start = time.perf_counter()
                 if context is None:
                     context = self.context_before_cursor(cfg)

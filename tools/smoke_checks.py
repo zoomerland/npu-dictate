@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 
@@ -367,6 +368,134 @@ def check_recording_job_is_atomic():
     assert engine.recording is False
 
 
+def wait_until(predicate, timeout=3.0):
+    deadline = time.perf_counter() + timeout
+    while time.perf_counter() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return bool(predicate())
+
+
+def fake_hardware_info(_cfg):
+    return {
+        "available": True,
+        "version": "test",
+        "devices": ["CPU", "NPU"],
+        "device_names": {"CPU": "test CPU", "NPU": "test NPU"},
+        "selected_devices": [],
+        "warnings": [],
+        "error": None,
+    }
+
+
+class AsrGenerationEngine(app.DictationEngine):
+    def __init__(self, cfg):
+        super().__init__(cfg, lambda _status: None, lambda *_args: None)
+        self.started = {}
+        self.release = {}
+        self.results = {}
+
+    def _load_asr_profile(self, model_id, _device, status_callback=None, cfg=None):
+        self.started.setdefault(model_id, threading.Event()).set()
+        release = self.release.setdefault(model_id, threading.Event())
+        if not release.wait(timeout=5):
+            raise TimeoutError(f"ASR generation test timed out: {model_id}")
+        result = object()
+        self.results[model_id] = result
+        return result
+
+    def _warmup_models(self, _asr, _punct, _cfg, status_callback=None):
+        return None
+
+    def ensure_audio_stream(self):
+        return True
+
+    def load_punct_async(self, _cfg):
+        return False
+
+
+def check_stale_asr_load_is_discarded():
+    original_probe = app.probe_openvino_hardware
+    cfg = app.default_config()
+    old_model = cfg["asr_model"]
+    new_model = app.OPENVINO_ASR_MODEL
+    engine = AsrGenerationEngine(cfg)
+    app.probe_openvino_hardware = fake_hardware_info
+    try:
+        assert engine.load_async() is True
+        assert engine.started.setdefault(old_model, threading.Event()).wait(timeout=2)
+
+        new_cfg = dict(engine.cfg)
+        new_cfg.update({"asr_model": new_model, "asr_device": "NPU"})
+        engine.update_config(new_cfg)
+        latest_cfg = dict(engine.cfg)
+        latest_cfg["overlay_opacity"] = 0.42
+        engine.update_config(latest_cfg)
+
+        engine.release.setdefault(old_model, threading.Event()).set()
+        assert engine.started.setdefault(new_model, threading.Event()).wait(timeout=2)
+        assert engine.asr is None
+        assert engine.loaded is False
+
+        engine.release.setdefault(new_model, threading.Event()).set()
+        assert wait_until(lambda: engine.loaded and engine._asr_loading_generation is None)
+        assert engine.asr is engine.results[new_model]
+        assert engine.asr is not engine.results[old_model]
+        assert engine.cfg["asr_model"] == new_model
+        assert engine.cfg["overlay_opacity"] == 0.42
+    finally:
+        engine.release.setdefault(old_model, threading.Event()).set()
+        engine.release.setdefault(new_model, threading.Event()).set()
+        wait_until(lambda: engine._asr_loading_generation is None)
+        app.probe_openvino_hardware = original_probe
+
+
+class PunctGenerationEngine(app.DictationEngine):
+    def __init__(self, cfg):
+        super().__init__(cfg, lambda _status: None, lambda *_args: None)
+        self.started = {}
+        self.release = {}
+        self.results = {}
+
+    def _load_punct_profile(self, cfg, status_callback=None):
+        device = cfg["punct_device"]
+        self.started.setdefault(device, threading.Event()).set()
+        release = self.release.setdefault(device, threading.Event())
+        if not release.wait(timeout=5):
+            raise TimeoutError(f"punct generation test timed out: {device}")
+        result = object()
+        self.results[device] = result
+        return result
+
+
+def check_stale_punct_load_is_discarded():
+    cfg = app.default_config()
+    old_device = cfg["punct_device"]
+    new_device = "CPU" if old_device != "CPU" else "NPU"
+    engine = PunctGenerationEngine(cfg)
+    try:
+        assert engine.load_punct_async(cfg) is True
+        assert engine.started.setdefault(old_device, threading.Event()).wait(timeout=2)
+
+        new_cfg = dict(engine.cfg)
+        new_cfg["punct_device"] = new_device
+        engine.update_config(new_cfg)
+        engine.release.setdefault(old_device, threading.Event()).set()
+
+        assert engine.started.setdefault(new_device, threading.Event()).wait(timeout=2)
+        assert engine.punct is None
+        engine.release.setdefault(new_device, threading.Event()).set()
+        assert wait_until(lambda: engine._punct_loading_generation is None and engine.punct is not None)
+        assert engine.punct is engine.results[new_device]
+        assert engine.punct is not engine.results[old_device]
+        assert engine._punct_loaded_generation == engine._punct_generation
+    finally:
+        engine.release.setdefault(old_device, threading.Event()).set()
+        engine.release.setdefault(new_device, threading.Event()).set()
+        wait_until(lambda: engine._punct_loading_generation is None)
+
+
 def check_clipboard_paste_behavior():
     original_clipboard = app.pyperclip
     original_windll = app.ctypes.WinDLL
@@ -561,6 +690,8 @@ def main():
     runner.check("post-paste Enter statuses are explicit", check_post_paste_statuses)
     runner.check("clipboard paste/restore behavior passes with mocks", check_clipboard_paste_behavior)
     runner.check("recording handoff is atomic and shutdown waits", check_recording_job_is_atomic)
+    runner.check("stale ASR generations are discarded", check_stale_asr_load_is_discarded)
+    runner.check("stale punctuation generations are discarded", check_stale_punct_load_is_discarded)
     check_model_paths(runner)
 
     if args.skip_rupunct:
