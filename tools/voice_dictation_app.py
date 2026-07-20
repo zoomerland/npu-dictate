@@ -4231,13 +4231,67 @@ class VoiceDictationApp:
 
         settings_notebook = ttk.Notebook(win, style="Settings.TNotebook")
         settings_notebook.grid(row=0, column=0, sticky="nsew")
+        settings_scroll_areas = []
 
         def settings_section(key):
-            frame = ttk.Frame(settings_notebook, padding=(scaled(22), scaled(18)))
+            container = ttk.Frame(settings_notebook)
+            container.columnconfigure(0, weight=1)
+            container.rowconfigure(0, weight=1)
+
+            canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
+            scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+            canvas.configure(yscrollcommand=scrollbar.set)
+            canvas.grid(row=0, column=0, sticky="nsew")
+            scrollbar.grid(row=0, column=1, sticky="ns")
+
+            frame = ttk.Frame(canvas, padding=(scaled(22), scaled(18)))
             frame.columnconfigure(1, weight=1)
-            settings_notebook.add(frame, text=self.t(key))
-            remember_tab(settings_notebook, frame, key)
+            content_window = canvas.create_window((0, 0), window=frame, anchor="nw")
+
+            def update_scroll_region(_event=None):
+                canvas.configure(scrollregion=canvas.bbox("all"))
+
+            def fit_content_width(event):
+                canvas.itemconfigure(content_window, width=event.width)
+                update_scroll_region()
+
+            def update_scrollbar_visibility(_event=None):
+                content_height = frame.winfo_reqheight()
+                viewport_height = canvas.winfo_height()
+                if viewport_height > 1 and content_height <= viewport_height:
+                    scrollbar.grid_remove()
+                    canvas.yview_moveto(0)
+                else:
+                    scrollbar.grid()
+
+            frame.bind("<Configure>", update_scroll_region, add="+")
+            frame.bind("<Configure>", update_scrollbar_visibility, add="+")
+            canvas.bind("<Configure>", fit_content_width, add="+")
+            canvas.bind("<Configure>", update_scrollbar_visibility, add="+")
+            settings_scroll_areas.append((container, canvas))
+
+            settings_notebook.add(container, text=self.t(key))
+            remember_tab(settings_notebook, container, key)
             return frame
+
+        def is_descendant(widget, ancestor):
+            while widget is not None:
+                if widget == ancestor:
+                    return True
+                widget = widget.master
+            return False
+
+        def scroll_settings_with_wheel(event):
+            if not event.delta:
+                return None
+            pointer_widget = win.winfo_containing(event.x_root, event.y_root)
+            for container, canvas in settings_scroll_areas:
+                if container.winfo_ismapped() and is_descendant(pointer_widget, container):
+                    canvas.yview_scroll(-int(event.delta / 120), "units")
+                    return "break"
+            return None
+
+        win.bind("<MouseWheel>", scroll_settings_with_wheel, add="+")
 
         general_section = settings_section("settings_section_general")
         row = 0
