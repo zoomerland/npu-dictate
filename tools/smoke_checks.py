@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -62,6 +63,59 @@ def check_config_profiles():
     default_cfg["show_stop_without_enter_button"] = 1
     normalized = app.normalize_model_config(default_cfg)
     assert normalized["show_stop_without_enter_button"] is True
+
+
+def check_config_persistence_is_recoverable():
+    original_replace = app.os.replace
+    original_log_debug = app.log_debug
+    messages = []
+    app.log_debug = messages.append
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "voice_dictation_config.json"
+            missing = app.load_config(path)
+            assert missing["asr_model"] == app.DEFAULT_ASR_MODEL
+
+            valid = app.default_config()
+            valid["overlay_opacity"] = 0.37
+            payload = json.dumps(valid, ensure_ascii=False).encode("utf-8")
+            path.write_bytes(b"\xef\xbb\xbf" + payload)
+            assert app.load_config(path)["overlay_opacity"] == 0.37
+
+            path.write_text('{"overlay_opacity":', encoding="utf-8")
+            assert app.load_config(path)["overlay_opacity"] == 1.0
+            path.write_text("[]", encoding="utf-8")
+            assert app.load_config(path)["overlay_opacity"] == 1.0
+            path.write_bytes(b"\xff\xfeinvalid")
+            assert app.load_config(path)["overlay_opacity"] == 1.0
+            assert any("config load fallback" in message for message in messages)
+
+            old_cfg = app.default_config()
+            old_cfg["overlay_opacity"] = 0.55
+            app.save_config(old_cfg, path)
+            old_bytes = path.read_bytes()
+
+            def fail_replace(_source, _target):
+                raise OSError("replace failed")
+
+            app.os.replace = fail_replace
+            new_cfg = dict(old_cfg)
+            new_cfg["overlay_opacity"] = 0.88
+            try:
+                app.save_config(new_cfg, path)
+            except OSError:
+                pass
+            else:
+                raise AssertionError("atomic config write failure was not raised")
+            assert path.read_bytes() == old_bytes
+            assert not list(path.parent.glob(f".{path.name}.*.tmp"))
+
+            app.os.replace = original_replace
+            app.save_config(new_cfg, path)
+            assert app.load_config(path)["overlay_opacity"] == 0.88
+    finally:
+        app.os.replace = original_replace
+        app.log_debug = original_log_debug
 
 
 def check_cpu_fallback_profile():
@@ -737,6 +791,67 @@ def check_model_artifact_helpers():
                 raise AssertionError(f"unsafe path accepted: {unsafe}")
 
 
+class FakeDownloadResponse:
+    def __init__(self, payload, content_length=None):
+        self.payload = payload
+        self.offset = 0
+        self.headers = {}
+        if content_length is not None:
+            self.headers["Content-Length"] = str(content_length)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _tb):
+        return False
+
+    def read(self, size):
+        if self.offset >= len(self.payload):
+            return b""
+        chunk = self.payload[self.offset : self.offset + size]
+        self.offset += len(chunk)
+        return chunk
+
+
+def check_direct_download_size_validation():
+    original_urlopen = model_setup.urlopen
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "model.bin"
+            target.write_bytes(b"existing")
+
+            model_setup.urlopen = lambda *_args, **_kwargs: FakeDownloadResponse(b"data", 4)
+            tmp = model_setup.download_url_to_file("https://example.invalid/model", target, label="test")
+            assert tmp.read_bytes() == b"data"
+            assert target.read_bytes() == b"existing"
+            tmp.unlink()
+
+            for declared_size in (5, 3):
+                model_setup.urlopen = (
+                    lambda *_args, _declared=declared_size, **_kwargs: FakeDownloadResponse(b"data", _declared)
+                )
+                try:
+                    model_setup.download_url_to_file("https://example.invalid/model", target, label="test")
+                except RuntimeError:
+                    pass
+                else:
+                    raise AssertionError(f"Content-Length mismatch accepted: {declared_size}")
+                assert not target.with_name(target.name + ".download").exists()
+                assert target.read_bytes() == b"existing"
+
+            model_setup.urlopen = lambda *_args, **_kwargs: FakeDownloadResponse(b"data", 99)
+            tmp = model_setup.download_url_to_file(
+                "https://example.invalid/model",
+                target,
+                expected_size=4,
+                label="test",
+            )
+            assert tmp.read_bytes() == b"data"
+            tmp.unlink()
+    finally:
+        model_setup.urlopen = original_urlopen
+
+
 def check_rupunct_cpu(timeout_sec):
     code = (
         "import os, sys\n"
@@ -788,6 +903,7 @@ def main():
 
     runner = CheckRunner()
     runner.check("config and model profiles normalize", check_config_profiles)
+    runner.check("config persistence is atomic and recoverable", check_config_persistence_is_recoverable)
     runner.check("CPU-only fallback profile normalizes", check_cpu_fallback_profile)
     runner.check("hardware device filtering falls back to CPU", check_hardware_device_filtering)
     runner.check("model display labels map back to profile ids", check_model_display_labels)
@@ -795,6 +911,7 @@ def main():
     runner.check("NPU ASR warmup is skipped to avoid startup hangs", check_npu_asr_warmup_is_skipped)
     runner.check("OpenVINO hardware probe runs", check_openvino_probe)
     runner.check("model artifact downloader helpers pass", check_model_artifact_helpers)
+    runner.check("direct downloads validate Content-Length", check_direct_download_size_validation)
     runner.check("context-aware insertion spacing cases pass", check_insertion_spacing)
     runner.check("leading punctuation is removed before insertion", check_leading_punctuation_removal)
     runner.check("post-paste Enter statuses are explicit", check_post_paste_statuses)

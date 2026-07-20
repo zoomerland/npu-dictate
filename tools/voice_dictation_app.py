@@ -928,20 +928,35 @@ def default_config():
     }
 
 
-def load_config():
+def load_config(path=None):
     cfg = default_config()
-    path = config_path()
+    path = Path(path) if path is not None else config_path()
     if path.exists():
-        with path.open("r", encoding="utf-8-sig") as file:
-            loaded = json.load(file)
-        cfg.update(loaded)
+        try:
+            with path.open("r", encoding="utf-8-sig") as file:
+                loaded = json.load(file)
+            if not isinstance(loaded, dict):
+                raise TypeError("config root must be an object")
+            cfg.update(loaded)
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
+            log_debug(f"config load fallback error={type(exc).__name__}")
     return normalize_model_config(cfg)
 
 
-def save_config(cfg):
-    path = config_path()
-    with path.open("w", encoding="utf-8") as file:
-        json.dump(cfg, file, ensure_ascii=False, indent=2)
+def save_config(cfg, path=None):
+    path = Path(path) if path is not None else config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.{time.time_ns()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8", newline="\n") as file:
+            json.dump(cfg, file, ensure_ascii=False, indent=2)
+            file.write("\n")
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return path
 
 
 def debug_dictation_dir():
