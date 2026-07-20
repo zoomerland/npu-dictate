@@ -207,12 +207,27 @@ def check_leading_punctuation_removal():
         ("?!…", "", ""),
         ("  :\tТекст", "", "Текст"),
         ("123: начало", "", "123: начало"),
+        ("- контекст неизвестен", None, "- контекст неизвестен"),
         (", помиловать.", "Казнить нельзя", ", помиловать."),
         ("— это уточнение", "Начало", "— это уточнение"),
     ]
     for source, context, expected in cases:
         actual = app.strip_leading_punctuation(source, context)
         assert actual == expected, f"{context!r} + {source!r}: {actual!r} != {expected!r}"
+
+
+def check_post_paste_statuses():
+    cases = [
+        (False, False, None, None, "Pasted"),
+        (True, True, None, None, "Pasted without Enter"),
+        (True, False, True, None, "Pasted + Enter"),
+        (True, False, False, "target_changed", "Pasted - Enter skipped"),
+        (True, False, False, "target_unavailable", "Pasted - Enter skipped"),
+        (True, False, False, "send_failed", "Pasted - Enter failed"),
+    ]
+    for press_enter, suppress_enter, enter_sent, reason, expected in cases:
+        actual = app.pasted_status(press_enter, suppress_enter, enter_sent, reason)
+        assert actual == expected, f"{press_enter}, {suppress_enter}, {enter_sent}, {reason}: {actual}"
 
 
 class FakeClipboard:
@@ -259,14 +274,14 @@ class TestEngine(app.DictationEngine):
         send_ok=True,
         enter_ok=True,
         focus_callback=None,
-        target_window_callback=None,
+        target_identity_callback=None,
     ):
         super().__init__(
             cfg,
             lambda _status: None,
             lambda *_args: None,
             focus_callback=focus_callback,
-            target_window_callback=target_window_callback,
+            target_identity_callback=target_identity_callback,
         )
         self.send_ok = send_ok
         self.enter_ok = enter_ok
@@ -327,20 +342,20 @@ def check_clipboard_paste_behavior():
         engine = TestEngine(
             {"restore_clipboard_after_paste": False},
             enter_ok=True,
-            target_window_callback=lambda: 101,
+            target_identity_callback=lambda: (101, 1001),
         )
         assert engine.paste_text("new") is True
-        assert engine.last_paste_target_window == 101
+        assert engine.last_paste_target_identity == (101, 1001)
         assert engine.press_enter_after_paste() is True
         assert engine.enter_count == 1
 
-        current_target = [202]
+        current_target = [(101, 1002)]
         engine = TestEngine(
             {"restore_clipboard_after_paste": False},
             enter_ok=True,
-            target_window_callback=lambda: current_target[0],
+            target_identity_callback=lambda: current_target[0],
         )
-        engine.last_paste_target_window = 101
+        engine.last_paste_target_identity = (101, 1001)
         assert engine.press_enter_after_paste() is False
         assert engine.enter_count == 0
         assert engine.last_enter_failure_reason == "target_changed"
@@ -349,10 +364,10 @@ def check_clipboard_paste_behavior():
             {"restore_clipboard_after_paste": False},
             enter_ok=True,
             focus_callback=lambda: False,
-            target_window_callback=lambda: 303,
+            target_identity_callback=lambda: (303, 3003),
         )
         assert engine.paste_text("new") is True
-        assert engine.last_paste_target_window is None
+        assert engine.last_paste_target_identity is None
         assert engine.press_enter_after_paste() is False
         assert engine.enter_count == 0
         assert engine.last_enter_failure_reason == "target_unavailable"
@@ -479,6 +494,7 @@ def main():
     runner.check("model artifact downloader helpers pass", check_model_artifact_helpers)
     runner.check("context-aware insertion spacing cases pass", check_insertion_spacing)
     runner.check("leading punctuation is removed before insertion", check_leading_punctuation_removal)
+    runner.check("post-paste Enter statuses are explicit", check_post_paste_statuses)
     runner.check("clipboard paste/restore behavior passes with mocks", check_clipboard_paste_behavior)
     check_model_paths(runner)
 
