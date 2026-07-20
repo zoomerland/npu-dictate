@@ -201,16 +201,18 @@ def check_insertion_spacing():
 
 def check_leading_punctuation_removal():
     cases = [
-        ("- Начало фразы", "Начало фразы"),
-        ("...: «Начало фразы", "Начало фразы"),
-        ("— (Текст)", "Текст)"),
-        ("?!…", ""),
-        ("  :\tТекст", "Текст"),
-        ("123: начало", "123: начало"),
+        ("- Начало фразы", "", "Начало фразы"),
+        ("...: «Начало фразы»", "", "«Начало фразы»"),
+        ("— (Текст)", "", "(Текст)"),
+        ("?!…", "", ""),
+        ("  :\tТекст", "", "Текст"),
+        ("123: начало", "", "123: начало"),
+        (", помиловать.", "Казнить нельзя", ", помиловать."),
+        ("— это уточнение", "Начало", "— это уточнение"),
     ]
-    for source, expected in cases:
-        actual = app.strip_leading_punctuation(source)
-        assert actual == expected, f"{source!r}: {actual!r} != {expected!r}"
+    for source, context, expected in cases:
+        actual = app.strip_leading_punctuation(source, context)
+        assert actual == expected, f"{context!r} + {source!r}: {actual!r} != {expected!r}"
 
 
 class FakeClipboard:
@@ -251,8 +253,21 @@ class FakeUser32:
 
 
 class TestEngine(app.DictationEngine):
-    def __init__(self, cfg, send_ok=True, enter_ok=True):
-        super().__init__(cfg, lambda _status: None, lambda *_args: None)
+    def __init__(
+        self,
+        cfg,
+        send_ok=True,
+        enter_ok=True,
+        focus_callback=None,
+        target_window_callback=None,
+    ):
+        super().__init__(
+            cfg,
+            lambda _status: None,
+            lambda *_args: None,
+            focus_callback=focus_callback,
+            target_window_callback=target_window_callback,
+        )
         self.send_ok = send_ok
         self.enter_ok = enter_ok
         self.enter_count = 0
@@ -308,6 +323,39 @@ def check_clipboard_paste_behavior():
         engine.keyboard = BrokenKeyboard()
         assert engine.press_enter_after_paste() is False
         assert engine.enter_count == 1
+
+        engine = TestEngine(
+            {"restore_clipboard_after_paste": False},
+            enter_ok=True,
+            target_window_callback=lambda: 101,
+        )
+        assert engine.paste_text("new") is True
+        assert engine.last_paste_target_window == 101
+        assert engine.press_enter_after_paste() is True
+        assert engine.enter_count == 1
+
+        current_target = [202]
+        engine = TestEngine(
+            {"restore_clipboard_after_paste": False},
+            enter_ok=True,
+            target_window_callback=lambda: current_target[0],
+        )
+        engine.last_paste_target_window = 101
+        assert engine.press_enter_after_paste() is False
+        assert engine.enter_count == 0
+        assert engine.last_enter_failure_reason == "target_changed"
+
+        engine = TestEngine(
+            {"restore_clipboard_after_paste": False},
+            enter_ok=True,
+            focus_callback=lambda: False,
+            target_window_callback=lambda: 303,
+        )
+        assert engine.paste_text("new") is True
+        assert engine.last_paste_target_window is None
+        assert engine.press_enter_after_paste() is False
+        assert engine.enter_count == 0
+        assert engine.last_enter_failure_reason == "target_unavailable"
     finally:
         app.pyperclip = original_clipboard
         app.ctypes.WinDLL = original_windll

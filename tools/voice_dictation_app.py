@@ -10,7 +10,6 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 import traceback
-import unicodedata
 from collections import deque
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -170,6 +169,8 @@ TRANSLATIONS = {
         "Pasted": "Pasted",
         "Pasted + Enter": "Pasted + Enter",
         "Pasted without Enter": "Pasted without Enter",
+        "Pasted - Enter skipped": "Pasted - Enter skipped",
+        "Pasted - Enter failed": "Pasted - Enter failed",
         "Copied": "Copied",
         "Copied - paste manually": "Copied - paste manually",
         "No audio": "No audio",
@@ -293,6 +294,8 @@ TRANSLATIONS = {
         "Pasted": "Вставлено",
         "Pasted + Enter": "Вставлено + Enter",
         "Pasted without Enter": "Вставлено без Enter",
+        "Pasted - Enter skipped": "Вставлено - Enter пропущен",
+        "Pasted - Enter failed": "Вставлено - ошибка Enter",
         "Copied": "Скопировано",
         "Copied - paste manually": "Скопировано - вставьте вручную",
         "No audio": "Нет звука",
@@ -1423,12 +1426,20 @@ def should_append_insert_space(inserted_text):
     return last_non_space(stripped) not in set("([{«“‘/\\-—")
 
 
-def strip_leading_punctuation(text):
+def strip_leading_punctuation(text, context=""):
     text = str(text or "").lstrip()
-    for index, char in enumerate(text):
-        if not char.isspace() and not unicodedata.category(char).startswith("P"):
-            return text[index:].lstrip()
-    return ""
+    if str(context or "").strip():
+        return text
+
+    accidental_prefix = set("-‐‑‒–—―,.;:!?)]}»”’%…")
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char in accidental_prefix or char.isspace():
+            index += 1
+            continue
+        break
+    return text[index:].lstrip()
 
 
 def apply_insertion_spacing(inserted_text, context="", append_trailing_space=False):
@@ -1926,12 +1937,21 @@ class HotkeyManager:
 
 
 class DictationEngine:
-    def __init__(self, cfg, status_callback, text_callback, focus_callback=None, context_callback=None):
+    def __init__(
+        self,
+        cfg,
+        status_callback,
+        text_callback,
+        focus_callback=None,
+        context_callback=None,
+        target_window_callback=None,
+    ):
         self.cfg = cfg
         self.status_callback = status_callback
         self.text_callback = text_callback
         self.focus_callback = focus_callback
         self.context_callback = context_callback
+        self.target_window_callback = target_window_callback
         self.asr = None
         self.compare_asr = None
         self.compare_asr_signature = None
@@ -1961,6 +1981,8 @@ class DictationEngine:
         self.recording_wall_end = None
         self.recording_context = ""
         self.recording_suppress_enter_after_paste = False
+        self.last_paste_target_window = None
+        self.last_enter_failure_reason = None
         self.hardware_info = None
         self.lock = threading.RLock()
         self.compare_lock = threading.RLock()
@@ -2685,7 +2707,7 @@ class DictationEngine:
                     final_text = adjust_inserted_casing(raw_text, final_text)
                 punct_sec = time.perf_counter() - start
 
-            final_text = strip_leading_punctuation(final_text)
+            final_text = strip_leading_punctuation(final_text, context)
             final_text = apply_insertion_spacing(
                 final_text,
                 context,
@@ -2706,13 +2728,15 @@ class DictationEngine:
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
                 if cfg.get("auto_paste", True):
                     if self.paste_text(final_text):
-                        if (
-                            cfg.get("press_enter_after_paste", False)
-                            and not suppress_enter_after_paste
-                            and self.press_enter_after_paste()
-                        ):
-                            self.set_status("Pasted + Enter")
-                        elif cfg.get("press_enter_after_paste", False) and suppress_enter_after_paste:
+                        press_enter = bool(cfg.get("press_enter_after_paste", False))
+                        if press_enter and not suppress_enter_after_paste:
+                            if self.press_enter_after_paste():
+                                self.set_status("Pasted + Enter")
+                            elif self.last_enter_failure_reason in {"target_changed", "target_unavailable"}:
+                                self.set_status("Pasted - Enter skipped")
+                            else:
+                                self.set_status("Pasted - Enter failed")
+                        elif press_enter and suppress_enter_after_paste:
                             log_debug("press enter after paste skipped reason=user_requested_review")
                             self.set_status("Pasted without Enter")
                         else:
@@ -2745,6 +2769,8 @@ class DictationEngine:
         return context
 
     def paste_text(self, text):
+        self.last_paste_target_window = None
+        self.last_enter_failure_reason = None
         restore_clipboard = bool(self.cfg.get("restore_clipboard_after_paste", True))
         previous_clipboard = ""
         has_previous_clipboard = False
@@ -2799,6 +2825,8 @@ class DictationEngine:
         if self.focus_callback:
             target_ready = bool(self.focus_callback())
         time.sleep(0.12)
+        if target_ready is not False:
+            self.last_paste_target_window = self.current_target_window()
 
         def restore_previous_clipboard():
             if not restore_clipboard or not has_previous_clipboard:
@@ -2830,17 +2858,48 @@ class DictationEngine:
 
     def press_enter_after_paste(self):
         time.sleep(0.08)
+        self.last_enter_failure_reason = None
+        if not self.paste_target_is_current():
+            return False
         if self.send_enter():
             log_debug("post paste enter send_input=True")
             return True
+        if not self.paste_target_is_current():
+            return False
         try:
             self.keyboard.press(keyboard.Key.enter)
             self.keyboard.release(keyboard.Key.enter)
             log_debug("post paste enter fallback=pynput")
             return True
         except Exception as exc:
+            self.last_enter_failure_reason = "send_failed"
             log_debug(f"post paste enter failed error={type(exc).__name__}")
             return False
+
+    def current_target_window(self):
+        if self.target_window_callback is None:
+            return None
+        try:
+            hwnd = self.target_window_callback()
+        except Exception as exc:
+            log_debug(f"post paste target query failed error={type(exc).__name__}")
+            return None
+        return int(hwnd) if hwnd else None
+
+    def paste_target_is_current(self):
+        if self.target_window_callback is None:
+            return True
+        expected = self.last_paste_target_window
+        current = self.current_target_window()
+        if expected is None or current is None:
+            self.last_enter_failure_reason = "target_unavailable"
+            log_debug(f"post paste enter skipped reason=target_unavailable expected={expected} current={current}")
+            return False
+        if current != expected:
+            self.last_enter_failure_reason = "target_changed"
+            log_debug(f"post paste enter skipped reason=target_changed expected={expected} current={current}")
+            return False
+        return True
 
     def send_ctrl_v(self):
         if os.name != "nt":
@@ -3033,6 +3092,7 @@ class VoiceDictationApp:
             self.queue_text,
             focus_callback=self.restore_target_window,
             context_callback=self.context_before_cursor,
+            target_window_callback=self.foreground_tracker.foreground_hwnd,
         )
         self.hotkeys = HotkeyManager(self.cfg, self.dispatch)
 
@@ -3888,6 +3948,8 @@ class VoiceDictationApp:
             self.set_overlay_button_state("button_load", "#81612b", "#6d5124")
         elif status in {"Pasted", "Pasted + Enter", "Pasted without Enter"}:
             self.set_overlay_button_state("button_ok", "#267d45", "#206b3b")
+        elif status in {"Pasted - Enter skipped", "Pasted - Enter failed"}:
+            self.set_overlay_button_state("button_paste", "#b85528", "#98441f")
         elif status == "Copied":
             self.set_overlay_button_state("button_copy", "#2b7281", "#245f6c")
         elif status.startswith("Copied - paste"):
