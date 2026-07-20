@@ -10,7 +10,6 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 import traceback
-import unicodedata
 from collections import deque
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -170,6 +169,8 @@ TRANSLATIONS = {
         "Pasted": "Pasted",
         "Pasted + Enter": "Pasted + Enter",
         "Pasted without Enter": "Pasted without Enter",
+        "Pasted - Enter skipped": "Pasted - Enter skipped",
+        "Pasted - Enter failed": "Pasted - Enter failed",
         "Copied": "Copied",
         "Copied - paste manually": "Copied - paste manually",
         "No audio": "No audio",
@@ -293,6 +294,8 @@ TRANSLATIONS = {
         "Pasted": "Вставлено",
         "Pasted + Enter": "Вставлено + Enter",
         "Pasted without Enter": "Вставлено без Enter",
+        "Pasted - Enter skipped": "Вставлено - Enter пропущен",
+        "Pasted - Enter failed": "Вставлено - ошибка Enter",
         "Copied": "Скопировано",
         "Copied - paste manually": "Скопировано - вставьте вручную",
         "No audio": "Нет звука",
@@ -1423,12 +1426,32 @@ def should_append_insert_space(inserted_text):
     return last_non_space(stripped) not in set("([{«“‘/\\-—")
 
 
-def strip_leading_punctuation(text):
+def strip_leading_punctuation(text, context=None):
     text = str(text or "").lstrip()
-    for index, char in enumerate(text):
-        if not char.isspace() and not unicodedata.category(char).startswith("P"):
-            return text[index:].lstrip()
-    return ""
+    if context is None or str(context).strip():
+        return text
+
+    accidental_prefix = set("-‐‑‒–—―,.;:!?)]}»”’%…")
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char in accidental_prefix or char.isspace():
+            index += 1
+            continue
+        break
+    return text[index:].lstrip()
+
+
+def pasted_status(press_enter, suppress_enter, enter_sent=None, failure_reason=None):
+    if not press_enter:
+        return "Pasted"
+    if suppress_enter:
+        return "Pasted without Enter"
+    if enter_sent:
+        return "Pasted + Enter"
+    if failure_reason in {"target_changed", "target_unavailable"}:
+        return "Pasted - Enter skipped"
+    return "Pasted - Enter failed"
 
 
 def apply_insertion_spacing(inserted_text, context="", append_trailing_space=False):
@@ -1612,6 +1635,15 @@ class ForegroundWindowTracker:
             return None
         return self.user32.GetAncestor(hwnd, self.GA_ROOT) or hwnd
 
+    def foreground_target_identity(self):
+        hwnd = self.foreground_hwnd()
+        if not self.is_usable_target(hwnd):
+            return None
+        focus_hwnd = self.focus_hwnd_for_window(hwnd)
+        if not focus_hwnd or not self.user32.IsWindow(focus_hwnd):
+            return None
+        return int(hwnd), int(focus_hwnd)
+
     def hwnd_pid(self, hwnd):
         pid = ctypes.c_ulong()
         self.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -1793,9 +1825,28 @@ class FocusedInputTracker:
             log_debug(f"uia focus error={type(exc).__name__}")
             return False
 
+    def focused_input_identity(self):
+        if self.auto is None:
+            return None
+        try:
+            import comtypes
+
+            comtypes.CoInitialize()
+            control = self.find_text_control(self.auto.GetFocusedControl())
+            if control is None or int(control.ProcessId) == self.current_pid:
+                return None
+            runtime_id = tuple(int(part) for part in control.GetRuntimeId())
+            if not runtime_id:
+                return None
+            self.last_input = control
+            return (int(control.ProcessId), *runtime_id)
+        except Exception as exc:
+            log_debug(f"uia identity error={type(exc).__name__}")
+            return None
+
     def context_before_cursor(self, max_chars=320):
         if self.auto is None:
-            return ""
+            return None
 
         try:
             import comtypes
@@ -1807,21 +1858,21 @@ class FocusedInputTracker:
             control = focused or self.last_input
             if control is None:
                 log_debug("uia context skipped=no-control")
-                return ""
+                return None
             if int(control.ProcessId) == self.current_pid:
                 log_debug("uia context skipped=self")
-                return ""
+                return None
 
             control_type = getattr(control, "ControlTypeName", "")
             pattern = control.GetTextPattern()
             if pattern is None:
                 log_debug(f"uia context skipped=no-text-pattern type={control_type}")
-                return ""
+                return None
 
             selections = pattern.GetSelection()
             if not selections:
                 log_debug(f"uia context skipped=no-selection type={control_type}")
-                return ""
+                return None
 
             cursor = selections[0]
             context_range = cursor.Clone()
@@ -1835,17 +1886,17 @@ class FocusedInputTracker:
             text = context_range.GetText(-1) or ""
             if "\ufffc" in text:
                 log_debug(f"uia context rejected=object-char type={control_type} chars={len(text)}")
-                return ""
+                return None
             if len(text) > max_chars * 3:
                 log_debug(f"uia context rejected=too-wide type={control_type} chars={len(text)}")
-                return ""
+                return None
             if len(text) > max_chars:
                 text = text[-int(max_chars) :]
             log_debug(f"uia context type={control_type} chars={len(text)}")
             return text
         except Exception as exc:
             log_debug(f"uia context error={type(exc).__name__}")
-            return ""
+            return None
 
 
 class HotkeyManager:
@@ -1926,12 +1977,21 @@ class HotkeyManager:
 
 
 class DictationEngine:
-    def __init__(self, cfg, status_callback, text_callback, focus_callback=None, context_callback=None):
+    def __init__(
+        self,
+        cfg,
+        status_callback,
+        text_callback,
+        focus_callback=None,
+        context_callback=None,
+        target_identity_callback=None,
+    ):
         self.cfg = cfg
         self.status_callback = status_callback
         self.text_callback = text_callback
         self.focus_callback = focus_callback
         self.context_callback = context_callback
+        self.target_identity_callback = target_identity_callback
         self.asr = None
         self.compare_asr = None
         self.compare_asr_signature = None
@@ -1959,8 +2019,10 @@ class DictationEngine:
         self.recording_cpu_end = None
         self.recording_wall_start = None
         self.recording_wall_end = None
-        self.recording_context = ""
+        self.recording_context = None
         self.recording_suppress_enter_after_paste = False
+        self.last_paste_target_identity = None
+        self.last_enter_failure_reason = None
         self.hardware_info = None
         self.lock = threading.RLock()
         self.compare_lock = threading.RLock()
@@ -2496,17 +2558,16 @@ class DictationEngine:
             self.recording_cpu_end = None
             self.recording_wall_start = time.perf_counter()
             self.recording_wall_end = None
-            self.recording_context = ""
+            self.recording_context = None
             self.recording_suppress_enter_after_paste = False
             self.recording = True
             self.set_status("Recording")
 
         log_debug(f"recording start pre_roll={pre_roll_sec:.3f}s blocks={len(pre_roll_blocks)}")
         context = self.context_before_cursor()
-        if context:
-            with self.lock:
-                if self.recording:
-                    self.recording_context = context
+        with self.lock:
+            if self.recording:
+                self.recording_context = context
 
     def stop_recording(self, suppress_enter_after_paste=False):
         with self.lock:
@@ -2532,7 +2593,7 @@ class DictationEngine:
                 return
             self.recording = False
             self.audio_blocks = []
-            self.recording_context = ""
+            self.recording_context = None
             self.recording_suppress_enter_after_paste = False
             self.clear_pre_roll_locked()
 
@@ -2667,12 +2728,13 @@ class DictationEngine:
             self._compare_asr_async(audio, sample_rate, duration, raw_text, asr_sec, cfg)
 
             final_text = raw_text
-            context = self.recording_context or ""
+            context = self.recording_context
             punct_sec = 0.0
             if raw_text and cfg.get("use_punctuation", True):
                 punct = self._get_punct(cfg, self.set_status)
                 start = time.perf_counter()
-                context = context or self.context_before_cursor()
+                if context is None:
+                    context = self.context_before_cursor()
                 if context:
                     if hasattr(punct, "restore_inserted"):
                         final_text = punct.restore_inserted(context, raw_text)
@@ -2685,10 +2747,10 @@ class DictationEngine:
                     final_text = adjust_inserted_casing(raw_text, final_text)
                 punct_sec = time.perf_counter() - start
 
-            final_text = strip_leading_punctuation(final_text)
+            final_text = strip_leading_punctuation(final_text, context)
             final_text = apply_insertion_spacing(
                 final_text,
-                context,
+                context or "",
                 append_trailing_space=bool(cfg.get("append_space", False)),
             )
 
@@ -2701,22 +2763,25 @@ class DictationEngine:
                     f"statuses={';'.join(audio_callback_statuses) if audio_callback_statuses else 'none'} "
                     f"audio_path={str(debug_audio_path) if debug_audio_path else 'none'} "
                     f"raw={raw_text!r} final={final_text!r} "
-                    f"context_chars={len(context) if 'context' in locals() else 0}"
+                    f"context_chars={len(context or '') if 'context' in locals() else 0}"
                 )
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
                 if cfg.get("auto_paste", True):
                     if self.paste_text(final_text):
-                        if (
-                            cfg.get("press_enter_after_paste", False)
-                            and not suppress_enter_after_paste
-                            and self.press_enter_after_paste()
-                        ):
-                            self.set_status("Pasted + Enter")
-                        elif cfg.get("press_enter_after_paste", False) and suppress_enter_after_paste:
+                        press_enter = bool(cfg.get("press_enter_after_paste", False))
+                        enter_sent = None
+                        if press_enter and not suppress_enter_after_paste:
+                            enter_sent = self.press_enter_after_paste()
+                        elif press_enter and suppress_enter_after_paste:
                             log_debug("press enter after paste skipped reason=user_requested_review")
-                            self.set_status("Pasted without Enter")
-                        else:
-                            self.set_status("Pasted")
+                        self.set_status(
+                            pasted_status(
+                                press_enter,
+                                suppress_enter_after_paste,
+                                enter_sent,
+                                self.last_enter_failure_reason,
+                            )
+                        )
                     else:
                         self.set_status("Copied - paste manually")
                 else:
@@ -2729,22 +2794,27 @@ class DictationEngine:
         finally:
             with self.lock:
                 self.transcribing = False
-                self.recording_context = ""
+                self.recording_context = None
                 self.recording_suppress_enter_after_paste = False
 
     def context_before_cursor(self):
         if not self.cfg.get("use_context", True) or self.context_callback is None:
-            return ""
+            return None
         try:
             max_chars = int(self.cfg.get("context_chars", 320) or 320)
         except (TypeError, ValueError):
             max_chars = 320
-        context = normalize_punctuation_context(self.context_callback(max_chars), max_chars)
+        raw_context = self.context_callback(max_chars)
+        if raw_context is None:
+            return None
+        context = normalize_punctuation_context(raw_context, max_chars)
         if context:
             log_debug(f"punct context normalized_chars={len(context)}")
         return context
 
     def paste_text(self, text):
+        self.last_paste_target_identity = None
+        self.last_enter_failure_reason = None
         restore_clipboard = bool(self.cfg.get("restore_clipboard_after_paste", True))
         previous_clipboard = ""
         has_previous_clipboard = False
@@ -2799,6 +2869,8 @@ class DictationEngine:
         if self.focus_callback:
             target_ready = bool(self.focus_callback())
         time.sleep(0.12)
+        if target_ready is not False:
+            self.last_paste_target_identity = self.current_target_identity()
 
         def restore_previous_clipboard():
             if not restore_clipboard or not has_previous_clipboard:
@@ -2830,17 +2902,50 @@ class DictationEngine:
 
     def press_enter_after_paste(self):
         time.sleep(0.08)
+        self.last_enter_failure_reason = None
+        if not self.paste_target_is_current():
+            return False
         if self.send_enter():
             log_debug("post paste enter send_input=True")
             return True
+        if not self.paste_target_is_current():
+            return False
         try:
             self.keyboard.press(keyboard.Key.enter)
             self.keyboard.release(keyboard.Key.enter)
             log_debug("post paste enter fallback=pynput")
             return True
         except Exception as exc:
+            self.last_enter_failure_reason = "send_failed"
             log_debug(f"post paste enter failed error={type(exc).__name__}")
             return False
+
+    def current_target_identity(self):
+        if self.target_identity_callback is None:
+            return None
+        try:
+            identity = self.target_identity_callback()
+            if not identity:
+                return None
+            return tuple(int(part) for part in identity)
+        except Exception as exc:
+            log_debug(f"post paste target query failed error={type(exc).__name__}")
+            return None
+
+    def paste_target_is_current(self):
+        if self.target_identity_callback is None:
+            return True
+        expected = self.last_paste_target_identity
+        current = self.current_target_identity()
+        if expected is None or current is None:
+            self.last_enter_failure_reason = "target_unavailable"
+            log_debug(f"post paste enter skipped reason=target_unavailable expected={expected} current={current}")
+            return False
+        if current != expected:
+            self.last_enter_failure_reason = "target_changed"
+            log_debug(f"post paste enter skipped reason=target_changed expected={expected} current={current}")
+            return False
+        return True
 
     def send_ctrl_v(self):
         if os.name != "nt":
@@ -3033,6 +3138,7 @@ class VoiceDictationApp:
             self.queue_text,
             focus_callback=self.restore_target_window,
             context_callback=self.context_before_cursor,
+            target_identity_callback=self.current_paste_target_identity,
         )
         self.hotkeys = HotkeyManager(self.cfg, self.dispatch)
 
@@ -3690,9 +3796,16 @@ class VoiceDictationApp:
         log_debug(f"restore input={input_restored} window={window_restored}")
         return window_restored
 
+    def current_paste_target_identity(self):
+        window_identity = self.foreground_tracker.foreground_target_identity()
+        input_identity = self.input_tracker.focused_input_identity()
+        if window_identity is None or input_identity is None:
+            return None
+        return (*window_identity, *input_identity)
+
     def context_before_cursor(self, max_chars=320):
         if not self.cfg.get("use_context", True):
-            return ""
+            return None
         return self.input_tracker.context_before_cursor(max_chars)
 
     def collect_debug_info(self):
@@ -3888,6 +4001,8 @@ class VoiceDictationApp:
             self.set_overlay_button_state("button_load", "#81612b", "#6d5124")
         elif status in {"Pasted", "Pasted + Enter", "Pasted without Enter"}:
             self.set_overlay_button_state("button_ok", "#267d45", "#206b3b")
+        elif status in {"Pasted - Enter skipped", "Pasted - Enter failed"}:
+            self.set_overlay_button_state("button_paste", "#b85528", "#98441f")
         elif status == "Copied":
             self.set_overlay_button_state("button_copy", "#2b7281", "#245f6c")
         elif status.startswith("Copied - paste"):
