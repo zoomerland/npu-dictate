@@ -54,6 +54,12 @@ def check_config_profiles():
     assert normalized["asr_model"] == app.DEFAULT_ASR_MODEL
     assert normalized["asr_device"] == "CPU"
     assert normalized["punct_device"] == "NPU"
+    assert normalized["press_enter_after_paste"] is False
+    assert normalized["show_stop_without_enter_button"] is False
+
+    default_cfg["show_stop_without_enter_button"] = 1
+    normalized = app.normalize_model_config(default_cfg)
+    assert normalized["show_stop_without_enter_button"] is True
 
 
 def check_cpu_fallback_profile():
@@ -231,12 +237,18 @@ class FakeUser32:
 
 
 class TestEngine(app.DictationEngine):
-    def __init__(self, cfg, send_ok=True):
+    def __init__(self, cfg, send_ok=True, enter_ok=True):
         super().__init__(cfg, lambda _status: None, lambda *_args: None)
         self.send_ok = send_ok
+        self.enter_ok = enter_ok
+        self.enter_count = 0
 
     def send_ctrl_v(self):
         return self.send_ok
+
+    def send_enter(self):
+        self.enter_count += 1
+        return self.enter_ok
 
 
 class BrokenKeyboard:
@@ -273,6 +285,15 @@ def check_clipboard_paste_behavior():
         engine.keyboard = BrokenKeyboard()
         assert engine.paste_text("new") is False
         assert app.pyperclip.value == "new"
+
+        engine = TestEngine({"restore_clipboard_after_paste": True}, enter_ok=True)
+        assert engine.press_enter_after_paste() is True
+        assert engine.enter_count == 1
+
+        engine = TestEngine({"restore_clipboard_after_paste": True}, enter_ok=False)
+        engine.keyboard = BrokenKeyboard()
+        assert engine.press_enter_after_paste() is False
+        assert engine.enter_count == 1
     finally:
         app.pyperclip = original_clipboard
         app.ctypes.WinDLL = original_windll
