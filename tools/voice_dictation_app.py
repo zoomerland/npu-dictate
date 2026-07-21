@@ -2746,22 +2746,35 @@ class DictationEngine:
         with self.lock:
             if self.closing:
                 return
+            self._audio_open_retry_requested = True
+            if self._audio_open_task_pending:
+                return
+            self._audio_open_task_pending = True
+        self._start_audio_open_task("retry")
+
+    def _start_audio_open_task(self, reason):
         worker = threading.Thread(target=self._run_audio_stream_open, daemon=True)
         try:
             worker.start()
         except Exception as exc:
-            log_debug(f"audio stream retry start error={type(exc).__name__}")
+            with self.lock:
+                self._audio_open_task_pending = False
+                self._audio_open_retry_requested = False
+            log_debug(f"audio stream {reason} start error={type(exc).__name__}")
+            self.set_status("Audio unavailable")
 
-    def _run_audio_stream_open(self, clear_pending=False):
+    def _run_audio_stream_open(self):
         ready = False
+        with self.lock:
+            self._audio_open_retry_requested = False
         try:
             ready = self.ensure_audio_stream()
         except Exception as exc:
             log_debug(f"audio stream worker error={type(exc).__name__}")
         finally:
+            restart_latest = False
             with self.lock:
-                if clear_pending:
-                    self._audio_open_task_pending = False
+                self._audio_open_task_pending = False
                 announce_ready = (
                     ready
                     and not self.closing
@@ -2772,6 +2785,16 @@ class DictationEngine:
                 )
                 if announce_ready:
                     self.set_status("Ready")
+                restart_latest = (
+                    self._audio_open_retry_requested
+                    and not self.closing
+                    and self.stream is None
+                    and self._audio_opening_token is None
+                )
+                if restart_latest:
+                    self._audio_open_task_pending = True
+            if restart_latest:
+                self._start_audio_open_task("latest retry")
 
     def ensure_audio_stream_async(self):
         with self.lock:
@@ -2779,7 +2802,8 @@ class DictationEngine:
                 return False
             if self.stream is not None:
                 return True
-            should_start = self._audio_opening_token is None and not self._audio_open_task_pending
+            self._audio_open_retry_requested = True
+            should_start = not self._audio_open_task_pending
             if should_start:
                 self._audio_open_task_pending = True
 
@@ -2787,18 +2811,7 @@ class DictationEngine:
         if not should_start:
             return False
 
-        worker = threading.Thread(
-            target=self._run_audio_stream_open,
-            kwargs={"clear_pending": True},
-            daemon=True,
-        )
-        try:
-            worker.start()
-        except Exception as exc:
-            with self.lock:
-                self._audio_open_task_pending = False
-            log_debug(f"audio stream async start error={type(exc).__name__}")
-            self.set_status("Audio unavailable")
+        self._start_audio_open_task("async")
         return False
 
     def close_audio_stream(self, invalidate=True, wait=True):

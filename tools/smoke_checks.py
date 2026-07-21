@@ -872,6 +872,41 @@ def check_ui_audio_operations_are_nonblocking():
         )
         assert "Ready" in statuses
         engine.close_audio_stream()
+
+        start_entered = threading.Event()
+        start_release = threading.Event()
+        release_events.append(start_release)
+        factory = FakeInputStreamFactory(start_entered, start_release)
+        backend = FakeAudioBackend()
+        backend.InputStream = factory
+        app.sd = backend
+        statuses = []
+        engine = app.DictationEngine(cfg, statuses.append, lambda *_args: None)
+        engines.append(engine)
+        engine.loaded = True
+
+        assert engine.ensure_audio_stream_async() is False
+        assert start_entered.wait(timeout=2)
+        next_cfg = dict(engine.cfg)
+        next_cfg["sample_rate"] = 22050
+        started_at = time.perf_counter()
+        engine.update_config(next_cfg)
+        assert time.perf_counter() - started_at < 0.5
+        start_release.set()
+
+        device_index = engine.cfg.get("input_device_index")
+        assert wait_until(
+            lambda: len(factory.instances) == 2
+            and engine.stream is factory.instances[1]
+            and engine.stream_signature == (device_index, 1, 22050)
+            and not engine._audio_open_task_pending
+            and engine._audio_opening_token is None
+            and not engine._audio_open_retry_requested
+        )
+        assert factory.instances[0].stop_count == 1
+        assert factory.instances[0].close_count == 1
+        assert "Ready" in statuses
+        engine.close_audio_stream()
     finally:
         for event in release_events:
             event.set()
