@@ -642,10 +642,19 @@ def check_stale_punct_load_is_discarded():
 
 
 class FakeAudioStream:
-    def __init__(self, start_entered=None, start_release=None, fail_start=False):
+    def __init__(
+        self,
+        start_entered=None,
+        start_release=None,
+        fail_start=False,
+        stop_entered=None,
+        stop_release=None,
+    ):
         self.start_entered = start_entered
         self.start_release = start_release
         self.fail_start = fail_start
+        self.stop_entered = stop_entered
+        self.stop_release = stop_release
         self.start_count = 0
         self.stop_count = 0
         self.close_count = 0
@@ -661,6 +670,10 @@ class FakeAudioStream:
 
     def stop(self):
         self.stop_count += 1
+        if self.stop_entered is not None:
+            self.stop_entered.set()
+        if self.stop_release is not None and not self.stop_release.wait(timeout=3):
+            raise TimeoutError("audio stop test timed out")
 
     def close(self):
         self.close_count += 1
@@ -784,6 +797,86 @@ def check_audio_stream_lifecycle_is_serialized():
         assert engine.stream is None and engine.stream_signature is None
         assert "Audio unavailable" in statuses
     finally:
+        app.sd = original_sd
+
+
+def check_ui_audio_operations_are_nonblocking():
+    original_sd = app.sd
+    release_events = []
+    engines = []
+    cfg = app.default_config()
+    cfg["sample_rate"] = 16000
+    try:
+        start_entered = threading.Event()
+        start_release = threading.Event()
+        release_events.append(start_release)
+        factory = FakeInputStreamFactory(start_entered, start_release)
+        backend = FakeAudioBackend()
+        backend.InputStream = factory
+        app.sd = backend
+        statuses = []
+        engine = app.DictationEngine(cfg, statuses.append, lambda *_args: None)
+        engines.append(engine)
+        engine.loaded = True
+
+        started_at = time.perf_counter()
+        engine.start_recording()
+        elapsed = time.perf_counter() - started_at
+        assert elapsed < 0.5
+        assert start_entered.wait(timeout=2)
+        assert engine.recording is False
+        assert "Starting audio" in statuses
+
+        start_release.set()
+        assert wait_until(lambda: engine.stream is not None and not engine._audio_open_task_pending)
+        assert "Ready" in statuses
+        engine.close_audio_stream()
+
+        stop_entered = threading.Event()
+        stop_release = threading.Event()
+        start_entered = threading.Event()
+        start_release = threading.Event()
+        release_events.extend((stop_release, start_release))
+        factory = FakeInputStreamFactory(start_entered, start_release)
+        backend = FakeAudioBackend()
+        backend.InputStream = factory
+        app.sd = backend
+        statuses = []
+        engine = app.DictationEngine(cfg, statuses.append, lambda *_args: None)
+        engines.append(engine)
+        engine.loaded = True
+        old_stream = FakeAudioStream(stop_entered=stop_entered, stop_release=stop_release)
+        engine.stream = old_stream
+        device_index = engine.cfg.get("input_device_index")
+        engine.stream_signature = (device_index, 1, 16000)
+        engine.sample_rate = 16000
+
+        next_cfg = dict(engine.cfg)
+        next_cfg["sample_rate"] = 22050
+        started_at = time.perf_counter()
+        engine.update_config(next_cfg)
+        elapsed = time.perf_counter() - started_at
+        assert elapsed < 0.5
+        assert stop_entered.wait(timeout=2)
+        assert start_entered.wait(timeout=2)
+        assert old_stream.close_count == 0
+        assert "Starting audio" in statuses
+
+        stop_release.set()
+        start_release.set()
+        assert wait_until(lambda: old_stream.close_count == 1)
+        assert wait_until(
+            lambda: engine.stream is not None
+            and engine.stream_signature == (device_index, 1, 22050)
+            and not engine._audio_open_task_pending
+        )
+        assert "Ready" in statuses
+        engine.close_audio_stream()
+    finally:
+        for event in release_events:
+            event.set()
+        for engine in engines:
+            engine.close_audio_stream(wait=False)
         app.sd = original_sd
 
 
@@ -1153,6 +1246,7 @@ def main():
     runner.check("stale ASR status events are discarded", check_stale_asr_status_is_discarded)
     runner.check("stale punctuation generations are discarded", check_stale_punct_load_is_discarded)
     runner.check("audio stream lifecycle is serialized", check_audio_stream_lifecycle_is_serialized)
+    runner.check("UI audio operations stay non-blocking", check_ui_audio_operations_are_nonblocking)
     runner.check("audio discovery failure is recoverable", check_audio_discovery_is_recoverable)
     runner.check("single-instance lock distinguishes all states", check_single_instance_lock_states)
     check_model_paths(runner)

@@ -171,6 +171,7 @@ TRANSLATIONS = {
         "Warming models": "Warming models",
         "Ready": "Ready",
         "Starting": "Starting",
+        "Starting audio": "Starting audio",
         "Still loading": "Still loading",
         "Recording": "Recording",
         "Transcribing": "Transcribing",
@@ -298,6 +299,7 @@ TRANSLATIONS = {
         "Warming models": "Прогрев моделей",
         "Ready": "Готово",
         "Starting": "Запуск",
+        "Starting audio": "Запуск микрофона",
         "Still loading": "Еще загружается",
         "Recording": "Запись",
         "Transcribing": "Распознавание",
@@ -2130,6 +2132,7 @@ class DictationEngine:
         self._audio_opening_generation = None
         self._audio_opening_signature = None
         self._audio_open_retry_requested = False
+        self._audio_open_task_pending = False
         self.loaded = False
         self.loading = False
         self.recording = False
@@ -2193,9 +2196,9 @@ class DictationEngine:
             if punct_changed:
                 self._invalidate_punct_locked(cfg)
         if restart_audio:
-            self.close_audio_stream(invalidate=False)
+            self.close_audio_stream(invalidate=False, wait=False)
             if self.loaded:
-                self.ensure_audio_stream()
+                self.ensure_audio_stream_async()
         if reload_asr:
             self.load_async()
         elif punct_changed and cfg.get("use_punctuation", True):
@@ -2743,11 +2746,60 @@ class DictationEngine:
         with self.lock:
             if self.closing:
                 return
-        worker = threading.Thread(target=self.ensure_audio_stream, daemon=True)
+        worker = threading.Thread(target=self._run_audio_stream_open, daemon=True)
         try:
             worker.start()
         except Exception as exc:
             log_debug(f"audio stream retry start error={type(exc).__name__}")
+
+    def _run_audio_stream_open(self, clear_pending=False):
+        ready = False
+        try:
+            ready = self.ensure_audio_stream()
+        except Exception as exc:
+            log_debug(f"audio stream worker error={type(exc).__name__}")
+        finally:
+            with self.lock:
+                if clear_pending:
+                    self._audio_open_task_pending = False
+                announce_ready = (
+                    ready
+                    and not self.closing
+                    and self.loaded
+                    and not self.recording
+                    and not self.transcribing
+                    and self.stream is not None
+                )
+                if announce_ready:
+                    self.set_status("Ready")
+
+    def ensure_audio_stream_async(self):
+        with self.lock:
+            if self.closing:
+                return False
+            if self.stream is not None:
+                return True
+            should_start = self._audio_opening_token is None and not self._audio_open_task_pending
+            if should_start:
+                self._audio_open_task_pending = True
+
+        self.set_status("Starting audio")
+        if not should_start:
+            return False
+
+        worker = threading.Thread(
+            target=self._run_audio_stream_open,
+            kwargs={"clear_pending": True},
+            daemon=True,
+        )
+        try:
+            worker.start()
+        except Exception as exc:
+            with self.lock:
+                self._audio_open_task_pending = False
+            log_debug(f"audio stream async start error={type(exc).__name__}")
+            self.set_status("Audio unavailable")
+        return False
 
     def close_audio_stream(self, invalidate=True, wait=True):
         with self.audio_lifecycle_lock:
@@ -2911,28 +2963,38 @@ class DictationEngine:
                 self.set_status("Still loading")
                 self.load_async()
                 return
+            stream_ready = self.stream is not None
 
-        if not self.ensure_audio_stream():
+        if not stream_ready:
+            self.ensure_audio_stream_async()
             return
 
         with self.lock:
             if self.closing or self.recording or self.transcribing:
                 return
-            pre_roll_blocks, pre_roll_sec = self.pre_roll_snapshot_locked()
-            self.audio_blocks = pre_roll_blocks
-            self.audio_callback_count = 0
-            self.audio_callback_statuses = []
-            self.audio_first_callback_perf = None
-            self.audio_last_callback_perf = None
-            self.audio_max_callback_gap = 0.0
-            self.recording_pre_roll_sec = pre_roll_sec
-            self.recording_cpu_start = system_cpu_times()
-            self.recording_cpu_end = None
-            self.recording_wall_start = time.perf_counter()
-            self.recording_wall_end = None
-            self.recording_context = None
-            self.recording = True
-            self.set_status("Recording")
+            if self.stream is None:
+                reopen_audio = True
+            else:
+                reopen_audio = False
+                pre_roll_blocks, pre_roll_sec = self.pre_roll_snapshot_locked()
+                self.audio_blocks = pre_roll_blocks
+                self.audio_callback_count = 0
+                self.audio_callback_statuses = []
+                self.audio_first_callback_perf = None
+                self.audio_last_callback_perf = None
+                self.audio_max_callback_gap = 0.0
+                self.recording_pre_roll_sec = pre_roll_sec
+                self.recording_cpu_start = system_cpu_times()
+                self.recording_cpu_end = None
+                self.recording_wall_start = time.perf_counter()
+                self.recording_wall_end = None
+                self.recording_context = None
+                self.recording = True
+                self.set_status("Recording")
+
+        if reopen_audio:
+            self.ensure_audio_stream_async()
+            return
 
         log_debug(f"recording start pre_roll={pre_roll_sec:.3f}s blocks={len(pre_roll_blocks)}")
         context = self.context_before_cursor()
@@ -4404,7 +4466,7 @@ class VoiceDictationApp:
             or status.startswith("Retrying")
             or status.startswith("Converting")
             or status.startswith("Loading")
-            or status in {"Still loading", "Transcribing", "Finishing"}
+            or status in {"Starting audio", "Still loading", "Transcribing", "Finishing"}
         )
         self.overlay_progress_percent = percent if busy else None
         show_progress = busy and self.overlay_details_mode() != "button"
