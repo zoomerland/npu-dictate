@@ -11,6 +11,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 import traceback
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import messagebox, ttk
 from ctypes import wintypes
@@ -18,11 +19,18 @@ from ctypes import wintypes
 import numpy as np
 import onnx_asr
 import pyperclip
-import sounddevice as sd
 import soundfile as sf
 from pynput import keyboard
 
-from app_paths import app_root, bundled_resource_root
+try:
+    import sounddevice as sd
+except (ImportError, OSError) as exc:
+    sd = None
+    SOUNDDEVICE_IMPORT_ERROR = type(exc).__name__
+else:
+    SOUNDDEVICE_IMPORT_ERROR = None
+
+from app_paths import app_root, bundled_resource_root, user_data_root
 from model_setup import (
     artifact_manifest_cache_path,
     asr_model_ready,
@@ -163,9 +171,11 @@ TRANSLATIONS = {
         "Warming models": "Warming models",
         "Ready": "Ready",
         "Starting": "Starting",
+        "Starting audio": "Starting audio",
         "Still loading": "Still loading",
         "Recording": "Recording",
         "Transcribing": "Transcribing",
+        "Finishing": "Finishing",
         "Pasted": "Pasted",
         "Pasted + Enter": "Pasted + Enter",
         "Pasted without Enter": "Pasted without Enter",
@@ -176,6 +186,7 @@ TRANSLATIONS = {
         "No audio": "No audio",
         "Too short": "Too short",
         "No speech": "No speech",
+        "Audio unavailable": "Audio unavailable",
         "Debug copied": "Debug copied",
         "Hotkey captured": "Hotkey captured",
         "Hotkey capture canceled": "Hotkey capture canceled",
@@ -288,9 +299,11 @@ TRANSLATIONS = {
         "Warming models": "Прогрев моделей",
         "Ready": "Готово",
         "Starting": "Запуск",
+        "Starting audio": "Запуск микрофона",
         "Still loading": "Еще загружается",
         "Recording": "Запись",
         "Transcribing": "Распознавание",
+        "Finishing": "Завершение",
         "Pasted": "Вставлено",
         "Pasted + Enter": "Вставлено + Enter",
         "Pasted without Enter": "Вставлено без Enter",
@@ -301,6 +314,7 @@ TRANSLATIONS = {
         "No audio": "Нет звука",
         "Too short": "Слишком коротко",
         "No speech": "Речь не найдена",
+        "Audio unavailable": "Микрофон недоступен",
         "Debug copied": "Диагностика скопирована",
         "Hotkey captured": "Клавиша назначена",
         "Hotkey capture canceled": "Назначение отменено",
@@ -339,7 +353,7 @@ CHOICE_TRANSLATION_KEYS = {
 
 
 def repo_root():
-    return app_root()
+    return user_data_root()
 
 
 class FileTime(ctypes.Structure):
@@ -840,36 +854,59 @@ def active_asr_warmup_buckets(asr, cfg):
     return filtered or [bucket for bucket in DEFAULT_ASR_WARMUP_BUCKETS if bucket in active_buckets]
 
 
-def input_devices():
+_DEFAULT_SOUNDDEVICE = object()
+
+
+def input_devices(backend=_DEFAULT_SOUNDDEVICE):
+    backend = sd if backend is _DEFAULT_SOUNDDEVICE else backend
+    if backend is None:
+        log_debug(f"audio devices unavailable import_error={SOUNDDEVICE_IMPORT_ERROR or 'none'}")
+        return []
+    try:
+        raw_devices = backend.query_devices()
+    except Exception as exc:
+        log_debug(f"audio devices query error={type(exc).__name__}")
+        return []
+
     devices = []
-    for index, info in enumerate(sd.query_devices()):
-        if int(info.get("max_input_channels", 0)) <= 0:
-            continue
-        hostapi = sd.query_hostapis(info["hostapi"])
-        devices.append(
-            {
-                "index": index,
-                "name": str(info["name"]),
-                "hostapi": str(hostapi["name"]),
-                "sample_rate": int(info["default_samplerate"]),
-                "channels": int(info["max_input_channels"]),
-            }
-        )
+    for index, info in enumerate(raw_devices):
+        try:
+            if int(info.get("max_input_channels", 0)) <= 0:
+                continue
+            hostapi = backend.query_hostapis(info["hostapi"])
+            devices.append(
+                {
+                    "index": index,
+                    "name": str(info["name"]),
+                    "hostapi": str(hostapi["name"]),
+                    "sample_rate": int(info["default_samplerate"]),
+                    "channels": int(info["max_input_channels"]),
+                }
+            )
+        except Exception as exc:
+            log_debug(f"audio device skipped index={index} error={type(exc).__name__}")
     return devices
 
 
-def choose_default_device_index():
-    devices = input_devices()
+def choose_default_device_index(backend=_DEFAULT_SOUNDDEVICE):
+    backend = sd if backend is _DEFAULT_SOUNDDEVICE else backend
+    devices = input_devices(backend)
+    if not devices:
+        return None
     for device in devices:
         name = device["name"].lower()
         hostapi = device["hostapi"].lower()
         if "microphone array" in name and "wasapi" in hostapi:
             return device["index"]
-    default = sd.query_devices(kind="input")
+    try:
+        default = backend.query_devices(kind="input")
+    except Exception as exc:
+        log_debug(f"audio default query error={type(exc).__name__}")
+        return devices[0]["index"]
     for device in devices:
         if device["name"] == default["name"]:
             return device["index"]
-    return devices[0]["index"] if devices else None
+    return devices[0]["index"]
 
 
 def default_config():
@@ -925,20 +962,35 @@ def default_config():
     }
 
 
-def load_config():
+def load_config(path=None):
     cfg = default_config()
-    path = config_path()
+    path = Path(path) if path is not None else config_path()
     if path.exists():
-        with path.open("r", encoding="utf-8-sig") as file:
-            loaded = json.load(file)
-        cfg.update(loaded)
+        try:
+            with path.open("r", encoding="utf-8-sig") as file:
+                loaded = json.load(file)
+            if not isinstance(loaded, dict):
+                raise TypeError("config root must be an object")
+            cfg.update(loaded)
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
+            log_debug(f"config load fallback error={type(exc).__name__}")
     return normalize_model_config(cfg)
 
 
-def save_config(cfg):
-    path = config_path()
-    with path.open("w", encoding="utf-8") as file:
-        json.dump(cfg, file, ensure_ascii=False, indent=2)
+def save_config(cfg, path=None):
+    path = Path(path) if path is not None else config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.{time.time_ns()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8", newline="\n") as file:
+            json.dump(cfg, file, ensure_ascii=False, indent=2)
+            file.write("\n")
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return path
 
 
 def debug_dictation_dir():
@@ -973,7 +1025,7 @@ def startup_shortcut_path():
 def startup_target_python():
     if getattr(sys, "frozen", False):
         return Path(sys.executable)
-    venv_pythonw = repo_root() / ".venv" / "Scripts" / "pythonw.exe"
+    venv_pythonw = app_root() / ".venv" / "Scripts" / "pythonw.exe"
     if venv_pythonw.exists():
         return venv_pythonw
     return Path(sys.executable)
@@ -1003,9 +1055,9 @@ def set_startup_enabled(enabled):
         if getattr(sys, "frozen", False):
             shortcut.Arguments = ""
         else:
-            script = repo_root() / "tools" / "voice_dictation_app.py"
+            script = app_root() / "tools" / "voice_dictation_app.py"
             shortcut.Arguments = f'"{script}"'
-        shortcut.WorkingDirectory = str(repo_root())
+        shortcut.WorkingDirectory = str(app_root())
         shortcut.IconLocation = str(target)
         shortcut.Description = APP_NAME
         shortcut.Save()
@@ -1032,10 +1084,18 @@ def format_elapsed(seconds):
 def log_debug(message):
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     try:
-        with (repo_root() / "voice_dictation.log").open("a", encoding="utf-8") as file:
+        root = repo_root()
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / "voice_dictation.log").open("a", encoding="utf-8") as file:
             file.write(f"{timestamp} {message}\n")
     except OSError:
         pass
+
+
+class SingleInstanceInitializationError(RuntimeError):
+    def __init__(self, error_code):
+        self.error_code = int(error_code or 0)
+        super().__init__(f"single-instance mutex initialization failed: {self.error_code}")
 
 
 class SingleInstanceLock:
@@ -1064,7 +1124,7 @@ class SingleInstanceLock:
         error = ctypes.get_last_error()
         if not handle:
             log_debug(f"single instance mutex failed error={error}")
-            return True
+            raise SingleInstanceInitializationError(error)
         if error == self.ERROR_ALREADY_EXISTS:
             kernel32.CloseHandle(handle)
             log_debug("single instance already running")
@@ -1093,6 +1153,17 @@ class SingleInstanceLock:
 
     def __exit__(self, exc_type, exc, traceback):
         self.release()
+
+
+def show_startup_error(message):
+    log_debug(f"startup fatal error={message}")
+    if platform.system() == "Windows":
+        try:
+            ctypes.windll.user32.MessageBoxW(None, str(message), APP_NAME, 0x10)
+            return
+        except Exception as exc:
+            log_debug(f"startup error dialog failed error={type(exc).__name__}")
+    print(f"{APP_NAME}: {message}", file=sys.stderr)
 
 
 def token_from_virtual_key(vk):
@@ -1976,6 +2047,52 @@ class HotkeyManager:
                 self.dispatch("stop_recording")
 
 
+@dataclass(frozen=True)
+class RecordingJob:
+    blocks: tuple
+    sample_rate: object
+    cfg: dict
+    asr: object
+    punct: object
+    audio_callback_count: int
+    audio_callback_statuses: tuple
+    audio_first_callback_perf: object
+    audio_max_callback_gap: float
+    recording_pre_roll_sec: float
+    recording_cpu_start: object
+    recording_cpu_end: object
+    recording_wall_start: object
+    recording_wall_end: object
+    context: object
+    suppress_enter_after_paste: bool
+
+
+ASR_RELOAD_CONFIG_KEYS = (
+    "asr_model",
+    "asr_device",
+    "asr_pad_mode",
+    "asr_bucket_frames",
+    "asr_chunked",
+    "asr_chunk_bucket",
+    "asr_vad_segments",
+    "asr_vad_max_speech_s",
+    "asr_vad_min_silence_ms",
+    "asr_vad_speech_pad_ms",
+    "asr_vad_first_pad_ms",
+    "asr_vad_min_segment_ms",
+    "asr_vad_stitch",
+    "asr_vad_fuzzy_stitch",
+)
+
+
+def config_signature(cfg, keys):
+    return tuple(cfg.get(key) for key in keys)
+
+
+def punct_model_signature(cfg):
+    return cfg.get("punct_model"), cfg.get("punct_device")
+
+
 class DictationEngine:
     def __init__(
         self,
@@ -1985,6 +2102,7 @@ class DictationEngine:
         focus_callback=None,
         context_callback=None,
         target_identity_callback=None,
+        asr_status_callback=None,
     ):
         self.cfg = cfg
         self.status_callback = status_callback
@@ -1992,6 +2110,7 @@ class DictationEngine:
         self.focus_callback = focus_callback
         self.context_callback = context_callback
         self.target_identity_callback = target_identity_callback
+        self.asr_status_callback = asr_status_callback
         self.asr = None
         self.compare_asr = None
         self.compare_asr_signature = None
@@ -1999,6 +2118,21 @@ class DictationEngine:
         self.punct = None
         self.punct_loading = False
         self.punct_error = None
+        self._asr_generation = 0
+        self._asr_loading_generation = None
+        self._asr_loaded_generation = None
+        self._punct_generation = 0
+        self._punct_signature = punct_model_signature(cfg)
+        self._punct_loading_generation = None
+        self._punct_loading_signature = None
+        self._punct_loaded_generation = None
+        self._punct_error_generation = None
+        self._audio_generation = 0
+        self._audio_opening_token = None
+        self._audio_opening_generation = None
+        self._audio_opening_signature = None
+        self._audio_open_retry_requested = False
+        self._audio_open_task_pending = False
         self.loaded = False
         self.loading = False
         self.recording = False
@@ -2020,71 +2154,91 @@ class DictationEngine:
         self.recording_wall_start = None
         self.recording_wall_end = None
         self.recording_context = None
-        self.recording_suppress_enter_after_paste = False
         self.last_paste_target_identity = None
         self.last_enter_failure_reason = None
+        self.closing = False
+        self.transcription_thread = None
+        self.transcription_done = threading.Event()
+        self.transcription_done.set()
         self.hardware_info = None
         self.lock = threading.RLock()
+        self.audio_lifecycle_lock = threading.RLock()
         self.compare_lock = threading.RLock()
         self.punct_lock = threading.RLock()
+        self.punct_condition = threading.Condition(self.punct_lock)
         self.keyboard = keyboard.Controller()
 
     def update_config(self, cfg):
         cfg = normalize_model_config(cfg, self.hardware_info)
-        reload_asr = False
-        restart_audio = False
         with self.lock:
             old_cfg = self.cfg
-            reload_asr = (
-                old_cfg.get("asr_model") != cfg.get("asr_model")
-                or old_cfg.get("asr_device") != cfg.get("asr_device")
-                or old_cfg.get("asr_pad_mode") != cfg.get("asr_pad_mode")
-                or old_cfg.get("asr_bucket_frames") != cfg.get("asr_bucket_frames")
-                or old_cfg.get("asr_chunked") != cfg.get("asr_chunked")
-                or old_cfg.get("asr_chunk_bucket") != cfg.get("asr_chunk_bucket")
-                or old_cfg.get("asr_vad_segments") != cfg.get("asr_vad_segments")
-                or old_cfg.get("asr_vad_max_speech_s") != cfg.get("asr_vad_max_speech_s")
-                or old_cfg.get("asr_vad_min_silence_ms") != cfg.get("asr_vad_min_silence_ms")
-                or old_cfg.get("asr_vad_speech_pad_ms") != cfg.get("asr_vad_speech_pad_ms")
-                or old_cfg.get("asr_vad_first_pad_ms") != cfg.get("asr_vad_first_pad_ms")
-                or old_cfg.get("asr_vad_min_segment_ms") != cfg.get("asr_vad_min_segment_ms")
-                or old_cfg.get("asr_vad_stitch") != cfg.get("asr_vad_stitch")
-                or old_cfg.get("asr_vad_fuzzy_stitch") != cfg.get("asr_vad_fuzzy_stitch")
+            reload_asr = config_signature(old_cfg, ASR_RELOAD_CONFIG_KEYS) != config_signature(
+                cfg,
+                ASR_RELOAD_CONFIG_KEYS,
             )
             restart_audio = (
                 old_cfg.get("input_device_index") != cfg.get("input_device_index")
                 or old_cfg.get("sample_rate") != cfg.get("sample_rate")
                 or old_cfg.get("channels") != cfg.get("channels")
             )
+            punct_changed = punct_model_signature(old_cfg) != punct_model_signature(cfg)
             self.cfg = cfg
+            if restart_audio:
+                self._audio_generation += 1
             if reload_asr:
+                self._asr_generation += 1
                 self.asr = None
                 self.vad = None
                 self.compare_asr = None
                 self.compare_asr_signature = None
                 self.loaded = False
-            if (
-                old_cfg.get("punct_model") != cfg.get("punct_model")
-                or old_cfg.get("punct_device") != cfg.get("punct_device")
-            ):
-                with self.punct_lock:
-                    self.punct = None
-                    self.punct_error = None
+                self._asr_loaded_generation = None
+            if punct_changed:
+                self._invalidate_punct_locked(cfg)
         if restart_audio:
-            self.close_audio_stream()
+            self.close_audio_stream(invalidate=False, wait=False)
             if self.loaded:
-                self.ensure_audio_stream()
+                self.ensure_audio_stream_async()
         if reload_asr:
             self.load_async()
+        elif punct_changed and cfg.get("use_punctuation", True):
+            self.load_punct_async(cfg)
 
     def set_status(self, status):
         self.status_callback(status)
 
     def load_async(self):
-        if self.loading or self.loaded:
-            return
-        self.loading = True
-        threading.Thread(target=self._load_models, daemon=True).start()
+        with self.lock:
+            generation = self._asr_generation
+            if self.closing:
+                return False
+            if self.loaded and self._asr_loaded_generation == generation and self.asr is not None:
+                return False
+            if self._asr_loading_generation is not None:
+                return False
+            cfg = dict(self.cfg)
+            self._asr_loading_generation = generation
+            self.loading = True
+            worker = threading.Thread(target=self._load_models, args=(generation, cfg), daemon=True)
+        try:
+            worker.start()
+        except Exception:
+            with self.lock:
+                if self._asr_loading_generation == generation:
+                    self._asr_loading_generation = None
+                    self.loading = False
+            raise
+        return True
+
+    def _invalidate_punct_locked(self, cfg):
+        with self.punct_condition:
+            self._punct_generation += 1
+            self._punct_signature = punct_model_signature(cfg)
+            self.punct = None
+            self.punct_error = None
+            self._punct_loaded_generation = None
+            self._punct_error_generation = None
+            self.punct_condition.notify_all()
 
     def _load_asr_profile(self, model_id, device, status_callback=None, cfg=None):
         profile = model_profile(ASR_MODEL_PROFILES, model_id, DEFAULT_ASR_MODEL)
@@ -2173,48 +2327,119 @@ class DictationEngine:
 
     def _get_punct(self, cfg, status_callback=None):
         while True:
-            with self.punct_lock:
-                if self.punct is not None:
+            requested_signature = punct_model_signature(cfg)
+            with self.punct_condition:
+                generation = self._punct_generation
+                if requested_signature != self._punct_signature:
+                    if self._punct_loading_signature == requested_signature:
+                        self.punct_condition.wait()
+                        continue
+                    generation = None
+                    break
+                if self.punct is not None and self._punct_loaded_generation == generation:
                     return self.punct
-                if not self.punct_loading:
+                if self.punct_error is not None and self._punct_error_generation == generation:
+                    raise self.punct_error
+                if self._punct_loading_generation is None:
+                    self._punct_loading_generation = generation
+                    self._punct_loading_signature = requested_signature
                     self.punct_loading = True
                     self.punct_error = None
                     break
-                error = self.punct_error
-            if error is not None:
-                raise error
-            time.sleep(0.05)
+                self.punct_condition.wait()
 
+        if generation is None:
+            return self._load_punct_profile(cfg, status_callback)
+
+        return self._load_punct_generation(generation, requested_signature, cfg, status_callback)
+
+    def _load_punct_generation(self, generation, signature, cfg, status_callback=None):
         try:
             punct = self._load_punct_profile(cfg, status_callback)
-            with self.punct_lock:
+        except Exception as exc:
+            with self.punct_condition:
+                owns_load = self._punct_loading_generation == generation
+                current = generation == self._punct_generation and signature == self._punct_signature
+                if owns_load:
+                    self._punct_loading_generation = None
+                    self._punct_loading_signature = None
+                    self.punct_loading = False
+                if current:
+                    self.punct_error = exc
+                    self._punct_error_generation = generation
+                self.punct_condition.notify_all()
+            if not current:
+                self._queue_current_punct_preload()
+            raise
+
+        with self.punct_condition:
+            owns_load = self._punct_loading_generation == generation
+            current = (
+                generation == self._punct_generation
+                and signature == self._punct_signature
+                and not self.closing
+            )
+            if current:
                 self.punct = punct
                 self.punct_error = None
-                return self.punct
-        except Exception as exc:
-            with self.punct_lock:
-                self.punct_error = exc
-            raise
-        finally:
-            with self.punct_lock:
+                self._punct_loaded_generation = generation
+                self._punct_error_generation = None
+            if owns_load:
+                self._punct_loading_generation = None
+                self._punct_loading_signature = None
                 self.punct_loading = False
+            self.punct_condition.notify_all()
+
+        if not current:
+            self._queue_current_punct_preload()
+        return punct
 
     def load_punct_async(self, cfg):
-        with self.punct_lock:
-            if self.punct is not None or self.punct_loading:
-                return
-
         cfg = dict(cfg)
+        signature = punct_model_signature(cfg)
+        with self.punct_condition:
+            generation = self._punct_generation
+            if self.closing or signature != self._punct_signature:
+                return False
+            if self.punct is not None and self._punct_loaded_generation == generation:
+                return False
+            if self._punct_loading_generation is not None:
+                return False
+            self._punct_loading_generation = generation
+            self._punct_loading_signature = signature
+            self.punct_loading = True
+            self.punct_error = None
 
         def run():
             try:
-                self._get_punct(cfg)
-                if not self.recording and not self.transcribing:
+                self._load_punct_generation(generation, signature, cfg)
+                with self.punct_condition:
+                    current = self._punct_loaded_generation == generation and self.punct is not None
+                if current and self.loaded and self.is_idle() and not self.closing:
                     self.set_status("Ready")
             except Exception as exc:
                 log_debug(f"load punct async error type={type(exc).__name__}")
 
-        threading.Thread(target=run, daemon=True).start()
+        worker = threading.Thread(target=run, daemon=True)
+        try:
+            worker.start()
+        except Exception:
+            with self.punct_condition:
+                if self._punct_loading_generation == generation:
+                    self._punct_loading_generation = None
+                    self._punct_loading_signature = None
+                    self.punct_loading = False
+                    self.punct_condition.notify_all()
+            raise
+        return True
+
+    def _queue_current_punct_preload(self):
+        with self.lock:
+            if self.closing:
+                return
+            cfg = dict(self.cfg)
+        if cfg.get("use_punctuation", True):
+            self.load_punct_async(cfg)
 
     def _compare_asr_async(self, audio, sample_rate, duration, active_text, active_sec, cfg):
         if not cfg.get("compare_asr", False):
@@ -2252,10 +2477,10 @@ class DictationEngine:
 
         threading.Thread(target=run_compare, daemon=True).start()
 
-    def _retry_fragmented_asr(self, audio, sample_rate, raw_text, raw_bucket, cfg):
+    def _retry_fragmented_asr(self, asr, audio, sample_rate, raw_text, raw_bucket, cfg):
         if not cfg.get("asr_retry_fragmented", True):
             return raw_text, raw_bucket, []
-        if not hasattr(self.asr, "recognize_with_bucket"):
+        if not hasattr(asr, "recognize_with_bucket"):
             return raw_text, raw_bucket, []
 
         best_text = raw_text
@@ -2277,9 +2502,9 @@ class DictationEngine:
                 continue
             try:
                 start = time.perf_counter()
-                candidate_result = self.asr.recognize_with_bucket(audio, sample_rate=sample_rate, bucket=bucket)
+                candidate_result = asr.recognize_with_bucket(audio, sample_rate=sample_rate, bucket=bucket)
                 candidate_text = result_to_text(candidate_result).strip()
-                candidate_bucket = asr_bucket_label(self.asr)
+                candidate_bucket = asr_bucket_label(asr)
                 candidate_score = asr_fragmentation_score(candidate_text)
                 retry_results.append(
                     {
@@ -2310,12 +2535,13 @@ class DictationEngine:
             )
         return best_text, best_bucket, retry_results
 
-    def _warmup_models(self, asr, punct, cfg):
+    def _warmup_models(self, asr, punct, cfg, status_callback=None):
         if not cfg.get("warmup_models", True):
             log_debug("warmup skipped disabled=True")
             return
 
-        self.set_status("Warming models")
+        emit_status = status_callback or self.set_status
+        emit_status("Warming models")
         if hasattr(asr, "warmup"):
             if str(cfg.get("asr_device", "")).upper().startswith("NPU"):
                 log_debug(
@@ -2362,11 +2588,26 @@ class DictationEngine:
             except Exception as exc:
                 log_debug(f"warmup punct error type={type(exc).__name__}")
 
-    def _load_models(self):
+    def _asr_generation_is_current(self, generation, asr=None):
+        with self.lock:
+            if self.closing or generation != self._asr_generation:
+                return False
+            return asr is None or self.asr is asr
+
+    def _set_asr_status(self, generation, status):
+        if not self._asr_generation_is_current(generation):
+            return False
+        if self.asr_status_callback is not None:
+            self.asr_status_callback(generation, status)
+        else:
+            self.set_status(status)
+        return True
+
+    def _load_models(self, generation, cfg):
         try:
             load_start = time.perf_counter()
-            log_debug("load start")
-            cfg = dict(self.cfg)
+            log_debug(f"load start generation={generation}")
+            emit_status = lambda status: self._set_asr_status(generation, status)
             hardware_info = probe_openvino_hardware(cfg)
             log_openvino_hardware(hardware_info)
             normalized_cfg = normalize_model_config(dict(cfg), hardware_info)
@@ -2379,21 +2620,18 @@ class DictationEngine:
                     f"asr={cfg.get('asr_device')}->{normalized_cfg.get('asr_device')} "
                     f"punct={cfg.get('punct_device')}->{normalized_cfg.get('punct_device')}"
                 )
-                cfg = normalized_cfg
-                hardware_info["selected_devices"] = selected_openvino_devices(cfg, hardware_info)
-            with self.lock:
-                self.hardware_info = hardware_info
-                self.cfg = cfg
+            cfg = normalized_cfg
+            hardware_info["selected_devices"] = selected_openvino_devices(cfg, hardware_info)
             pending_downloads = pending_model_downloads(cfg)
             if pending_downloads:
-                self.set_status(f"First model setup: {', '.join(pending_downloads)}")
+                emit_status(f"First model setup: {', '.join(pending_downloads)}")
             asr_profile = model_profile(ASR_MODEL_PROFILES, cfg.get("asr_model"), DEFAULT_ASR_MODEL)
-            self.set_status("Loading ASR")
+            emit_status("Loading ASR")
             asr_start = time.perf_counter()
             asr = self._load_asr_profile(
                 cfg.get("asr_model"),
                 cfg.get("asr_device", asr_profile["default_device"]),
-                self.set_status,
+                emit_status,
                 cfg,
             )
             log_debug(
@@ -2402,82 +2640,243 @@ class DictationEngine:
                 f"seconds={time.perf_counter() - asr_start:.3f}"
             )
 
-            self._warmup_models(asr, None, cfg)
+            self._warmup_models(asr, None, cfg, emit_status)
 
             with self.lock:
-                self.asr = asr
-                self.loaded = True
-                self.loading = False
-            self.ensure_audio_stream()
-            log_debug(f"load ready seconds={time.perf_counter() - load_start:.3f}")
-            self.set_status("Ready")
-            if cfg.get("use_punctuation", True):
-                self.load_punct_async(cfg)
+                current = generation == self._asr_generation and not self.closing
+                if current:
+                    current_cfg = normalize_model_config(dict(self.cfg), hardware_info)
+                    current = config_signature(current_cfg, ASR_RELOAD_CONFIG_KEYS) == config_signature(
+                        cfg,
+                        ASR_RELOAD_CONFIG_KEYS,
+                    )
+                if current:
+                    hardware_info["selected_devices"] = selected_openvino_devices(current_cfg, hardware_info)
+                    self.hardware_info = hardware_info
+                    self.cfg = current_cfg
+                    self.asr = asr
+                    self.loaded = True
+                    self._asr_loaded_generation = generation
+                    if self._punct_signature != punct_model_signature(current_cfg):
+                        self._invalidate_punct_locked(current_cfg)
+                if self._asr_loading_generation == generation:
+                    self._asr_loading_generation = None
+                    self.loading = False
+                retry_latest = not current and not self.closing
+
+            if not current:
+                log_debug(f"load discarded stale generation={generation} current={self._asr_generation}")
+                if retry_latest:
+                    self.load_async()
+                return
+
+            audio_ready = self.ensure_audio_stream()
+            if not self._asr_generation_is_current(generation, asr):
+                return
+            log_debug(f"load ready generation={generation} seconds={time.perf_counter() - load_start:.3f}")
+            if audio_ready:
+                self._set_asr_status(generation, "Ready")
+            if current_cfg.get("use_punctuation", True):
+                self.load_punct_async(current_cfg)
         except Exception as exc:
             with self.lock:
-                self.loading = False
-            log_debug(f"load error type={type(exc).__name__} message={exc}")
+                current = generation == self._asr_generation and not self.closing
+                if self._asr_loading_generation == generation:
+                    self._asr_loading_generation = None
+                    self.loading = False
+                if current:
+                    self.loaded = False
+                    self._asr_loaded_generation = None
+                retry_latest = not current and not self.closing
+            log_debug(f"load error generation={generation} type={type(exc).__name__} message={exc}")
             for line in traceback.format_exc().splitlines():
                 log_debug(f"load traceback {line}")
-            self.set_status(f"Load error: {type(exc).__name__}")
+            if current:
+                self._set_asr_status(generation, f"Load error: {type(exc).__name__}")
+            elif retry_latest:
+                self.load_async()
 
-    def resolve_sample_rate(self):
-        configured = int(self.cfg.get("sample_rate") or 0)
+    def resolve_sample_rate(self, cfg=None):
+        cfg = cfg or self.cfg
+        if sd is None:
+            raise RuntimeError("sounddevice backend unavailable")
+        configured = int(cfg.get("sample_rate") or 0)
         if configured:
             return configured
-        device_index = self.cfg.get("input_device_index")
+        device_index = cfg.get("input_device_index")
         info = sd.query_devices(device_index, "input")
         return int(info["default_samplerate"])
 
-    def audio_stream_signature(self):
-        sample_rate = self.resolve_sample_rate()
+    def audio_stream_signature(self, cfg=None):
+        cfg = cfg or self.cfg
+        sample_rate = self.resolve_sample_rate(cfg)
         return (
-            self.cfg.get("input_device_index"),
-            int(self.cfg.get("channels") or 1),
+            cfg.get("input_device_index"),
+            int(cfg.get("channels") or 1),
             sample_rate,
         )
 
-    def close_audio_stream(self):
-        with self.lock:
-            stream = self.stream
-            self.stream = None
-            self.stream_signature = None
-            self.pre_roll_blocks.clear()
-            self.pre_roll_samples = 0
-
-        if stream:
-            try:
-                stream.stop()
-                stream.close()
-            except Exception as exc:
-                log_debug(f"audio stream close error={type(exc).__name__}")
-
-    def ensure_audio_stream(self):
+    @staticmethod
+    def _dispose_audio_stream(stream, reason):
+        if stream is None:
+            return
         try:
-            signature = self.audio_stream_signature()
+            stream.stop()
         except Exception as exc:
-            log_debug(f"audio stream signature error={type(exc).__name__}")
-            self.set_status(f"Audio error: {type(exc).__name__}")
+            log_debug(f"audio stream {reason} stop error={type(exc).__name__}")
+        try:
+            stream.close()
+        except Exception as exc:
+            log_debug(f"audio stream {reason} close error={type(exc).__name__}")
+
+    def _dispose_audio_stream_async(self, stream, reason):
+        if stream is None:
+            return
+        worker = threading.Thread(
+            target=self._dispose_audio_stream,
+            args=(stream, reason),
+            daemon=True,
+        )
+        try:
+            worker.start()
+        except Exception as exc:
+            log_debug(f"audio stream {reason} cleanup start error={type(exc).__name__}")
+
+    def _schedule_audio_stream_retry(self):
+        with self.lock:
+            if self.closing:
+                return
+            self._audio_open_retry_requested = True
+            if self._audio_open_task_pending:
+                return
+            self._audio_open_task_pending = True
+        self._start_audio_open_task("retry")
+
+    def _start_audio_open_task(self, reason):
+        worker = threading.Thread(target=self._run_audio_stream_open, daemon=True)
+        try:
+            worker.start()
+        except Exception as exc:
+            with self.lock:
+                self._audio_open_task_pending = False
+                self._audio_open_retry_requested = False
+            log_debug(f"audio stream {reason} start error={type(exc).__name__}")
+            self.set_status("Audio unavailable")
+
+    def _run_audio_stream_open(self):
+        ready = False
+        with self.lock:
+            self._audio_open_retry_requested = False
+        try:
+            ready = self.ensure_audio_stream()
+        except Exception as exc:
+            log_debug(f"audio stream worker error={type(exc).__name__}")
+        finally:
+            restart_latest = False
+            with self.lock:
+                self._audio_open_task_pending = False
+                announce_ready = (
+                    ready
+                    and not self.closing
+                    and self.loaded
+                    and not self.recording
+                    and not self.transcribing
+                    and self.stream is not None
+                )
+                if announce_ready:
+                    self.set_status("Ready")
+                restart_latest = (
+                    self._audio_open_retry_requested
+                    and not self.closing
+                    and self.stream is None
+                    and self._audio_opening_token is None
+                )
+                if restart_latest:
+                    self._audio_open_task_pending = True
+            if restart_latest:
+                self._start_audio_open_task("latest retry")
+
+    def ensure_audio_stream_async(self):
+        with self.lock:
+            if self.closing:
+                return False
+            if self.stream is not None:
+                return True
+            self._audio_open_retry_requested = True
+            should_start = not self._audio_open_task_pending
+            if should_start:
+                self._audio_open_task_pending = True
+
+        self.set_status("Starting audio")
+        if not should_start:
             return False
 
-        with self.lock:
-            if self.stream and self.stream_signature == signature:
-                self.sample_rate = signature[2]
-                return True
-            old_stream = self.stream
-            self.stream = None
-            self.stream_signature = None
-            self.pre_roll_blocks.clear()
-            self.pre_roll_samples = 0
+        self._start_audio_open_task("async")
+        return False
 
-        if old_stream:
-            try:
-                old_stream.stop()
-                old_stream.close()
-            except Exception as exc:
-                log_debug(f"audio stream restart close error={type(exc).__name__}")
+    def close_audio_stream(self, invalidate=True, wait=True):
+        with self.audio_lifecycle_lock:
+            with self.lock:
+                if invalidate:
+                    self._audio_generation += 1
+                if self.closing:
+                    self._audio_open_retry_requested = False
+                stream = self.stream
+                self.stream = None
+                self.stream_signature = None
+                self.sample_rate = None
+                self.pre_roll_blocks.clear()
+                self.pre_roll_samples = 0
+        if wait:
+            self._dispose_audio_stream(stream, "close")
+        else:
+            self._dispose_audio_stream_async(stream, "close")
+
+    def ensure_audio_stream(self):
+        with self.lock:
+            if self.closing:
+                return False
+            generation = self._audio_generation
+            cfg = dict(self.cfg)
+        try:
+            signature = self.audio_stream_signature(cfg)
+        except Exception as exc:
+            log_debug(f"audio stream signature error={type(exc).__name__}")
+            if self._audio_generation_is_current(generation):
+                self.set_status("Audio unavailable")
+            return False
 
         device_index, channels, sample_rate = signature
+        token = object()
+        with self.audio_lifecycle_lock:
+            with self.lock:
+                if self.closing or generation != self._audio_generation:
+                    return False
+                if self.stream and self.stream_signature == signature:
+                    self.sample_rate = signature[2]
+                    return True
+                if self._audio_opening_token is not None:
+                    opening_signature = (
+                        self._audio_opening_generation,
+                        self._audio_opening_signature,
+                    )
+                    if opening_signature != (generation, signature):
+                        self._audio_open_retry_requested = True
+                    return False
+                self._audio_opening_token = token
+                self._audio_opening_generation = generation
+                self._audio_opening_signature = signature
+                self._audio_open_retry_requested = False
+                old_stream = self.stream
+                self.stream = None
+                self.stream_signature = None
+                self.sample_rate = sample_rate
+                self.pre_roll_blocks.clear()
+                self.pre_roll_samples = 0
+
+        self._dispose_audio_stream(old_stream, "restart")
+
+        stream = None
         try:
             stream = sd.InputStream(
                 samplerate=sample_rate,
@@ -2486,27 +2885,65 @@ class DictationEngine:
                 device=device_index,
                 callback=self._audio_callback,
             )
-            with self.lock:
-                self.stream = stream
-                self.stream_signature = signature
-                self.sample_rate = sample_rate
-                self.pre_roll_blocks.clear()
-                self.pre_roll_samples = 0
             stream.start()
+            with self.audio_lifecycle_lock:
+                with self.lock:
+                    owns_open = self._audio_opening_token is token
+                    current = owns_open and not self.closing and generation == self._audio_generation
+                    if current:
+                        self.stream = stream
+                        self.stream_signature = signature
+                        self.sample_rate = sample_rate
+                    retry_latest = False
+                    if owns_open:
+                        self._audio_opening_token = None
+                        self._audio_opening_generation = None
+                        self._audio_opening_signature = None
+                        retry_latest = self._audio_open_retry_requested and not self.closing
+                        self._audio_open_retry_requested = False
+            if not current:
+                self._dispose_audio_stream(stream, "stale")
+                with self.lock:
+                    if self.stream is None:
+                        self.sample_rate = None
+                        self.pre_roll_blocks.clear()
+                        self.pre_roll_samples = 0
+                if retry_latest:
+                    self._schedule_audio_stream_retry()
+                return False
             log_debug(
                 "audio stream ready "
                 f"device={device_index} channels={channels} sample_rate={sample_rate} "
-                f"pre_roll_ms={int(self.cfg.get('audio_pre_roll_ms') or 0)}"
+                f"pre_roll_ms={int(cfg.get('audio_pre_roll_ms') or 0)}"
             )
             return True
         except Exception as exc:
-            with self.lock:
-                if self.stream is locals().get("stream"):
-                    self.stream = None
-                    self.stream_signature = None
+            self._dispose_audio_stream(stream, "failed")
+            with self.audio_lifecycle_lock:
+                with self.lock:
+                    owns_open = self._audio_opening_token is token
+                    current = owns_open and not self.closing and generation == self._audio_generation
+                    retry_latest = False
+                    if owns_open:
+                        self._audio_opening_token = None
+                        self._audio_opening_generation = None
+                        self._audio_opening_signature = None
+                        retry_latest = self._audio_open_retry_requested and not self.closing
+                        self._audio_open_retry_requested = False
+                    if current and (self.stream is None or self.stream is stream):
+                        self.stream = None
+                        self.stream_signature = None
+                        self.sample_rate = None
             log_debug(f"audio stream error={type(exc).__name__}")
-            self.set_status(f"Audio error: {type(exc).__name__}")
+            if current:
+                self.set_status("Audio unavailable")
+            if retry_latest:
+                self._schedule_audio_stream_retry()
             return False
+
+    def _audio_generation_is_current(self, generation):
+        with self.lock:
+            return not self.closing and generation == self._audio_generation
 
     def append_pre_roll_block_locked(self, block):
         pre_roll_ms = int(self.cfg.get("audio_pre_roll_ms") or 0)
@@ -2533,35 +2970,44 @@ class DictationEngine:
 
     def start_recording(self):
         with self.lock:
-            if self.recording or self.transcribing:
+            if self.closing or self.recording or self.transcribing:
                 return
             if not self.loaded:
                 self.set_status("Still loading")
                 self.load_async()
                 return
+            stream_ready = self.stream is not None
 
-        if not self.ensure_audio_stream():
+        if not stream_ready:
+            self.ensure_audio_stream_async()
             return
 
         with self.lock:
-            if self.recording or self.transcribing:
+            if self.closing or self.recording or self.transcribing:
                 return
-            pre_roll_blocks, pre_roll_sec = self.pre_roll_snapshot_locked()
-            self.audio_blocks = pre_roll_blocks
-            self.audio_callback_count = 0
-            self.audio_callback_statuses = []
-            self.audio_first_callback_perf = None
-            self.audio_last_callback_perf = None
-            self.audio_max_callback_gap = 0.0
-            self.recording_pre_roll_sec = pre_roll_sec
-            self.recording_cpu_start = system_cpu_times()
-            self.recording_cpu_end = None
-            self.recording_wall_start = time.perf_counter()
-            self.recording_wall_end = None
-            self.recording_context = None
-            self.recording_suppress_enter_after_paste = False
-            self.recording = True
-            self.set_status("Recording")
+            if self.stream is None:
+                reopen_audio = True
+            else:
+                reopen_audio = False
+                pre_roll_blocks, pre_roll_sec = self.pre_roll_snapshot_locked()
+                self.audio_blocks = pre_roll_blocks
+                self.audio_callback_count = 0
+                self.audio_callback_statuses = []
+                self.audio_first_callback_perf = None
+                self.audio_last_callback_perf = None
+                self.audio_max_callback_gap = 0.0
+                self.recording_pre_roll_sec = pre_roll_sec
+                self.recording_cpu_start = system_cpu_times()
+                self.recording_cpu_end = None
+                self.recording_wall_start = time.perf_counter()
+                self.recording_wall_end = None
+                self.recording_context = None
+                self.recording = True
+                self.set_status("Recording")
+
+        if reopen_audio:
+            self.ensure_audio_stream_async()
+            return
 
         log_debug(f"recording start pre_roll={pre_roll_sec:.3f}s blocks={len(pre_roll_blocks)}")
         context = self.context_before_cursor()
@@ -2572,14 +3018,50 @@ class DictationEngine:
     def stop_recording(self, suppress_enter_after_paste=False):
         with self.lock:
             if not self.recording:
-                return
+                return False
             self.recording = False
-            self.recording_suppress_enter_after_paste = bool(suppress_enter_after_paste)
             self.recording_cpu_end = system_cpu_times()
             self.recording_wall_end = time.perf_counter()
+            with self.punct_lock:
+                punct = self.punct
+            job = RecordingJob(
+                blocks=tuple(self.audio_blocks),
+                sample_rate=self.sample_rate,
+                cfg=dict(self.cfg),
+                asr=self.asr,
+                punct=punct,
+                audio_callback_count=self.audio_callback_count,
+                audio_callback_statuses=tuple(self.audio_callback_statuses),
+                audio_first_callback_perf=self.audio_first_callback_perf,
+                audio_max_callback_gap=self.audio_max_callback_gap,
+                recording_pre_roll_sec=self.recording_pre_roll_sec,
+                recording_cpu_start=self.recording_cpu_start,
+                recording_cpu_end=self.recording_cpu_end,
+                recording_wall_start=self.recording_wall_start,
+                recording_wall_end=self.recording_wall_end,
+                context=self.recording_context,
+                suppress_enter_after_paste=bool(suppress_enter_after_paste),
+            )
+            self.audio_blocks = []
+            self.recording_context = None
+            self.transcribing = True
+            self.transcription_done.clear()
             self.clear_pre_roll_locked()
+            worker = threading.Thread(target=self._transcribe_recording, args=(job,), daemon=True)
+            self.transcription_thread = worker
 
-        threading.Thread(target=self._transcribe_recording, daemon=True).start()
+        try:
+            worker.start()
+        except Exception as exc:
+            with self.lock:
+                if self.transcription_thread is worker:
+                    self.transcription_thread = None
+                self.transcribing = False
+                self.transcription_done.set()
+            log_debug(f"transcription thread start error={type(exc).__name__}")
+            self.set_status(f"Error: {type(exc).__name__}")
+            return False
+        return True
 
     def toggle_recording(self, suppress_enter_after_paste=False):
         if self.recording:
@@ -2594,10 +3076,22 @@ class DictationEngine:
             self.recording = False
             self.audio_blocks = []
             self.recording_context = None
-            self.recording_suppress_enter_after_paste = False
             self.clear_pre_roll_locked()
 
         self.set_status("Ready" if self.loaded else "Starting")
+
+    def request_shutdown(self):
+        with self.lock:
+            self.closing = True
+            self._audio_generation += 1
+            should_stop = self.recording
+        if should_stop:
+            self.stop_recording()
+        return not self.is_idle()
+
+    def is_idle(self):
+        with self.lock:
+            return not self.recording and not self.transcribing
 
     def _audio_callback(self, indata, frames, time_info, status):
         now = time.perf_counter()
@@ -2619,22 +3113,21 @@ class DictationEngine:
             log_debug(f"audio callback status={status_text}")
             self.set_status(status_text)
 
-    def _transcribe_recording(self):
-        with self.lock:
-            blocks = self.audio_blocks
-            sample_rate = self.sample_rate
-            cfg = dict(self.cfg)
-            audio_callback_count = self.audio_callback_count
-            audio_callback_statuses = list(self.audio_callback_statuses)
-            audio_first_callback_perf = self.audio_first_callback_perf
-            audio_max_callback_gap = self.audio_max_callback_gap
-            recording_pre_roll_sec = self.recording_pre_roll_sec
-            recording_cpu_start = self.recording_cpu_start
-            recording_cpu_end = self.recording_cpu_end
-            recording_wall_start = self.recording_wall_start
-            recording_wall_end = self.recording_wall_end
-            suppress_enter_after_paste = self.recording_suppress_enter_after_paste
-            self.transcribing = True
+    def _transcribe_recording(self, job):
+        blocks = job.blocks
+        sample_rate = job.sample_rate
+        cfg = job.cfg
+        asr = job.asr
+        audio_callback_count = job.audio_callback_count
+        audio_callback_statuses = job.audio_callback_statuses
+        audio_first_callback_perf = job.audio_first_callback_perf
+        audio_max_callback_gap = job.audio_max_callback_gap
+        recording_pre_roll_sec = job.recording_pre_roll_sec
+        recording_cpu_start = job.recording_cpu_start
+        recording_cpu_end = job.recording_cpu_end
+        recording_wall_start = job.recording_wall_start
+        recording_wall_end = job.recording_wall_end
+        suppress_enter_after_paste = job.suppress_enter_after_paste
 
         try:
             if not blocks:
@@ -2685,38 +3178,39 @@ class DictationEngine:
             start = time.perf_counter()
             asr_cpu_start = system_cpu_times()
             vad = self._get_vad() if cfg.get("asr_vad_segments", False) else None
-            asr_mode = "vad" if should_use_vad_asr(self.asr, vad, cfg) else (
-                "chunked" if should_use_chunked_asr(self.asr, cfg) else "full"
+            asr_mode = "vad" if should_use_vad_asr(asr, vad, cfg) else (
+                "chunked" if should_use_chunked_asr(asr, cfg) else "full"
             )
             if asr_mode == "vad":
-                audio16 = self.asr.audio_16k(audio, sample_rate=sample_rate)
+                audio16 = asr.audio_16k(audio, sample_rate=sample_rate)
                 segments = vad_segment_ranges(vad, audio16, cfg)
                 log_vad_segments(segments)
-                raw_result = self.asr.recognize_segments_16k(
+                raw_result = asr.recognize_segments_16k(
                     audio16,
                     segments,
                     bucket=normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket")),
                     stitch=bool(cfg.get("asr_vad_stitch", False)),
                     fuzzy_stitch=bool(cfg.get("asr_vad_fuzzy_stitch", False)),
                 )
-                log_asr_chunks(self.asr)
+                log_asr_chunks(asr)
             elif asr_mode == "chunked":
-                raw_result = self.asr.recognize_chunked(
+                raw_result = asr.recognize_chunked(
                     audio,
                     sample_rate=sample_rate,
                     bucket=normalize_asr_chunk_bucket(cfg.get("asr_chunk_bucket")),
                     overlap_ms=normalize_asr_chunk_overlap_ms(cfg.get("asr_chunk_overlap_ms")),
                 )
-                log_asr_chunks(self.asr)
+                log_asr_chunks(asr)
             else:
-                raw_result = self.asr.recognize(audio, sample_rate=sample_rate)
+                raw_result = asr.recognize(audio, sample_rate=sample_rate)
             raw_text = result_to_text(raw_result).strip()
-            asr_bucket = asr_bucket_label(self.asr)
-            asr_pad_mode = asr_pad_mode_label(self.asr)
+            asr_bucket = asr_bucket_label(asr)
+            asr_pad_mode = asr_pad_mode_label(asr)
             asr_sec = time.perf_counter() - start
             asr_cpu_load = cpu_load_percent(asr_cpu_start, system_cpu_times())
             if asr_mode == "full":
                 raw_text, asr_bucket, retry_results = self._retry_fragmented_asr(
+                    asr,
                     audio,
                     sample_rate,
                     raw_text,
@@ -2728,13 +3222,13 @@ class DictationEngine:
             self._compare_asr_async(audio, sample_rate, duration, raw_text, asr_sec, cfg)
 
             final_text = raw_text
-            context = self.recording_context
+            context = job.context
             punct_sec = 0.0
             if raw_text and cfg.get("use_punctuation", True):
-                punct = self._get_punct(cfg, self.set_status)
+                punct = job.punct or self._get_punct(cfg, self.set_status)
                 start = time.perf_counter()
                 if context is None:
-                    context = self.context_before_cursor()
+                    context = self.context_before_cursor(cfg)
                 if context:
                     if hasattr(punct, "restore_inserted"):
                         final_text = punct.restore_inserted(context, raw_text)
@@ -2767,7 +3261,7 @@ class DictationEngine:
                 )
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
                 if cfg.get("auto_paste", True):
-                    if self.paste_text(final_text):
+                    if self.paste_text(final_text, cfg):
                         press_enter = bool(cfg.get("press_enter_after_paste", False))
                         enter_sent = None
                         if press_enter and not suppress_enter_after_paste:
@@ -2792,16 +3286,21 @@ class DictationEngine:
         except Exception as exc:
             self.set_status(f"Error: {type(exc).__name__}")
         finally:
-            with self.lock:
-                self.transcribing = False
-                self.recording_context = None
-                self.recording_suppress_enter_after_paste = False
+            self._finish_transcription_worker()
 
-    def context_before_cursor(self):
-        if not self.cfg.get("use_context", True) or self.context_callback is None:
+    def _finish_transcription_worker(self):
+        with self.lock:
+            if self.transcription_thread is threading.current_thread():
+                self.transcription_thread = None
+            self.transcribing = False
+            self.transcription_done.set()
+
+    def context_before_cursor(self, cfg=None):
+        cfg = cfg or self.cfg
+        if not cfg.get("use_context", True) or self.context_callback is None:
             return None
         try:
-            max_chars = int(self.cfg.get("context_chars", 320) or 320)
+            max_chars = int(cfg.get("context_chars", 320) or 320)
         except (TypeError, ValueError):
             max_chars = 320
         raw_context = self.context_callback(max_chars)
@@ -2812,10 +3311,11 @@ class DictationEngine:
             log_debug(f"punct context normalized_chars={len(context)}")
         return context
 
-    def paste_text(self, text):
+    def paste_text(self, text, cfg=None):
+        cfg = cfg or self.cfg
         self.last_paste_target_identity = None
         self.last_enter_failure_reason = None
-        restore_clipboard = bool(self.cfg.get("restore_clipboard_after_paste", True))
+        restore_clipboard = bool(cfg.get("restore_clipboard_after_paste", True))
         previous_clipboard = ""
         has_previous_clipboard = False
         if restore_clipboard:
@@ -3120,6 +3620,8 @@ class VoiceDictationApp:
         self.recording_started_at = None
         self.transcribing_started_at = None
         self.status_tick_after_id = None
+        self.exit_requested = False
+        self.exit_poll_after_id = None
         self.drag_threshold = 8
         self.drag_start_x = 0
         self.drag_start_y = 0
@@ -3139,6 +3641,7 @@ class VoiceDictationApp:
             focus_callback=self.restore_target_window,
             context_callback=self.context_before_cursor,
             target_identity_callback=self.current_paste_target_identity,
+            asr_status_callback=self.queue_asr_status,
         )
         self.hotkeys = HotkeyManager(self.cfg, self.dispatch)
 
@@ -3751,6 +4254,9 @@ class VoiceDictationApp:
     def queue_status(self, status):
         self.event_queue.put(("status", status))
 
+    def queue_asr_status(self, generation, status):
+        self.event_queue.put(("asr_status", generation, status))
+
     def queue_text(self, raw_text, final_text, duration, asr_sec, punct_sec):
         self.event_queue.put(("text", raw_text, final_text, duration, asr_sec, punct_sec))
 
@@ -3765,6 +4271,10 @@ class VoiceDictationApp:
                 self.handle_action(item[1])
             elif item[0] == "status":
                 self.update_status(item[1])
+            elif item[0] == "asr_status":
+                _, generation, status = item
+                if self.engine._asr_generation_is_current(generation):
+                    self.update_status(status)
             elif item[0] == "text":
                 _, raw_text, final_text, duration, asr_sec, punct_sec = item
                 self.last_text_var.set(final_text)
@@ -3823,6 +4333,8 @@ class VoiceDictationApp:
             "status": self.current_display_status,
             "python": sys.version,
             "platform": platform.platform(),
+            "app_root": str(app_root()),
+            "data_root": str(repo_root()),
             "repo_root": str(repo_root()),
             "config_path": str(config_path()),
             "config": self.cfg,
@@ -3967,7 +4479,7 @@ class VoiceDictationApp:
             or status.startswith("Retrying")
             or status.startswith("Converting")
             or status.startswith("Loading")
-            or status in {"Still loading", "Transcribing"}
+            or status in {"Starting audio", "Still loading", "Transcribing", "Finishing"}
         )
         self.overlay_progress_percent = percent if busy else None
         show_progress = busy and self.overlay_details_mode() != "button"
@@ -4014,6 +4526,7 @@ class VoiceDictationApp:
             "Bad overlay key",
             "Hotkey conflict",
             "Startup error",
+            "Audio unavailable",
         }:
             self.set_overlay_button_state("button_error", "#9f3030", "#832929")
         else:
@@ -4950,7 +5463,34 @@ class VoiceDictationApp:
         return True
 
     def exit_app(self):
+        if self.exit_requested:
+            log_debug("exit forced by repeated request")
+            self._finalize_exit()
+            return
+
+        self.exit_requested = True
         save_config(self.cfg)
+        self.hotkeys.stop()
+        if self.engine.request_shutdown():
+            self.update_status("Finishing")
+            self.exit_poll_after_id = self.root.after(50, self._finish_exit_when_idle)
+            return
+        self._finalize_exit()
+
+    def _finish_exit_when_idle(self):
+        self.exit_poll_after_id = None
+        if not self.engine.is_idle():
+            self.exit_poll_after_id = self.root.after(50, self._finish_exit_when_idle)
+            return
+        self._finalize_exit()
+
+    def _finalize_exit(self):
+        if self.exit_poll_after_id is not None:
+            try:
+                self.root.after_cancel(self.exit_poll_after_id)
+            except tk.TclError:
+                pass
+            self.exit_poll_after_id = None
         if self.status_tick_after_id is not None:
             try:
                 self.root.after_cancel(self.status_tick_after_id)
@@ -4971,9 +5511,7 @@ class VoiceDictationApp:
             except Exception as exc:
                 log_debug(f"tray stop error={type(exc).__name__}")
         self.hotkeys.stop()
-        if self.engine.recording:
-            self.engine.stop_recording()
-        self.engine.close_audio_stream()
+        self.engine.close_audio_stream(wait=False)
         self.root.destroy()
 
     def run(self):
@@ -4985,11 +5523,18 @@ def main():
         log_debug("package smoke import ok")
         return 0
 
-    with SingleInstanceLock(SINGLE_INSTANCE_MUTEX_NAME) as single_instance:
-        if not single_instance.acquired:
-            return 0
-        app = VoiceDictationApp()
-        app.run()
+    try:
+        with SingleInstanceLock(SINGLE_INSTANCE_MUTEX_NAME) as single_instance:
+            if not single_instance.acquired:
+                return 0
+            app = VoiceDictationApp()
+            app.run()
+    except SingleInstanceInitializationError as exc:
+        show_startup_error(
+            "NPU Dictate could not initialize its single-instance lock. "
+            f"Windows error: {exc.error_code}."
+        )
+        return 1
     return 0
 
 

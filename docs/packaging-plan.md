@@ -26,8 +26,9 @@ Source mode:
 Frozen `.exe` mode:
 
 - App root is the directory containing `NPUDictate.exe`.
-- Config, models, logs, and OpenVINO cache stay next to the executable.
-- The `LOCAL_VOICE_DICTATION_APP_ROOT` environment variable can override the app root for tests or portable layouts.
+- The user-data root defaults to the app root, so config, models, logs, and OpenVINO cache remain next to the executable for the current portable/MSI layout.
+- `LOCAL_VOICE_DICTATION_APP_ROOT` overrides the install/code root for tests or portable layouts.
+- `LOCAL_VOICE_DICTATION_DATA_ROOT` independently overrides the user-data root without moving code, bundled assets, or `.venv` lookup.
 - The `LOCAL_VOICE_DICTATION_MUTEX_NAME` environment variable can override the single-instance mutex name for packaging smoke tests.
 
 ## Build Command

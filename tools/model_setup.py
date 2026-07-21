@@ -7,7 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from app_paths import app_root
+from app_paths import user_data_root
 
 
 ASR_MODEL_NAME = "gigaam-v3-ctc"
@@ -23,7 +23,7 @@ PUNCT_OPENVINO_FP16_PROFILE = "rupunct-big-openvino-fp16-static128"
 
 
 def repo_root():
-    return app_root()
+    return user_data_root()
 
 
 def hf_cache_dir():
@@ -224,8 +224,17 @@ def download_url_to_file(
     request = Request(url, headers={"User-Agent": "NPUDictate/0.1"})
     try:
         with urlopen(request, timeout=60) as response, tmp.open("wb") as file:
-            total = expected_size or response.headers.get("Content-Length")
-            total = int(total) if total else None
+            header_size = response.headers.get("Content-Length")
+            try:
+                header_size = int(header_size) if header_size is not None else None
+            except (TypeError, ValueError):
+                header_size = None
+            if header_size is not None and header_size < 0:
+                header_size = None
+            validation_size = int(expected_size) if expected_size is not None else header_size
+            if validation_size is not None and validation_size < 0:
+                raise ValueError(f"Invalid expected size for {label}: {validation_size}")
+            total = validation_size
             downloaded = 0
             started_at = time.monotonic()
             last_emit = 0.0
@@ -256,11 +265,11 @@ def download_url_to_file(
         tmp.unlink(missing_ok=True)
         raise
 
-    if expected_size is not None and tmp.stat().st_size != int(expected_size):
+    if validation_size is not None and tmp.stat().st_size != validation_size:
         actual_size = tmp.stat().st_size
         tmp.unlink(missing_ok=True)
         raise RuntimeError(
-            f"Downloaded size mismatch for {label}: {actual_size} != {expected_size}"
+            f"Downloaded size mismatch for {label}: {actual_size} != {validation_size}"
         )
     return tmp
 

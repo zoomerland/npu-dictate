@@ -152,6 +152,8 @@ Current upstream sources:
 
 The current NPU OpenVINO artifacts are downloaded from Hugging Face into the app-local `models/` directory. The downloader reads `MANIFEST.json`, downloads required files with retries, verifies file size and SHA256, then installs them into their final `models/...` paths.
 
+Mutable files use a separate user-data root internally. It defaults to the app directory for backward compatibility with development, portable EXE, and the current per-user MSI. Set `LOCAL_VOICE_DICTATION_DATA_ROOT` to place config, models, logs, recordings, manifests, and caches elsewhere without changing the install/code root.
+
 Generated local artifacts:
 
 - `models/asr/gigaam-v3-ctc/`
