@@ -339,58 +339,17 @@ def check_post_paste_statuses():
         assert actual == expected, f"{press_enter}, {suppress_enter}, {enter_sent}, {reason}: {actual}"
 
 
-class FakeUiaControl:
-    def __init__(
-        self,
-        process_id,
-        runtime_id,
-        control_type="GroupControl",
-        class_name="ProseMirror ProseMirror-focused",
-        parent=None,
-    ):
-        self.ProcessId = process_id
-        self.ControlTypeName = control_type
-        self.ClassName = class_name
-        self._runtime_id = runtime_id
-        self._parent = parent
-
-    def GetRuntimeId(self):
-        return self._runtime_id
-
-    def GetParentControl(self):
-        return self._parent
-
-
-class FakeUiaAutomation:
-    def __init__(self, focused):
-        self.focused = focused
-
-    def GetFocusedControl(self):
-        return self.focused
-
-
-def check_rich_text_target_identity():
-    tracker = app.FocusedInputTracker()
-    external_pid = tracker.current_pid + 100
-
-    prosemirror = FakeUiaControl(external_pid, (42, 7, 11))
-    tracker.auto = FakeUiaAutomation(prosemirror)
-    assert tracker.focused_input_identity() == (external_pid, 42, 7, 11)
-    assert tracker.last_input is None
-
-    generic_group = FakeUiaControl(external_pid, (42, 7, 12), class_name="toolbar-group")
-    tracker.auto = FakeUiaAutomation(generic_group)
-    assert tracker.focused_input_identity() is None
-
-    text_control = FakeUiaControl(
-        external_pid,
-        (42, 7, 13),
-        control_type="DocumentControl",
-        class_name="document",
-    )
-    tracker.auto = FakeUiaAutomation(text_control)
-    assert tracker.focused_input_identity() == (external_pid, 42, 7, 13)
-    assert tracker.last_input is text_control
+def check_paste_target_matching():
+    window_target = (101, 1001, 501)
+    exact_target = (*window_target, 501, 42, 7, 11)
+    assert app.paste_target_identities_match(exact_target, exact_target)
+    assert app.paste_target_identities_match(window_target, exact_target)
+    assert app.paste_target_identities_match(exact_target, window_target)
+    assert not app.paste_target_identities_match(exact_target, (*window_target, 501, 42, 7, 12))
+    assert not app.paste_target_identities_match(window_target, (102, 1001, 501))
+    assert not app.paste_target_identities_match(window_target, (101, 1002, 501))
+    assert not app.paste_target_identities_match(window_target, (101, 1001, 502))
+    assert not app.paste_target_identities_match(None, window_target)
 
 
 class FakeClipboard:
@@ -1112,29 +1071,40 @@ def check_clipboard_paste_behavior():
         engine = TestEngine(
             {"restore_clipboard_after_paste": False},
             enter_ok=True,
-            target_identity_callback=lambda: (101, 1001),
+            target_identity_callback=lambda: (101, 1001, 501, 501, 42, 7, 11),
         )
         assert engine.paste_text("new") is True
-        assert engine.last_paste_target_identity == (101, 1001)
+        assert engine.last_paste_target_identity == (101, 1001, 501, 501, 42, 7, 11)
         assert engine.press_enter_after_paste() is True
         assert engine.enter_count == 1
 
-        current_target = [(101, 1002)]
+        current_target = [(101, 1001, 501, 501, 42, 7, 12)]
         engine = TestEngine(
             {"restore_clipboard_after_paste": False},
             enter_ok=True,
             target_identity_callback=lambda: current_target[0],
         )
-        engine.last_paste_target_identity = (101, 1001)
+        engine.last_paste_target_identity = (101, 1001, 501, 501, 42, 7, 11)
         assert engine.press_enter_after_paste() is False
         assert engine.enter_count == 0
         assert engine.last_enter_failure_reason == "target_changed"
+
+        current_target = [(101, 1001, 501)]
+        engine = TestEngine(
+            {"restore_clipboard_after_paste": False},
+            enter_ok=True,
+            target_identity_callback=lambda: current_target[0],
+        )
+        assert engine.paste_text("new") is True
+        current_target[0] = (101, 1001, 501, 501, 42, 7, 11)
+        assert engine.press_enter_after_paste() is True
+        assert engine.enter_count == 1
 
         engine = TestEngine(
             {"restore_clipboard_after_paste": False},
             enter_ok=True,
             focus_callback=lambda: False,
-            target_identity_callback=lambda: (303, 3003),
+            target_identity_callback=lambda: (303, 3003, 503, 503, 42, 9),
         )
         assert engine.paste_text("new") is True
         assert engine.last_paste_target_identity is None
@@ -1329,7 +1299,7 @@ def main():
     runner.check("context-aware insertion spacing cases pass", check_insertion_spacing)
     runner.check("leading punctuation is removed before insertion", check_leading_punctuation_removal)
     runner.check("post-paste Enter statuses are explicit", check_post_paste_statuses)
-    runner.check("rich-text editors expose stable paste target ids", check_rich_text_target_identity)
+    runner.check("post-paste target fallback remains window-guarded", check_paste_target_matching)
     runner.check("clipboard paste/restore behavior passes with mocks", check_clipboard_paste_behavior)
     runner.check("recording handoff is atomic and shutdown waits", check_recording_job_is_atomic)
     runner.check("stale ASR generations are discarded", check_stale_asr_load_is_discarded)

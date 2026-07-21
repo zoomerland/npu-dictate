@@ -1525,6 +1525,21 @@ def pasted_status(press_enter, suppress_enter, enter_sent=None, failure_reason=N
     return "Pasted - Enter failed"
 
 
+WINDOW_TARGET_IDENTITY_SIZE = 3
+
+
+def paste_target_identities_match(expected, current):
+    expected = tuple(expected or ())
+    current = tuple(current or ())
+    if len(expected) < WINDOW_TARGET_IDENTITY_SIZE or len(current) < WINDOW_TARGET_IDENTITY_SIZE:
+        return False
+    if expected[:WINDOW_TARGET_IDENTITY_SIZE] != current[:WINDOW_TARGET_IDENTITY_SIZE]:
+        return False
+    if len(expected) > WINDOW_TARGET_IDENTITY_SIZE and len(current) > WINDOW_TARGET_IDENTITY_SIZE:
+        return expected == current
+    return True
+
+
 def apply_insertion_spacing(inserted_text, context="", append_trailing_space=False):
     inserted_text = str(inserted_text or "").strip()
     if not inserted_text:
@@ -1713,7 +1728,7 @@ class ForegroundWindowTracker:
         focus_hwnd = self.focus_hwnd_for_window(hwnd)
         if not focus_hwnd or not self.user32.IsWindow(focus_hwnd):
             return None
-        return int(hwnd), int(focus_hwnd)
+        return int(hwnd), int(focus_hwnd), int(self.hwnd_pid(hwnd))
 
     def hwnd_pid(self, hwnd):
         pid = ctypes.c_ulong()
@@ -1840,7 +1855,6 @@ class ForegroundWindowTracker:
 
 class FocusedInputTracker:
     TEXT_CONTROL_TYPES = {"EditControl", "DocumentControl", "TextControl"}
-    RICH_TEXT_CLASS_MARKERS = ("prosemirror", "contenteditable")
 
     def __init__(self):
         self.last_input = None
@@ -1876,19 +1890,6 @@ class FocusedInputTracker:
                 return None
         return None
 
-    def find_identity_control(self, focused):
-        control = self.find_text_control(focused)
-        if control is not None or focused is None:
-            return control
-
-        control_type = str(getattr(focused, "ControlTypeName", "") or "")
-        class_name = str(getattr(focused, "ClassName", "") or "").casefold()
-        if control_type == "GroupControl" and any(
-            marker in class_name for marker in self.RICH_TEXT_CLASS_MARKERS
-        ):
-            return focused
-        return None
-
     def restore_last_input(self):
         if self.last_input is None:
             return False
@@ -1917,15 +1918,13 @@ class FocusedInputTracker:
             import comtypes
 
             comtypes.CoInitialize()
-            focused = self.auto.GetFocusedControl()
-            control = self.find_identity_control(focused)
+            control = self.find_text_control(self.auto.GetFocusedControl())
             if control is None or int(control.ProcessId) == self.current_pid:
                 return None
             runtime_id = tuple(int(part) for part in control.GetRuntimeId())
             if not runtime_id:
                 return None
-            if getattr(control, "ControlTypeName", "") in self.TEXT_CONTROL_TYPES:
-                self.last_input = control
+            self.last_input = control
             return (int(control.ProcessId), *runtime_id)
         except Exception as exc:
             log_debug(f"uia identity error={type(exc).__name__}")
@@ -3457,7 +3456,7 @@ class DictationEngine:
             self.last_enter_failure_reason = "target_unavailable"
             log_debug(f"post paste enter skipped reason=target_unavailable expected={expected} current={current}")
             return False
-        if current != expected:
+        if not paste_target_identities_match(expected, current):
             self.last_enter_failure_reason = "target_changed"
             log_debug(f"post paste enter skipped reason=target_changed expected={expected} current={current}")
             return False
@@ -4324,9 +4323,12 @@ class VoiceDictationApp:
 
     def current_paste_target_identity(self):
         window_identity = self.foreground_tracker.foreground_target_identity()
-        input_identity = self.input_tracker.focused_input_identity()
-        if window_identity is None or input_identity is None:
+        if window_identity is None:
             return None
+        input_identity = self.input_tracker.focused_input_identity()
+        if input_identity is None:
+            log_debug(f"paste target identity fallback=window identity={window_identity}")
+            return window_identity
         return (*window_identity, *input_identity)
 
     def context_before_cursor(self, max_chars=320):
