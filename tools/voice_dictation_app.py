@@ -2100,6 +2100,7 @@ class DictationEngine:
         focus_callback=None,
         context_callback=None,
         target_identity_callback=None,
+        asr_status_callback=None,
     ):
         self.cfg = cfg
         self.status_callback = status_callback
@@ -2107,6 +2108,7 @@ class DictationEngine:
         self.focus_callback = focus_callback
         self.context_callback = context_callback
         self.target_identity_callback = target_identity_callback
+        self.asr_status_callback = asr_status_callback
         self.asr = None
         self.compare_asr = None
         self.compare_asr_signature = None
@@ -2124,6 +2126,10 @@ class DictationEngine:
         self._punct_loaded_generation = None
         self._punct_error_generation = None
         self._audio_generation = 0
+        self._audio_opening_token = None
+        self._audio_opening_generation = None
+        self._audio_opening_signature = None
+        self._audio_open_retry_requested = False
         self.loaded = False
         self.loading = False
         self.recording = False
@@ -2588,7 +2594,10 @@ class DictationEngine:
     def _set_asr_status(self, generation, status):
         if not self._asr_generation_is_current(generation):
             return False
-        self.set_status(status)
+        if self.asr_status_callback is not None:
+            self.asr_status_callback(generation, status)
+        else:
+            self.set_status(status)
         return True
 
     def _load_models(self, generation, cfg):
@@ -2663,7 +2672,7 @@ class DictationEngine:
                 return
             log_debug(f"load ready generation={generation} seconds={time.perf_counter() - load_start:.3f}")
             if audio_ready:
-                self.set_status("Ready")
+                self._set_asr_status(generation, "Ready")
             if current_cfg.get("use_punctuation", True):
                 self.load_punct_async(current_cfg)
         except Exception as exc:
@@ -2680,7 +2689,7 @@ class DictationEngine:
             for line in traceback.format_exc().splitlines():
                 log_debug(f"load traceback {line}")
             if current:
-                self.set_status(f"Load error: {type(exc).__name__}")
+                self._set_asr_status(generation, f"Load error: {type(exc).__name__}")
             elif retry_latest:
                 self.load_async()
 
@@ -2717,41 +2726,82 @@ class DictationEngine:
         except Exception as exc:
             log_debug(f"audio stream {reason} close error={type(exc).__name__}")
 
-    def close_audio_stream(self, invalidate=True):
+    def _dispose_audio_stream_async(self, stream, reason):
+        if stream is None:
+            return
+        worker = threading.Thread(
+            target=self._dispose_audio_stream,
+            args=(stream, reason),
+            daemon=True,
+        )
+        try:
+            worker.start()
+        except Exception as exc:
+            log_debug(f"audio stream {reason} cleanup start error={type(exc).__name__}")
+
+    def _schedule_audio_stream_retry(self):
+        with self.lock:
+            if self.closing:
+                return
+        worker = threading.Thread(target=self.ensure_audio_stream, daemon=True)
+        try:
+            worker.start()
+        except Exception as exc:
+            log_debug(f"audio stream retry start error={type(exc).__name__}")
+
+    def close_audio_stream(self, invalidate=True, wait=True):
         with self.audio_lifecycle_lock:
             with self.lock:
                 if invalidate:
                     self._audio_generation += 1
+                if self.closing:
+                    self._audio_open_retry_requested = False
                 stream = self.stream
                 self.stream = None
                 self.stream_signature = None
                 self.sample_rate = None
                 self.pre_roll_blocks.clear()
                 self.pre_roll_samples = 0
+        if wait:
             self._dispose_audio_stream(stream, "close")
+        else:
+            self._dispose_audio_stream_async(stream, "close")
 
     def ensure_audio_stream(self):
-        with self.audio_lifecycle_lock:
-            with self.lock:
-                if self.closing:
-                    return False
-                generation = self._audio_generation
-                cfg = dict(self.cfg)
-            try:
-                signature = self.audio_stream_signature(cfg)
-            except Exception as exc:
-                log_debug(f"audio stream signature error={type(exc).__name__}")
-                if self._audio_generation_is_current(generation):
-                    self.set_status("Audio unavailable")
+        with self.lock:
+            if self.closing:
                 return False
+            generation = self._audio_generation
+            cfg = dict(self.cfg)
+        try:
+            signature = self.audio_stream_signature(cfg)
+        except Exception as exc:
+            log_debug(f"audio stream signature error={type(exc).__name__}")
+            if self._audio_generation_is_current(generation):
+                self.set_status("Audio unavailable")
+            return False
 
-            device_index, channels, sample_rate = signature
+        device_index, channels, sample_rate = signature
+        token = object()
+        with self.audio_lifecycle_lock:
             with self.lock:
                 if self.closing or generation != self._audio_generation:
                     return False
                 if self.stream and self.stream_signature == signature:
                     self.sample_rate = signature[2]
                     return True
+                if self._audio_opening_token is not None:
+                    opening_signature = (
+                        self._audio_opening_generation,
+                        self._audio_opening_signature,
+                    )
+                    if opening_signature != (generation, signature):
+                        self._audio_open_retry_requested = True
+                    return False
+                self._audio_opening_token = token
+                self._audio_opening_generation = generation
+                self._audio_opening_signature = signature
+                self._audio_open_retry_requested = False
                 old_stream = self.stream
                 self.stream = None
                 self.stream_signature = None
@@ -2759,50 +2809,72 @@ class DictationEngine:
                 self.pre_roll_blocks.clear()
                 self.pre_roll_samples = 0
 
-            self._dispose_audio_stream(old_stream, "restart")
+        self._dispose_audio_stream(old_stream, "restart")
 
-            stream = None
-            try:
-                stream = sd.InputStream(
-                    samplerate=sample_rate,
-                    channels=channels,
-                    dtype="float32",
-                    device=device_index,
-                    callback=self._audio_callback,
-                )
-                stream.start()
+        stream = None
+        try:
+            stream = sd.InputStream(
+                samplerate=sample_rate,
+                channels=channels,
+                dtype="float32",
+                device=device_index,
+                callback=self._audio_callback,
+            )
+            stream.start()
+            with self.audio_lifecycle_lock:
                 with self.lock:
-                    current = not self.closing and generation == self._audio_generation
+                    owns_open = self._audio_opening_token is token
+                    current = owns_open and not self.closing and generation == self._audio_generation
                     if current:
                         self.stream = stream
                         self.stream_signature = signature
                         self.sample_rate = sample_rate
-                if not current:
-                    self._dispose_audio_stream(stream, "stale")
-                    with self.lock:
-                        if self.stream is None:
-                            self.sample_rate = None
-                            self.pre_roll_blocks.clear()
-                            self.pre_roll_samples = 0
-                    return False
-                log_debug(
-                    "audio stream ready "
-                    f"device={device_index} channels={channels} sample_rate={sample_rate} "
-                    f"pre_roll_ms={int(cfg.get('audio_pre_roll_ms') or 0)}"
-                )
-                return True
-            except Exception as exc:
-                self._dispose_audio_stream(stream, "failed")
+                    retry_latest = False
+                    if owns_open:
+                        self._audio_opening_token = None
+                        self._audio_opening_generation = None
+                        self._audio_opening_signature = None
+                        retry_latest = self._audio_open_retry_requested and not self.closing
+                        self._audio_open_retry_requested = False
+            if not current:
+                self._dispose_audio_stream(stream, "stale")
                 with self.lock:
-                    current = not self.closing and generation == self._audio_generation
+                    if self.stream is None:
+                        self.sample_rate = None
+                        self.pre_roll_blocks.clear()
+                        self.pre_roll_samples = 0
+                if retry_latest:
+                    self._schedule_audio_stream_retry()
+                return False
+            log_debug(
+                "audio stream ready "
+                f"device={device_index} channels={channels} sample_rate={sample_rate} "
+                f"pre_roll_ms={int(cfg.get('audio_pre_roll_ms') or 0)}"
+            )
+            return True
+        except Exception as exc:
+            self._dispose_audio_stream(stream, "failed")
+            with self.audio_lifecycle_lock:
+                with self.lock:
+                    owns_open = self._audio_opening_token is token
+                    current = owns_open and not self.closing and generation == self._audio_generation
+                    retry_latest = False
+                    if owns_open:
+                        self._audio_opening_token = None
+                        self._audio_opening_generation = None
+                        self._audio_opening_signature = None
+                        retry_latest = self._audio_open_retry_requested and not self.closing
+                        self._audio_open_retry_requested = False
                     if current and (self.stream is None or self.stream is stream):
                         self.stream = None
                         self.stream_signature = None
                         self.sample_rate = None
-                log_debug(f"audio stream error={type(exc).__name__}")
-                if current:
-                    self.set_status("Audio unavailable")
-                return False
+            log_debug(f"audio stream error={type(exc).__name__}")
+            if current:
+                self.set_status("Audio unavailable")
+            if retry_latest:
+                self._schedule_audio_stream_retry()
+            return False
 
     def _audio_generation_is_current(self, generation):
         with self.lock:
@@ -3494,6 +3566,7 @@ class VoiceDictationApp:
             focus_callback=self.restore_target_window,
             context_callback=self.context_before_cursor,
             target_identity_callback=self.current_paste_target_identity,
+            asr_status_callback=self.queue_asr_status,
         )
         self.hotkeys = HotkeyManager(self.cfg, self.dispatch)
 
@@ -4106,6 +4179,9 @@ class VoiceDictationApp:
     def queue_status(self, status):
         self.event_queue.put(("status", status))
 
+    def queue_asr_status(self, generation, status):
+        self.event_queue.put(("asr_status", generation, status))
+
     def queue_text(self, raw_text, final_text, duration, asr_sec, punct_sec):
         self.event_queue.put(("text", raw_text, final_text, duration, asr_sec, punct_sec))
 
@@ -4120,6 +4196,10 @@ class VoiceDictationApp:
                 self.handle_action(item[1])
             elif item[0] == "status":
                 self.update_status(item[1])
+            elif item[0] == "asr_status":
+                _, generation, status = item
+                if self.engine._asr_generation_is_current(generation):
+                    self.update_status(status)
             elif item[0] == "text":
                 _, raw_text, final_text, duration, asr_sec, punct_sec = item
                 self.last_text_var.set(final_text)
@@ -5356,7 +5436,7 @@ class VoiceDictationApp:
             except Exception as exc:
                 log_debug(f"tray stop error={type(exc).__name__}")
         self.hotkeys.stop()
-        self.engine.close_audio_stream()
+        self.engine.close_audio_stream(wait=False)
         self.root.destroy()
 
     def run(self):

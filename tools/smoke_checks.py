@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 import os
+import queue
 import subprocess
 import sys
 import tempfile
@@ -557,6 +558,44 @@ def check_stale_asr_load_is_discarded():
         app.probe_openvino_hardware = original_probe
 
 
+class FakePollRoot:
+    def __init__(self):
+        self.after_calls = []
+
+    def after(self, delay, callback):
+        self.after_calls.append((delay, callback))
+
+
+def check_stale_asr_status_is_discarded():
+    cfg = app.default_config()
+    ui = object.__new__(app.VoiceDictationApp)
+    ui.event_queue = queue.Queue()
+    ui.root = FakePollRoot()
+    statuses = []
+    ui.update_status = statuses.append
+
+    engine = app.DictationEngine(
+        cfg,
+        lambda _status: None,
+        lambda *_args: None,
+        asr_status_callback=ui.queue_asr_status,
+    )
+    ui.engine = engine
+
+    stale_generation = engine._asr_generation
+    assert engine._set_asr_status(stale_generation, "Loading ASR") is True
+    with engine.lock:
+        engine._asr_generation += 1
+    ui.poll_events()
+    assert statuses == []
+
+    current_generation = engine._asr_generation
+    assert engine._set_asr_status(current_generation, "Ready") is True
+    ui.poll_events()
+    assert statuses == ["Ready"]
+    assert len(ui.root.after_calls) == 2
+
+
 class PunctGenerationEngine(app.DictationEngine):
     def __init__(self, cfg):
         super().__init__(cfg, lambda _status: None, lambda *_args: None)
@@ -678,28 +717,23 @@ def check_audio_stream_lifecycle_is_serialized():
     cfg = app.default_config()
     cfg["sample_rate"] = 16000
     try:
-        factory = FakeInputStreamFactory()
+        start_entered = threading.Event()
+        start_release = threading.Event()
+        factory = FakeInputStreamFactory(start_entered, start_release)
         backend = FakeAudioBackend()
         backend.InputStream = factory
         app.sd = backend
         engine = app.DictationEngine(cfg, lambda _status: None, lambda *_args: None)
-        start_barrier = threading.Barrier(3)
-        results = []
-
-        def ensure_stream():
-            start_barrier.wait(timeout=2)
-            results.append(engine.ensure_audio_stream())
-
-        workers = [threading.Thread(target=ensure_stream) for _ in range(2)]
-        for worker in workers:
-            worker.start()
-        start_barrier.wait(timeout=2)
-        for worker in workers:
-            worker.join(timeout=2)
-            assert not worker.is_alive()
-
-        assert results == [True, True]
+        first_result = []
+        first_worker = threading.Thread(target=lambda: first_result.append(engine.ensure_audio_stream()))
+        first_worker.start()
+        assert start_entered.wait(timeout=2)
+        assert engine.ensure_audio_stream() is False
         assert len(factory.instances) == 1
+        start_release.set()
+        first_worker.join(timeout=2)
+        assert not first_worker.is_alive()
+        assert first_result == [True]
         stream = factory.instances[0]
         assert stream.start_count == 1
         engine.close_audio_stream()
@@ -717,20 +751,22 @@ def check_audio_stream_lifecycle_is_serialized():
         ensure_worker = threading.Thread(target=lambda: ensure_result.append(engine.ensure_audio_stream()))
         ensure_worker.start()
         assert start_entered.wait(timeout=2)
+        assert engine.request_shutdown() is False
         close_done = threading.Event()
 
         def close_stream():
-            engine.close_audio_stream()
+            engine.close_audio_stream(wait=False)
             close_done.set()
 
         close_worker = threading.Thread(target=close_stream)
         close_worker.start()
-        assert not close_done.wait(timeout=0.05)
+        assert close_done.wait(timeout=0.2)
+        assert ensure_worker.is_alive()
         start_release.set()
         ensure_worker.join(timeout=2)
         close_worker.join(timeout=2)
         assert not ensure_worker.is_alive() and not close_worker.is_alive()
-        assert ensure_result == [True]
+        assert ensure_result == [False]
         assert close_done.is_set()
         stream = factory.instances[0]
         assert stream.stop_count == 1 and stream.close_count == 1
@@ -1114,6 +1150,7 @@ def main():
     runner.check("clipboard paste/restore behavior passes with mocks", check_clipboard_paste_behavior)
     runner.check("recording handoff is atomic and shutdown waits", check_recording_job_is_atomic)
     runner.check("stale ASR generations are discarded", check_stale_asr_load_is_discarded)
+    runner.check("stale ASR status events are discarded", check_stale_asr_status_is_discarded)
     runner.check("stale punctuation generations are discarded", check_stale_punct_load_is_discarded)
     runner.check("audio stream lifecycle is serialized", check_audio_stream_lifecycle_is_serialized)
     runner.check("audio discovery failure is recoverable", check_audio_discovery_is_recoverable)
