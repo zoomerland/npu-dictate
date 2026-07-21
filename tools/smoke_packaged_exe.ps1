@@ -1,16 +1,20 @@
 param(
     [switch]$ImportOnly,
     [switch]$FullLoad,
-    [int]$WaitForReadySeconds = 360
+    [int]$WaitForReadySeconds = 360,
+    [string]$ExePath = ""
 )
 
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
-$Exe = Join-Path $Root "dist\NPUDictate\NPUDictate.exe"
-
-if (-not (Test-Path $Exe)) {
-    throw "Packaged executable not found: $Exe"
+if ([string]::IsNullOrWhiteSpace($ExePath)) {
+    $ExePath = Join-Path $Root "dist\NPUDictate\NPUDictate.exe"
 }
+
+if (-not (Test-Path -LiteralPath $ExePath)) {
+    throw "Packaged executable not found: $ExePath"
+}
+$Exe = (Resolve-Path -LiteralPath $ExePath).Path
 
 if (-not $ImportOnly -and -not $FullLoad) {
     $ImportOnly = $true
