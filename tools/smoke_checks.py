@@ -339,6 +339,60 @@ def check_post_paste_statuses():
         assert actual == expected, f"{press_enter}, {suppress_enter}, {enter_sent}, {reason}: {actual}"
 
 
+class FakeUiaControl:
+    def __init__(
+        self,
+        process_id,
+        runtime_id,
+        control_type="GroupControl",
+        class_name="ProseMirror ProseMirror-focused",
+        parent=None,
+    ):
+        self.ProcessId = process_id
+        self.ControlTypeName = control_type
+        self.ClassName = class_name
+        self._runtime_id = runtime_id
+        self._parent = parent
+
+    def GetRuntimeId(self):
+        return self._runtime_id
+
+    def GetParentControl(self):
+        return self._parent
+
+
+class FakeUiaAutomation:
+    def __init__(self, focused):
+        self.focused = focused
+
+    def GetFocusedControl(self):
+        return self.focused
+
+
+def check_rich_text_target_identity():
+    tracker = app.FocusedInputTracker()
+    external_pid = tracker.current_pid + 100
+
+    prosemirror = FakeUiaControl(external_pid, (42, 7, 11))
+    tracker.auto = FakeUiaAutomation(prosemirror)
+    assert tracker.focused_input_identity() == (external_pid, 42, 7, 11)
+    assert tracker.last_input is None
+
+    generic_group = FakeUiaControl(external_pid, (42, 7, 12), class_name="toolbar-group")
+    tracker.auto = FakeUiaAutomation(generic_group)
+    assert tracker.focused_input_identity() is None
+
+    text_control = FakeUiaControl(
+        external_pid,
+        (42, 7, 13),
+        control_type="DocumentControl",
+        class_name="document",
+    )
+    tracker.auto = FakeUiaAutomation(text_control)
+    assert tracker.focused_input_identity() == (external_pid, 42, 7, 13)
+    assert tracker.last_input is text_control
+
+
 class FakeClipboard:
     def __init__(self, value):
         self.value = value
@@ -1275,6 +1329,7 @@ def main():
     runner.check("context-aware insertion spacing cases pass", check_insertion_spacing)
     runner.check("leading punctuation is removed before insertion", check_leading_punctuation_removal)
     runner.check("post-paste Enter statuses are explicit", check_post_paste_statuses)
+    runner.check("rich-text editors expose stable paste target ids", check_rich_text_target_identity)
     runner.check("clipboard paste/restore behavior passes with mocks", check_clipboard_paste_behavior)
     runner.check("recording handoff is atomic and shutdown waits", check_recording_job_is_atomic)
     runner.check("stale ASR generations are discarded", check_stale_asr_load_is_discarded)

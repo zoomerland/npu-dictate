@@ -1840,6 +1840,7 @@ class ForegroundWindowTracker:
 
 class FocusedInputTracker:
     TEXT_CONTROL_TYPES = {"EditControl", "DocumentControl", "TextControl"}
+    RICH_TEXT_CLASS_MARKERS = ("prosemirror", "contenteditable")
 
     def __init__(self):
         self.last_input = None
@@ -1875,6 +1876,19 @@ class FocusedInputTracker:
                 return None
         return None
 
+    def find_identity_control(self, focused):
+        control = self.find_text_control(focused)
+        if control is not None or focused is None:
+            return control
+
+        control_type = str(getattr(focused, "ControlTypeName", "") or "")
+        class_name = str(getattr(focused, "ClassName", "") or "").casefold()
+        if control_type == "GroupControl" and any(
+            marker in class_name for marker in self.RICH_TEXT_CLASS_MARKERS
+        ):
+            return focused
+        return None
+
     def restore_last_input(self):
         if self.last_input is None:
             return False
@@ -1903,13 +1917,15 @@ class FocusedInputTracker:
             import comtypes
 
             comtypes.CoInitialize()
-            control = self.find_text_control(self.auto.GetFocusedControl())
+            focused = self.auto.GetFocusedControl()
+            control = self.find_identity_control(focused)
             if control is None or int(control.ProcessId) == self.current_pid:
                 return None
             runtime_id = tuple(int(part) for part in control.GetRuntimeId())
             if not runtime_id:
                 return None
-            self.last_input = control
+            if getattr(control, "ControlTypeName", "") in self.TEXT_CONTROL_TYPES:
+                self.last_input = control
             return (int(control.ProcessId), *runtime_id)
         except Exception as exc:
             log_debug(f"uia identity error={type(exc).__name__}")
