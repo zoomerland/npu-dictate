@@ -54,7 +54,7 @@ function Get-LogTail {
 
 $testRoot = New-TestRoot
 $logPath = Join-Path $testRoot "voice_dictation.log"
-$env:LOCAL_VOICE_DICTATION_APP_ROOT = $testRoot
+$env:LOCAL_VOICE_DICTATION_DATA_ROOT = $testRoot
 $env:LOCAL_VOICE_DICTATION_MUTEX_NAME = "Local\NPUDictate.PackageSmoke.$PID"
 
 if ($ImportOnly) {
