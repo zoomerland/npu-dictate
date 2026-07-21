@@ -30,7 +30,7 @@ except (ImportError, OSError) as exc:
 else:
     SOUNDDEVICE_IMPORT_ERROR = None
 
-from app_paths import app_root, bundled_resource_root
+from app_paths import app_root, bundled_resource_root, user_data_root
 from model_setup import (
     artifact_manifest_cache_path,
     asr_model_ready,
@@ -351,7 +351,7 @@ CHOICE_TRANSLATION_KEYS = {
 
 
 def repo_root():
-    return app_root()
+    return user_data_root()
 
 
 class FileTime(ctypes.Structure):
@@ -1023,7 +1023,7 @@ def startup_shortcut_path():
 def startup_target_python():
     if getattr(sys, "frozen", False):
         return Path(sys.executable)
-    venv_pythonw = repo_root() / ".venv" / "Scripts" / "pythonw.exe"
+    venv_pythonw = app_root() / ".venv" / "Scripts" / "pythonw.exe"
     if venv_pythonw.exists():
         return venv_pythonw
     return Path(sys.executable)
@@ -1053,9 +1053,9 @@ def set_startup_enabled(enabled):
         if getattr(sys, "frozen", False):
             shortcut.Arguments = ""
         else:
-            script = repo_root() / "tools" / "voice_dictation_app.py"
+            script = app_root() / "tools" / "voice_dictation_app.py"
             shortcut.Arguments = f'"{script}"'
-        shortcut.WorkingDirectory = str(repo_root())
+        shortcut.WorkingDirectory = str(app_root())
         shortcut.IconLocation = str(target)
         shortcut.Description = APP_NAME
         shortcut.Save()
@@ -1082,7 +1082,9 @@ def format_elapsed(seconds):
 def log_debug(message):
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     try:
-        with (repo_root() / "voice_dictation.log").open("a", encoding="utf-8") as file:
+        root = repo_root()
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / "voice_dictation.log").open("a", encoding="utf-8") as file:
             file.write(f"{timestamp} {message}\n")
     except OSError:
         pass
@@ -4176,6 +4178,8 @@ class VoiceDictationApp:
             "status": self.current_display_status,
             "python": sys.version,
             "platform": platform.platform(),
+            "app_root": str(app_root()),
+            "data_root": str(repo_root()),
             "repo_root": str(repo_root()),
             "config_path": str(config_path()),
             "config": self.cfg,

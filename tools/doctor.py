@@ -10,9 +10,9 @@ TOOLS_DIR = Path(__file__).resolve().parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-import sounddevice as sd
-
 import voice_dictation_app as app
+
+sd = app.sd
 
 
 DEPENDENCIES = [
@@ -127,7 +127,7 @@ def audio_diagnostics():
             item["name"] = " ".join(str(item.get("name", "")).split())
             item["hostapi"] = " ".join(str(item.get("hostapi", "")).split())
             devices.append(item)
-        default_input = sd.default.device[0] if sd.default.device else None
+        default_input = sd.default.device[0] if sd is not None and sd.default.device else None
         return {
             "status": "ok" if devices else "warn",
             "default_input": default_input,
@@ -172,6 +172,8 @@ def build_report(log_lines):
         "app": app.APP_NAME,
         "python": sys.version,
         "platform": platform.platform(),
+        "app_root": str(app.app_root()),
+        "data_root": str(app.repo_root()),
         "repo_root": str(app.repo_root()),
         "config": cfg,
         "checks": {

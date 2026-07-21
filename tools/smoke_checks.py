@@ -15,6 +15,7 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 import voice_dictation_app as app
+import app_paths
 import model_setup
 
 
@@ -116,6 +117,57 @@ def check_config_persistence_is_recoverable():
     finally:
         app.os.replace = original_replace
         app.log_debug = original_log_debug
+
+
+def check_app_and_data_roots_are_separate():
+    original_app_root = os.environ.get(app_paths.APP_ROOT_ENV)
+    original_data_root = os.environ.get(app_paths.DATA_ROOT_ENV)
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            install_root = (root / "install").resolve()
+            data_root = (root / "data").resolve()
+            install_root.mkdir()
+            data_root.mkdir()
+
+            os.environ[app_paths.APP_ROOT_ENV] = str(install_root)
+            os.environ.pop(app_paths.DATA_ROOT_ENV, None)
+            assert app_paths.app_root() == install_root
+            assert app_paths.user_data_root() == install_root
+
+            os.environ[app_paths.DATA_ROOT_ENV] = str(data_root)
+            assert app_paths.app_root() == install_root
+            assert app_paths.user_data_root() == data_root
+            assert app.repo_root() == data_root
+            assert app.config_path() == data_root / "voice_dictation_config.json"
+            assert app.asr_model_dir() == data_root / "models" / "asr" / "gigaam-v3-ctc"
+            assert app.default_punct_model_dir() == (
+                data_root / "models" / "openvino" / "RUPunct_big_fp16_static128"
+            )
+            assert app.debug_dictation_dir() == data_root / "recordings" / "debug_dictation"
+            assert model_setup.repo_root() == data_root
+            assert model_setup.hf_cache_dir() == data_root / ".hf"
+            assert model_setup.artifact_manifest_cache_path() == (
+                data_root
+                / "models"
+                / ".manifests"
+                / "local-voice-dictation-openvino"
+                / "MANIFEST.json"
+            )
+
+            pythonw = install_root / ".venv" / "Scripts" / "pythonw.exe"
+            pythonw.parent.mkdir(parents=True)
+            pythonw.touch()
+            assert app.startup_target_python() == pythonw
+    finally:
+        if original_app_root is None:
+            os.environ.pop(app_paths.APP_ROOT_ENV, None)
+        else:
+            os.environ[app_paths.APP_ROOT_ENV] = original_app_root
+        if original_data_root is None:
+            os.environ.pop(app_paths.DATA_ROOT_ENV, None)
+        else:
+            os.environ[app_paths.DATA_ROOT_ENV] = original_data_root
 
 
 def check_cpu_fallback_profile():
@@ -1047,6 +1099,7 @@ def main():
     runner = CheckRunner()
     runner.check("config and model profiles normalize", check_config_profiles)
     runner.check("config persistence is atomic and recoverable", check_config_persistence_is_recoverable)
+    runner.check("install and user-data roots stay separate", check_app_and_data_roots_are_separate)
     runner.check("CPU-only fallback profile normalizes", check_cpu_fallback_profile)
     runner.check("hardware device filtering falls back to CPU", check_hardware_device_filtering)
     runner.check("model display labels map back to profile ids", check_model_display_labels)
