@@ -1,5 +1,6 @@
 param(
-    [string]$MsiPath = ""
+    [string]$MsiPath = "",
+    [string]$ExpectedProductVersion = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,6 +10,65 @@ if ([string]::IsNullOrWhiteSpace($MsiPath)) {
     $MsiPath = Join-Path $Root "dist\installer\NPUDictate-0.1.0-alpha.4.msi"
 }
 $MsiPath = (Resolve-Path $MsiPath).Path
+
+function Get-MsiProperty {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    $database = $null
+    $view = $null
+    $record = $null
+    try {
+        $database = $installer.GetType().InvokeMember(
+            "OpenDatabase",
+            [System.Reflection.BindingFlags]::InvokeMethod,
+            $null,
+            $installer,
+            @($Path, 0)
+        )
+        $query = "SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$Name'"
+        $view = $database.GetType().InvokeMember(
+            "OpenView",
+            [System.Reflection.BindingFlags]::InvokeMethod,
+            $null,
+            $database,
+            @($query)
+        )
+        $view.GetType().InvokeMember(
+            "Execute",
+            [System.Reflection.BindingFlags]::InvokeMethod,
+            $null,
+            $view,
+            $null
+        ) | Out-Null
+        $record = $view.GetType().InvokeMember(
+            "Fetch",
+            [System.Reflection.BindingFlags]::InvokeMethod,
+            $null,
+            $view,
+            $null
+        )
+        if ($null -eq $record) {
+            return $null
+        }
+        return $record.GetType().InvokeMember(
+            "StringData",
+            [System.Reflection.BindingFlags]::GetProperty,
+            $null,
+            $record,
+            @(1)
+        )
+    } finally {
+        foreach ($item in @($record, $view, $database, $installer)) {
+            if ($null -ne $item -and [System.Runtime.InteropServices.Marshal]::IsComObject($item)) {
+                [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($item)
+            }
+        }
+    }
+}
 
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $Target = Join-Path $env:TEMP "lvd-msi-admin-$Stamp"
@@ -20,11 +80,16 @@ $Process = Start-Process -FilePath msiexec.exe -ArgumentList $ArgString -Wait -P
 $InstallRoot = Join-Path $Target "LocalApp\NPUDictate"
 $ExePath = Join-Path $InstallRoot "NPUDictate.exe"
 $AppModelsPath = Join-Path $InstallRoot "models"
+$ProductVersion = Get-MsiProperty -Path $MsiPath -Name "ProductVersion"
 $FileCount = (Get-ChildItem -LiteralPath $Target -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
 $Passed = (
     $Process.ExitCode -eq 0 `
     -and (Test-Path $ExePath) `
     -and -not (Test-Path $AppModelsPath) `
+    -and (
+        [string]::IsNullOrWhiteSpace($ExpectedProductVersion) `
+        -or $ProductVersion -eq $ExpectedProductVersion
+    ) `
     -and $FileCount -gt 0
 )
 
@@ -36,6 +101,8 @@ $Passed = (
     install_root = $InstallRoot
     exe_exists = Test-Path $ExePath
     app_local_models_exists = Test-Path $AppModelsPath
+    product_version = $ProductVersion
+    expected_product_version = $ExpectedProductVersion
     file_count = $FileCount
     passed = $Passed
 }

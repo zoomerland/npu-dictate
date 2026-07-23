@@ -19,6 +19,7 @@ jobs:
     env:
       APP_VERSION: "0.1.0"
       APP_CHANNEL: "alpha.4"
+      MSI_PRODUCT_VERSION: "0.1.4"
 
     steps:
       - name: Check out repository
@@ -57,11 +58,11 @@ jobs:
 
       - name: Build MSI
         shell: pwsh
-        run: .\tools\build_windows_msi.ps1 -Version $env:APP_VERSION -Configuration $env:APP_CHANNEL -SkipExeBuild
+        run: .\tools\build_windows_msi.ps1 -Version $env:APP_VERSION -Configuration $env:APP_CHANNEL -ProductVersion $env:MSI_PRODUCT_VERSION -SkipExeBuild
 
       - name: Smoke-check MSI
         shell: pwsh
-        run: .\tools\smoke_windows_msi.ps1 -MsiPath "dist\installer\NPUDictate-$env:APP_VERSION-$env:APP_CHANNEL.msi"
+        run: .\tools\smoke_windows_msi.ps1 -MsiPath "dist\installer\NPUDictate-$env:APP_VERSION-$env:APP_CHANNEL.msi" -ExpectedProductVersion $env:MSI_PRODUCT_VERSION
 
       - name: Create packaged app archive
         shell: pwsh

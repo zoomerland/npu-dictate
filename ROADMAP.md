@@ -341,12 +341,12 @@ Goal: publish a usable alpha for technical users.
   - Added `docs/release-notes-v0.1.0-alpha.1.md` as the v0.1 alpha release notes.
   - Added `docs/release-notes-v0.1.0-alpha.2.md` for the model-download UX pre-release refresh.
   - Added `docs/release-notes-v0.1.0-alpha.3.md` for visible download percent and MSI UI fixes.
-  - Added `docs/release-notes-v0.1.0-alpha.4.md` for startup readiness and NPU warmup fixes.
+  - Added `docs/release-notes-v0.1.0-alpha.4.md` for startup/runtime hardening, guarded Enter, and packaging reliability.
 - [x] Prepare unsigned packaged pre-release path:
   - `0.1.0-alpha.1` may publish unsigned packaged artifacts while SignPath Foundation signing is pending.
   - `0.1.0-alpha.2` refreshes unsigned artifacts after the model-download UX improvements.
   - `0.1.0-alpha.3` refreshes unsigned artifacts after the overlay progress and MSI UI fixes.
-  - `0.1.0-alpha.4` refreshes unsigned artifacts after the startup readiness and NPU warmup fixes.
+  - `0.1.0-alpha.4` refreshes unsigned artifacts after startup/runtime hardening, guarded Enter, and MSI upgrade fixes.
   - Model weights and converted artifacts remain outside the installer.
 
 ## Milestone 6: Packaging and Installer
@@ -383,6 +383,7 @@ Do this last.
   - The MSI is not signed yet.
   - Added WiX minimal installer UI and completion page for `0.1.0-alpha.3`.
   - `0.1.0-alpha.4` MSI administrative extraction smoke passed on 2026-06-18.
+  - `0.1.0-alpha.4` uses numeric MSI `ProductVersion=0.1.4` so it can supersede earlier `0.1.0` alpha packages.
 - [x] Decide installer technology:
   - Use WiX 5 as a repository-local .NET tool for the first MSI path.
   - Avoid WiX 7 because it requires accepting the OSMF EULA.

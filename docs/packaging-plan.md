@@ -109,12 +109,14 @@ Current installer decisions:
 - Install per-user under `%LOCALAPPDATA%\NPUDictate` so models, config, logs, and OpenVINO cache can stay app-local and writable.
 - Add a Start Menu shortcut.
 - Use the app icon for the executable, tray, Start Menu shortcut, and installer metadata.
+- Map SemVer alpha tags to increasing numeric MSI versions so upgrades work: `0.1.0-alpha.4` uses MSI `ProductVersion=0.1.4`.
 
 Last local MSI smoke result:
 
 - Date: 2026-06-18.
 - Result: passed.
 - MSI output: `dist\installer\NPUDictate-0.1.0-alpha.4.msi`.
+- MSI `ProductVersion`: `0.1.4`.
 - MSI size: about 254 MB.
 - Administrative extraction succeeded with `msiexec /a`.
 - Extracted executable was present.
