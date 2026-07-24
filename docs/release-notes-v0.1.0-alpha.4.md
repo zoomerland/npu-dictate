@@ -4,24 +4,49 @@ Status: unsigned public pre-release refresh while SignPath Foundation signing is
 
 ## Summary
 
-NPU Dictate 0.1.0-alpha.4 keeps the same local Russian dictation pipeline and focuses on startup reliability after first-run model setup.
+NPU Dictate 0.1.0-alpha.4 keeps the local Russian NPU-first dictation pipeline and focuses on safer everyday insertion, responsive startup/shutdown, and recoverable runtime behavior.
 
 This alpha is meant for technical users who are comfortable with unsigned Windows pre-release software or running a Python project from source.
 
 ## Changes Since 0.1.0-alpha.3
 
+- Adds optional automatic Enter after a successful paste, plus a secondary overlay stop button that keeps the text available for review without sending it.
+- Guards automatic Enter with the active root window, Win32 focus window, and process identity. When exact UI Automation field identity is available, the field must also remain unchanged.
+- Removes accidental punctuation at the beginning of genuinely empty input while preserving meaningful punctuation when dictation continues existing text.
+- Makes every settings section scrollable on smaller or scaled displays.
 - Marks the app ready after ASR and microphone initialization instead of blocking startup on punctuation import and load.
 - Loads the punctuation model in the background when punctuation is enabled.
 - Waits for the same background punctuation load on the first dictation if it has not finished yet, avoiding duplicate punctuation loaders.
 - Skips ASR warmup on NPU to avoid startup hangs seen during NPU bucket compilation.
 - Keeps CPU ASR warmup behavior available for non-NPU profiles.
-- Adds a smoke check that verifies NPU ASR warmup is skipped.
+- Makes recording handoff atomic and lets normal shutdown wait for an active transcription instead of losing it.
+- Discards stale ASR, punctuation, and status generations after settings change.
+- Serializes audio stream replacement while keeping PortAudio start/stop work off the Tk UI thread.
+- Coalesces overlapping audio restart requests so the latest input-device configuration wins.
+- Makes microphone discovery and single-instance initialization failures visible and recoverable.
+- Writes configuration atomically with recovery from invalid JSON.
+- Rejects incomplete direct model downloads using the expected size or `Content-Length`.
+- Separates install and user-data roots for packaged tests and future layouts while preserving the existing portable default.
+- Gives alpha.4 the numeric MSI `ProductVersion` `0.1.4`, allowing Windows Installer to distinguish it from earlier `0.1.0` alpha packages.
 
 ## Startup Notes
 
 The overlay can become ready before punctuation has finished loading. In that case, the first dictation may wait briefly before punctuation is applied.
 
-On the local NPU test machine, a repeated headless startup reached `Ready` in about 1.9 seconds after this change, while punctuation finished in the background about 11 seconds after launch. Cold OpenVINO/NPU startup can still be slower.
+On the local NPU test machine, repeated startup can reach `Ready` in about 2 seconds, while a clean OpenVINO/NPU load can take about 10 seconds and punctuation may finish later in the background. First compilation and cold filesystem caches can be slower.
+
+## Verification
+
+- Full developer smoke suite: 0 failures and 0 warnings.
+- Strict doctor: 24 OK, 0 warnings, 0 failures.
+- Saved-audio regression: 8 real recordings, 61.61 seconds total, no empty results or runtime errors.
+- On that corpus, NPU NNCF INT8 b400 took 2.323 seconds versus 14.689 seconds for CPU ONNX INT8, a 6.32x processing-time advantage on the test laptop.
+- Independent runtime and Enter-target reviews completed without actionable findings.
+- Clean packaged import and full NPU model-load checks passed.
+- MSI administrative extraction passed with 5,818 files and no bundled app model weights or app-local model directory.
+- A public alpha.3 MSI upgraded in place to alpha.4 as one registered product.
+- All 17 existing model files and all checked user files remained byte-identical across the upgrade.
+- The installed alpha.4 executable completed a second full NPU model-load check.
 
 ## Distribution Policy For 0.1.0-alpha.4
 
@@ -44,11 +69,15 @@ Code signing remains pending through the SignPath Foundation application.
 - User-provided custom models are out of scope for v0.1.
 - GPU profiles are not considered tested yet.
 - First model preparation and first OpenVINO/NPU compilation can be slow.
+- Exact focus-field identity is not exposed by every Windows application. In those cases automatic Enter falls back to checking the active window, Win32 focus window, and process.
 - Packaged app and MSI artifacts are unsigned until the SignPath Foundation flow is approved and configured.
 
 ## Suggested Pre-Release Checklist
 
-- Run `tools/smoke_checks.py`.
-- Run `tools/doctor.py`.
+- Run `tools/smoke_checks.py --rupunct-timeout 120`.
+- Run `tools/doctor.py --strict`.
 - Smoke-check packaged app import.
+- Smoke-check packaged full model load.
 - Smoke-check MSI administrative extraction.
+- Verify the MSI product version and alpha.3-to-alpha.4 upgrade path.
+- Publish SHA256 checksums for every release asset.

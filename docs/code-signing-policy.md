@@ -30,8 +30,8 @@ Model weights and converted model artifacts are not bundled in signed installers
 Windows artifacts use these product metadata values:
 
 - Product name: `NPU Dictate`.
-- Product version: `0.1.0-alpha.1` for the first public pre-release.
-- MSI `ProductVersion`: `0.1.0`, because Windows Installer requires a numeric three-part version.
+- Product version: the tagged pre-release version, such as `0.1.0-alpha.4`.
+- MSI `ProductVersion`: a numeric three-part mapping because Windows Installer does not accept SemVer pre-release suffixes. Starting with alpha.4, `0.1.0-alpha.N` maps to `0.1.N`; alpha.4 therefore uses `0.1.4`.
 
 ## Team Roles
 

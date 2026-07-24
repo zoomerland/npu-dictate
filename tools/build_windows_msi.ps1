@@ -1,6 +1,7 @@
 param(
     [string]$Version = "0.1.0",
     [string]$Configuration = "alpha.4",
+    [string]$ProductVersion = "",
     [switch]$SkipExeBuild
 )
 
@@ -20,6 +21,18 @@ $InstallerDir = Join-Path $Root "dist\installer"
 $IntermediateDir = Join-Path $Root "build\msi"
 $WxsPath = Join-Path $IntermediateDir "NPUDictate.generated.wxs"
 $MsiPath = Join-Path $InstallerDir "NPUDictate-$Version-$Configuration.msi"
+
+if ([string]::IsNullOrWhiteSpace($ProductVersion)) {
+    $versionParts = $Version.Split(".")
+    if ($versionParts.Count -eq 3 -and $Configuration -match "^alpha\.(\d+)$") {
+        $ProductVersion = [string]::Join(".", @($versionParts[0], $versionParts[1], $Matches[1]))
+    } else {
+        $ProductVersion = $Version
+    }
+}
+if ($ProductVersion -notmatch "^\d+\.\d+\.\d+$") {
+    throw "MSI ProductVersion must be a numeric three-part version: $ProductVersion"
+}
 
 function ConvertTo-WixId {
     param([string]$Prefix, [string]$Value)
@@ -159,7 +172,7 @@ $wxs = @"
   <Package
     Name="$AppName"
     Manufacturer="$Manufacturer"
-    Version="$Version"
+    Version="$ProductVersion"
     UpgradeCode="$UpgradeCode"
     Scope="perUser"
     Language="1033">
@@ -222,3 +235,4 @@ if (-not (Test-Path $MsiPath)) {
 }
 
 Write-Host "Built $MsiPath"
+Write-Host "MSI ProductVersion: $ProductVersion"
