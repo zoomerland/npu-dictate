@@ -42,7 +42,11 @@ On the local NPU test machine, repeated startup can reach `Ready` in about 2 sec
 - Saved-audio regression: 8 real recordings, 61.61 seconds total, no empty results or runtime errors.
 - On that corpus, NPU NNCF INT8 b400 took 2.323 seconds versus 14.689 seconds for CPU ONNX INT8, a 6.32x processing-time advantage on the test laptop.
 - Independent runtime and Enter-target reviews completed without actionable findings.
-- Packaged import, full model load, MSI extraction, and installer upgrade checks are release gates.
+- Clean packaged import and full NPU model-load checks passed.
+- MSI administrative extraction passed with 5,818 files and no bundled models.
+- A public alpha.3 MSI upgraded in place to alpha.4 as one registered product.
+- All 17 existing model files and all checked user files remained byte-identical across the upgrade.
+- The installed alpha.4 executable completed a second full NPU model-load check.
 
 ## Distribution Policy For 0.1.0-alpha.4
 
