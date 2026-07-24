@@ -33,7 +33,7 @@ Model files, converted OpenVINO artifacts, user configuration, logs, and recordi
 - [x] MSI administrative extraction smoke passes.
 - [x] Alpha.3-to-alpha.4 install/upgrade smoke passes without removing user data.
 - [x] Release archive and SHA256 checksums are generated.
-- [ ] Independent final release review passes.
+- [x] Independent final release review passes.
 - [ ] Release branch is merged into `main`.
 - [ ] `main` is pushed and GitHub CI passes for tag `v0.1.0-alpha.4`.
 - [ ] CI-built artifacts match the intended names and pass checksum verification.
@@ -47,7 +47,7 @@ Validated on 2026-07-24:
 - Clean one-dir build: 5,817 files, 917,721,850 bytes.
 - Packaged import smoke: passed.
 - Packaged full-load smoke: NPU ASR ready without load errors.
-- MSI administrative extraction: 5,818 files; no bundled model directory.
+- MSI administrative extraction: 5,818 files; no bundled app model weights or app-local model directory.
 - Public alpha.3 upgraded in place to alpha.4 as one registered product.
 - Installed MSI version: `0.1.4`; executable product version: `0.1.0-alpha.4`.
 - All 17 existing model files remained byte-identical after upgrade.
