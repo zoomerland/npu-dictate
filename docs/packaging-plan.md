@@ -124,12 +124,20 @@ Last local MSI smoke result:
 
 Last local packaged full-load smoke result:
 
-- Date: 2026-06-18.
+- Date: 2026-07-24.
 - Result: passed.
-- Executable: `dist\NPUDictate\NPUDictate.exe`.
+- Executable: published MSI installation under `%LOCALAPPDATA%\NPUDictate`.
 - Version: `0.1.0-alpha.4`.
-- `load ready` time: 9.703 seconds in a temporary packaged app root.
+- `load ready` time: 8.675 seconds in a temporary smoke data root.
 - Model artifacts were hardlinked into the temporary app root for the smoke test; model artifacts are still not bundled in the executable or MSI.
+
+Published pre-release:
+
+- Tag: `v0.1.0-alpha.4`.
+- Release date: 2026-07-24.
+- GitHub Actions run `30056027835` built the unsigned ZIP and MSI.
+- CI ZIP, CI MSI, fresh public downloads, and the installed public MSI passed their release gates.
+- The public MSI preserved existing model, configuration, and log files.
 
 Tool setup:
 

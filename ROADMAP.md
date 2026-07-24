@@ -348,6 +348,7 @@ Goal: publish a usable alpha for technical users.
   - `0.1.0-alpha.3` refreshes unsigned artifacts after the overlay progress and MSI UI fixes.
   - `0.1.0-alpha.4` refreshes unsigned artifacts after startup/runtime hardening, guarded Enter, and MSI upgrade fixes.
   - Model weights and converted artifacts remain outside the installer.
+  - Published `v0.1.0-alpha.4` as an unsigned public GitHub pre-release on 2026-07-24.
 
 ## Milestone 6: Packaging and Installer
 
@@ -372,7 +373,7 @@ Do this last.
   - Added packaged smoke checks in `tools/smoke_packaged_exe.ps1`.
   - Import-only smoke passed.
   - Full packaged model-load smoke passed on 2026-06-18.
-  - `0.1.0-alpha.4` full packaged model-load smoke reached `load ready` in 9.703 seconds on the local NPU test machine.
+  - `0.1.0-alpha.4` CI-ZIP and installed public MSI both passed full NPU model-load smoke on 2026-07-24.
   - Packaged OpenVINO sees `CPU,GPU,NPU`; NPU ASR and NPU punctuation load successfully.
 - [x] Create installer:
   - Added `tools/build_windows_msi.ps1`.
@@ -382,8 +383,9 @@ Do this last.
   - The MSI installs app binaries only; app-local model artifacts are still downloaded after launch.
   - The MSI is not signed yet.
   - Added WiX minimal installer UI and completion page for `0.1.0-alpha.3`.
-  - `0.1.0-alpha.4` MSI administrative extraction smoke passed on 2026-06-18.
+  - `0.1.0-alpha.4` local, CI, and fresh public-download MSI checks passed on 2026-07-24.
   - `0.1.0-alpha.4` uses numeric MSI `ProductVersion=0.1.4` so it can supersede earlier `0.1.0` alpha packages.
+  - Public `alpha.3` upgraded to `alpha.4` without changing 17 existing model files or checked user files.
 - [x] Decide installer technology:
   - Use WiX 5 as a repository-local .NET tool for the first MSI path.
   - Avoid WiX 7 because it requires accepting the OSMF EULA.
@@ -402,11 +404,12 @@ Do this last.
   - Free for qualifying OSS projects.
   - Certificate is issued to SignPath Foundation and signing happens through SignPath.io.
   - Repository must be public, released, documented, and built through a trusted build system.
-- [ ] Apply for SignPath Foundation OSS signing:
+- [x] Apply for SignPath Foundation OSS signing:
   - Added `docs/code-signing-policy.md`.
   - Added GitHub Actions Windows artifact build workflow.
-  - Make the GitHub repository public before submission.
-  - Publish `0.1.0-alpha.1` unsigned pre-release artifacts before or during application.
+  - Made the GitHub repository public.
+  - Submitted the SignPath Foundation application; approval remains pending.
+  - Published unsigned pre-release artifacts while the application is under review.
 - [ ] Sign installer and app binaries if practical.
 
 ## Test Matrix

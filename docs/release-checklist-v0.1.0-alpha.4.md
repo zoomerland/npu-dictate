@@ -1,6 +1,6 @@
 # NPU Dictate 0.1.0-alpha.4 Release Checklist
 
-Status: locally validated; preparing an unsigned public pre-release.
+Status: published as an unsigned public pre-release on 2026-07-24.
 
 ## Identity
 
@@ -34,11 +34,11 @@ Model files, converted OpenVINO artifacts, user configuration, logs, and recordi
 - [x] Alpha.3-to-alpha.4 install/upgrade smoke passes without removing user data.
 - [x] Release archive and SHA256 checksums are generated.
 - [x] Independent final release review passes.
-- [ ] Release branch is merged into `main`.
-- [ ] `main` is pushed and GitHub CI passes for tag `v0.1.0-alpha.4`.
-- [ ] CI-built artifacts match the intended names and pass checksum verification.
-- [ ] GitHub pre-release is created with release notes and all three assets.
-- [ ] Published MSI/ZIP download and final launch smoke pass.
+- [x] Release branch is merged into `main`.
+- [x] `main` is pushed and GitHub CI passes for tag `v0.1.0-alpha.4`.
+- [x] CI-built artifacts match the intended names and pass checksum verification.
+- [x] GitHub pre-release is created with release notes and all three assets.
+- [x] Published MSI/ZIP download and final launch smoke pass.
 
 ## Local Artifact Evidence
 
@@ -63,3 +63,22 @@ f5eb02e8d13522ec023cc93e3fe730535e08e10f768b6ae560ec3135b51f987a  NPUDictate-0.1
 
 These are local pre-tag build checksums. The published checksum file must be
 regenerated from the CI-built artifacts.
+
+## Published Artifact Evidence
+
+- Release: <https://github.com/zoomerland/npu-dictate/releases/tag/v0.1.0-alpha.4>
+- GitHub Actions run: <https://github.com/zoomerland/npu-dictate/actions/runs/30056027835>
+- CI packaged import smoke: passed.
+- CI MSI extraction smoke: passed with `ProductVersion=0.1.4`.
+- Downloaded CI ZIP import and full NPU model-load smoke: passed.
+- Fresh public downloads matched the published checksum file.
+- The public MSI installed as one product with version `0.1.4`.
+- Existing model and user files remained byte-identical.
+- The installed public build reached `Ready` on NPU and was left running.
+
+Published artifact checksums:
+
+```text
+bebc889bea63d239f0bcc452a415b0760ce023f46f0b3a67d36434c104004556  NPUDictate-0.1.0-alpha.4-win-x64.zip
+1ec3acc9e7ba9cdf5eafbd5519f6cd1b470aac674a2041448a0648cf20ee1289  NPUDictate-0.1.0-alpha.4.msi
+```
