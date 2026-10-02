@@ -236,6 +236,11 @@ Goal: make model setup transparent and legally clean.
 Goal: move more of the useful pipeline to NPU without sacrificing reliability.
 
 - [x] RUPunct OpenVINO static model runs on NPU.
+- [x] Preserve long transcripts beyond RUPunct's 128-token input limit:
+  - Use overlapping static windows and original whole-word offsets; do not add paragraphs at window boundaries.
+  - Keep short-input behavior and context-aware insertion, on both CPU and NPU.
+  - Validate with deterministic regressions and a 300-second saved-audio fixture through the app handler on NPU.
+  - All raw ASR words and the final tail are preserved; see [validation report](docs/validation-long-punctuation.md).
 - [x] GigaAM ONNX can compile on NPU with static input shapes.
 - [x] Build an OpenVINO/NPU GigaAM CTC wrapper.
 - [x] Keep existing CTC decoder behavior.
