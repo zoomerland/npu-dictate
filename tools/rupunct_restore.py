@@ -1,4 +1,5 @@
 import argparse
+from bisect import bisect_left, bisect_right
 import json
 import re
 import sys
@@ -89,6 +90,9 @@ class RUPunctRestorer:
         self.compiled = self.core.compile_model(model, device)
 
     def _predict_groups(self, text):
+        token_budget = self.max_len - self.tokenizer.num_special_tokens_to_add(pair=False)
+        if token_budget < 1:
+            raise ValueError("Punctuation window must have room for at least one text token")
         encoded = self.tokenizer(
             text,
             return_offsets_mapping=True,
@@ -96,10 +100,51 @@ class RUPunctRestorer:
             truncation=True,
             max_length=self.max_len,
             return_tensors="np",
+            return_overflowing_tokens=True,
+            stride=min(32, token_budget - 1),
         )
-        offsets = encoded.pop("offset_mapping")[0]
+        if len(encoded["input_ids"]) == 1:
+            return self._predict_window_groups(encoded, 0)
+
+        words = [(match.start(), match.end()) for match in re.finditer(r"\S+", text)]
+        word_starts = [start for start, _end in words]
+        selected = {}
+        for window_index in range(len(encoded["input_ids"])):
+            groups = self._predict_window_groups(encoded, window_index)
+            offsets = encoded["offset_mapping"][window_index]
+            mask = encoded["attention_mask"][window_index]
+            valid = offsets[(mask != 0) & (offsets[:, 0] != offsets[:, 1])]
+            if not len(valid):
+                continue
+            starts = valid[:, 0].tolist()
+            ends = valid[:, 1].tolist()
+            group_index = 0
+            for word_index in range(bisect_left(word_starts, starts[0]), len(words)):
+                start, end = words[word_index]
+                if end > ends[-1]:
+                    break
+                while group_index + 1 < len(groups) and groups[group_index + 1]["start"] < end:
+                    group_index += 1
+                group = groups[group_index]
+                if group["start"] >= end or group["end"] <= start:
+                    continue
+                # Use a whole word from the window with the most context on both sides.
+                rank = min(bisect_right(ends, start), len(starts) - bisect_left(starts, end))
+                previous = selected.get(word_index)
+                if previous is None or rank > previous[0]:
+                    selected[word_index] = (rank, {**group, "start": start, "end": end})
+
+        # An unusually long word may not fit intact into any window. Keep it verbatim.
+        return [
+            selected[index][1] if index in selected else
+            {"label": "LOWER_O", "start": start, "end": end, "scores": [1.0]}
+            for index, (start, end) in enumerate(words)
+        ]
+
+    def _predict_window_groups(self, encoded, window_index):
+        offsets = encoded["offset_mapping"][window_index]
         inputs = {
-            key: value.astype(np.int64)
+            key: value[window_index : window_index + 1].astype(np.int64)
             for key, value in encoded.items()
             if key in {"input_ids", "attention_mask", "token_type_ids"}
         }

@@ -122,7 +122,13 @@ Run the lightweight developer smoke checks after changing model profiles, paste 
 .\.venv\Scripts\python.exe .\tools\smoke_checks.py
 ```
 
-The smoke checks validate config normalization, CPU fallback profile selection, OpenVINO hardware probing, insertion spacing rules, clipboard paste/restore behavior through mocks, model directories, and the local RUPunct CPU path when model files are already present.
+The smoke checks validate config normalization, CPU fallback profile selection, OpenVINO hardware probing, insertion spacing rules, clipboard paste/restore behavior through mocks, model directories, punctuation-window regressions, and the local RUPunct CPU path on short/long input and insertion context when model files are already present.
+
+Run just the deterministic punctuation-window tests without loading model files:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tools -p test_rupunct_windows.py -v
+```
 
 ## Diagnostics
 
@@ -149,6 +155,8 @@ Current upstream sources:
 - ASR: `gigaam-v3-ctc`, currently backed by `istupakov/gigaam-v3-onnx` through `onnx-asr` and direct Hugging Face downloads.
 - Punctuation: `RUPunct/RUPunct_big`, downloaded from Hugging Face and converted locally to a static OpenVINO FP16 model.
 - Converted OpenVINO artifacts for the current tested NPU profiles: `Zoomerland/local-voice-dictation-openvino`.
+
+Long transcripts use overlapping 128-token punctuation windows, with 32 text tokens of overlap. Each word is rendered once from its original character span, preferring predictions with more context on both sides. Window boundaries do not create paragraphs. This prevents silent truncation without changing the model artifacts or ASR audio buckets. Short text that fits in one window keeps its previous processing path.
 
 The current NPU OpenVINO artifacts are downloaded from Hugging Face into the app-local `models/` directory. The downloader reads `MANIFEST.json`, downloads required files with retries, verifies file size and SHA256, then installs them into their final `models/...` paths.
 
