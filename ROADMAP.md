@@ -421,7 +421,8 @@ Do this last.
 
 ## UI/UX Audit Remediation (2026-10-03)
 
-Source changes are on `codex/ux-audit-fixes`, not yet integrated or released.
+Source changes are integrated into `features/next`; the unsigned alpha.5 release
+is being prepared. Publication is recorded separately after the tagged CI gate.
 Detailed scope and validation: `docs/ux-audit-remediation.md`.
 
 - [x] Block automatic paste when target restoration fails or identity drifts.

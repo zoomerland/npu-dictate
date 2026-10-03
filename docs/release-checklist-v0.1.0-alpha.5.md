@@ -46,7 +46,7 @@ unclassified implementation work. Origin is the public
 - [x] Integrated source headless regressions pass.
 - [x] Fresh local EXE build, isolated import smoke, payload/version checks.
 - [x] Local MSI build, numeric metadata and administrative-extraction smoke.
-- [ ] Final independent release evidence review.
+- [x] Independent local binary evidence and final CI-source delta review.
 - [ ] Release preparation merged into features/next, then main.
 - [ ] Main/features/next pushed without force.
 - [ ] Tag pushed; tagged GitHub Actions build succeeds.
@@ -112,3 +112,17 @@ here. If any mandatory gate fails, do not tag/publish on the basis of stale asse
   build-evidence artifact contains the source receipt and full payload inventory;
   downloaded packages must be checked against THAT inventory, not local hashes.
   These local hashes are not the public-release checksums.
+- Independent LOCAL-BINARY and CI-DELTA reviews: PASS_WITH_LIMITATIONS.
+  All four local payload representations matched the full inventory and receipt.
+  Frozen CI-source delta `4cd6a71431bc472cbee8e38d4684914c6be71a74` adds only
+  provenance upload, explicit inventory selection and documentation; app payload
+  source remains the reviewed local source. Final source headless tests: 69 PASS;
+  packaging tests: 18 PASS; four PowerShell parsers and diff checks PASS.
+- Build warnings include optional dependencies and UIAutomationClient VC140 DLL
+  collection. ImportOnly passes but does not exercise lazy automation/context
+  paths. Live input/model acceptance remains separate; do not claim warning-free.
+- Pre-integration Git delta: one clean worktree at `4cd6a714`, no stashes or
+  detached HEAD, historical refs unchanged, remotes still at `f5a424cc` after
+  fetch. Ignored build/dist and owned review reports are generated evidence;
+  dependency/model/private-data classifications from the full snapshot remain.
+  No new ignored implementation or unresolved tracked work appeared.

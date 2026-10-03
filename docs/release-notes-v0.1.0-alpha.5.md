@@ -53,6 +53,9 @@ change and UI/runtime safeguards are included in this build.
   inference is not newly certified by this release.
 - No new installed alpha.4-to-alpha.5 upgrade or private-audio regression is
   claimed without the corresponding release evidence.
+- Build warnings for optional dependencies and UIAutomationClient DLL collection
+  remain. Isolated imports passed, but lazy automation/context paths need a live
+  acceptance test; this build is not claimed to be warning-free.
 - Resumable downloads, stable USB microphone identity and native accessibility
   of the Canvas overlay remain future work.
 
