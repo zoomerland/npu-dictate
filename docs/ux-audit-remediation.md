@@ -19,7 +19,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [x] UX-02: retain raw ASR on punctuation failure, avoid automatic sending, retry safely.
 - [x] UX-03: reject settings while dictation is active; preserve live recording indicators.
 - [ ] Independent review and critical-path regression gate.
-- [ ] UX-04: consistent cached-model readiness and integrity checks.
+- [x] UX-04: consistent cached-model readiness and integrity checks.
 - [ ] UX-05: validate hotkey tokens and overlapping shortcuts.
 - [ ] UX-06: recoverable settings-save failures and exit behavior.
 - [ ] UX-07: preserve the system-default/missing microphone choice.
@@ -69,3 +69,8 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   test sandbox, not the application's model directory. The isolated runner now
   denies network and real model loaders; no user models/config or UI were touched.
   Sandbox artifacts are retained private test residue, excluded from Git.
+- UX-04: `tools/test_model_readiness.py`, 9 tests PASS. Empty/invalid JSON files and
+  manifest-size failures cannot bypass readiness. Background preparation verifies
+  cached converted weights with SHA256; metadata-keyed hashing avoids repeated reads.
+  UI readiness uses lightweight size checks. Legacy/direct upstream files without
+  a local SHA manifest cannot have arbitrary same-size corruption proven by this check.

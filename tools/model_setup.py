@@ -2,6 +2,7 @@ import hashlib
 import json
 import shutil
 import time
+from functools import lru_cache
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -130,8 +131,12 @@ def load_cached_artifact_manifest():
     path = artifact_manifest_cache_path()
     if not path.exists():
         return None
-    with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            manifest = json.load(file)
+        return manifest if isinstance(manifest, dict) else None
+    except (OSError, UnicodeError, ValueError):
+        return None
 
 
 def load_remote_artifact_manifest(status_callback=None, force=False):
@@ -172,15 +177,44 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
+@lru_cache(maxsize=64)
+def cached_sha256(path, size, mtime_ns, ctime_ns):
+    # Metadata is part of the key so unchanged startup checks do not reread weights.
+    return sha256_file(path)
+
+
+def model_file_ready(path):
+    path = Path(path)
+    try:
+        if not path.is_file() or path.stat().st_size <= 0:
+            return False
+        if path.suffix == ".json":
+            with path.open("r", encoding="utf-8-sig") as file:
+                return isinstance(json.load(file), dict)
+        return True
+    except (OSError, UnicodeError, ValueError):
+        return False
+
+
 def artifact_ready(artifact, root=None, verify_hash=True):
     target = safe_install_path(artifact["install_path"], root)
-    if not target.exists():
+    if not model_file_ready(target):
         return False
-    expected_size = artifact.get("size_bytes")
-    if expected_size is not None and target.stat().st_size != int(expected_size):
-        return False
-    expected_hash = artifact.get("sha256")
-    if verify_hash and expected_hash and sha256_file(target).lower() != str(expected_hash).lower():
+    try:
+        stat = target.stat()
+        expected_size = artifact.get("size_bytes")
+        if expected_size is not None and stat.st_size != int(expected_size):
+            return False
+        expected_hash = artifact.get("sha256")
+        if verify_hash and expected_hash:
+            fingerprint = (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+            digest = cached_sha256(str(target), *fingerprint)
+            after = target.stat()
+            if fingerprint != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                return False
+            if digest.lower() != str(expected_hash).lower():
+                return False
+    except (OSError, TypeError, ValueError):
         return False
     return True
 
@@ -357,35 +391,37 @@ def ensure_profile_artifacts(profile_id, component=None, status_callback=None):
 def asr_model_ready():
     model_dir = asr_model_dir()
     required = ("config.json", "v3_ctc.int8.onnx", "v3_vocab.txt")
-    return all((model_dir / name).exists() for name in required)
+    return all(model_file_ready(model_dir / name) for name in required)
 
 
 def asr_openvino_model_ready():
     model_dir = asr_model_dir()
     required = ("config.json", "v3_ctc.onnx", "v3_vocab.txt")
-    return all((model_dir / name).exists() for name in required)
+    return all(model_file_ready(model_dir / name) for name in required)
 
 
-def asr_openvino_artifact_model_ready():
-    manifest = load_cached_artifact_manifest()
-    if manifest and profile_artifacts_ready(
-        manifest,
-        ASR_OPENVINO_NNCF_INT8_PROFILE,
-        "asr",
-        verify_hash=False,
-    ):
-        return True
+def asr_openvino_artifact_model_ready(verify_hash=False):
     model_dir = repo_root() / "models" / "asr" / "gigaam-v3-ctc-openvino-int8-calib96"
     required = ("v3_ctc_bucket400_nncf_int8.xml", "v3_ctc_bucket400_nncf_int8.bin")
-    return all((model_dir / name).exists() for name in required) and all(
-        (asr_model_dir() / name).exists() for name in ("config.json", "v3_vocab.txt")
-    )
+    if not all(model_file_ready(model_dir / name) for name in required) or not all(
+        model_file_ready(asr_model_dir() / name) for name in ("config.json", "v3_vocab.txt")
+    ):
+        return False
+    manifest = load_cached_artifact_manifest()
+    if manifest and artifacts_for_profile(manifest, ASR_OPENVINO_NNCF_INT8_PROFILE, "asr"):
+        return profile_artifacts_ready(manifest, ASR_OPENVINO_NNCF_INT8_PROFILE, "asr", verify_hash=verify_hash)
+    return True
 
 
-def punct_model_ready():
+def punct_model_ready(verify_hash=False):
     model_dir = punct_model_dir()
     required = ("config.json", "openvino_model.xml", "openvino_model.bin", "tokenizer.json")
-    return all((model_dir / name).exists() for name in required)
+    if not all(model_file_ready(model_dir / name) for name in required):
+        return False
+    manifest = load_cached_artifact_manifest()
+    if manifest and artifacts_for_profile(manifest, PUNCT_OPENVINO_FP16_PROFILE, "punctuation"):
+        return profile_artifacts_ready(manifest, PUNCT_OPENVINO_FP16_PROFILE, "punctuation", verify_hash=verify_hash)
+    return True
 
 
 def ensure_asr_model(status_callback=None):
@@ -400,7 +436,7 @@ def ensure_asr_model(status_callback=None):
     downloaded_size = 0
     for index, filename in enumerate(filenames, 1):
         target = model_dir / filename
-        if target.exists():
+        if model_file_ready(target):
             downloaded_size += target.stat().st_size
             continue
         tmp = download_url_to_file(
@@ -426,7 +462,7 @@ def ensure_asr_model(status_callback=None):
 
 def ensure_asr_openvino_model(status_callback=None, profile_id=None):
     if profile_id == ASR_OPENVINO_NNCF_INT8_PROFILE:
-        if asr_openvino_artifact_model_ready():
+        if asr_openvino_artifact_model_ready(verify_hash=True):
             return asr_model_dir()
         ensure_profile_artifacts(ASR_OPENVINO_NNCF_INT8_PROFILE, "asr", status_callback)
         return asr_model_dir()
@@ -441,7 +477,7 @@ def ensure_asr_openvino_model(status_callback=None, profile_id=None):
     downloaded_size = 0
     for index, filename in enumerate(filenames, 1):
         target = model_dir / filename
-        if target.exists():
+        if model_file_ready(target):
             downloaded_size += target.stat().st_size
             continue
         tmp = download_url_to_file(
@@ -459,7 +495,7 @@ def ensure_asr_openvino_model(status_callback=None, profile_id=None):
 
 
 def ensure_punct_model(status_callback=None, max_len=PUNCT_MAX_LEN):
-    if punct_model_ready():
+    if punct_model_ready(verify_hash=True):
         return punct_model_dir()
 
     try:
