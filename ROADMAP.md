@@ -2,7 +2,8 @@
 
 This project is a Windows-first, local-first dictation app. The core promise is simple: fast offline speech-to-text, practical insertion into any active text field, and NPU acceleration where it actually helps.
 
-The app is not ready for packaging yet. The near-term goal is to stabilize the daily-use workflow before building an installer or signing anything.
+Unsigned Windows alpha packages are available. The current work stabilizes the
+daily-use workflow and validates the next package; signing remains a separate gate.
 
 ## Product Principles
 
@@ -420,7 +421,8 @@ Do this last.
 
 ## UI/UX Audit Remediation (2026-10-03)
 
-Source changes are on `codex/ux-audit-fixes`, not yet integrated or released.
+Source changes are integrated into `features/next`; the unsigned alpha.5 release
+is being prepared. Publication is recorded separately after the tagged CI gate.
 Detailed scope and validation: `docs/ux-audit-remediation.md`.
 
 - [x] Block automatic paste when target restoration fails or identity drifts.
