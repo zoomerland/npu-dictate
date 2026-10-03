@@ -833,6 +833,7 @@ def check_ui_audio_operations_are_nonblocking():
         engine.loaded = True
 
         started_at = time.perf_counter()
+        engine.asr = object()
         engine.start_recording()
         elapsed = time.perf_counter() - started_at
         assert elapsed < 0.5
@@ -1106,7 +1107,8 @@ def check_clipboard_paste_behavior():
             focus_callback=lambda: False,
             target_identity_callback=lambda: (303, 3003, 503, 503, 42, 9),
         )
-        assert engine.paste_text("new") is True
+        assert engine.paste_text("new") is False
+        assert app.pyperclip.value == "new"
         assert engine.last_paste_target_identity is None
         assert engine.press_enter_after_paste() is False
         assert engine.enter_count == 0
@@ -1155,7 +1157,7 @@ def check_model_artifact_helpers():
             "size_bytes": len(payload),
             "sha256": digest,
         }
-        manifest = {"artifacts": [artifact]}
+        manifest = {"repo_id": model_setup.ARTIFACT_MODEL_REPO, "artifacts": [artifact]}
 
         assert model_setup.safe_install_path("models/test/artifact.bin", root) == target.resolve()
         assert model_setup.artifact_ready(artifact, root)
