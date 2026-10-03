@@ -833,6 +833,7 @@ def check_ui_audio_operations_are_nonblocking():
         engine.loaded = True
 
         started_at = time.perf_counter()
+        engine.asr = object()
         engine.start_recording()
         elapsed = time.perf_counter() - started_at
         assert elapsed < 0.5

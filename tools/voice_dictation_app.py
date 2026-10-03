@@ -202,6 +202,7 @@ TRANSLATIONS = {
         "Hotkey conflict": "Hotkey conflict",
         "Startup error": "Startup error",
         "Settings saved": "Settings saved",
+        "Finish dictation before applying settings": "Finish dictation before applying settings",
     },
     "ru": {
         "settings_title": "Настройки",
@@ -334,6 +335,7 @@ TRANSLATIONS = {
         "Hotkey conflict": "Конфликт клавиш",
         "Startup error": "Ошибка автозапуска",
         "Settings saved": "Настройки сохранены",
+        "Finish dictation before applying settings": "Завершите диктовку перед применением настроек",
     },
 }
 
@@ -2177,6 +2179,9 @@ class DictationEngine:
         self.recording_wall_start = None
         self.recording_wall_end = None
         self.recording_context = None
+        self.recording_cfg = None
+        self.recording_asr = None
+        self.recording_sample_rate = None
         self.last_paste_target_identity = None
         self.last_paste_copied = False
         self.last_enter_failure_reason = None
@@ -2195,6 +2200,9 @@ class DictationEngine:
     def update_config(self, cfg):
         cfg = normalize_model_config(cfg, self.hardware_info)
         with self.lock:
+            if self.recording or self.transcribing:
+                log_debug("settings update rejected reason=active_dictation")
+                return False
             old_cfg = self.cfg
             reload_asr = config_signature(old_cfg, ASR_RELOAD_CONFIG_KEYS) != config_signature(
                 cfg,
@@ -2230,6 +2238,7 @@ class DictationEngine:
             self.load_async()
         elif punct_changed and cfg.get("use_punctuation", True):
             self.load_punct_async(cfg)
+        return True
 
     def set_status(self, status):
         self.status_callback(status)
@@ -2928,7 +2937,9 @@ class DictationEngine:
                 channels=channels,
                 dtype="float32",
                 device=device_index,
-                callback=self._audio_callback,
+                callback=lambda data, frames, timing, status: self._audio_callback(
+                    data, frames, timing, status, generation=generation,
+                ),
             )
             stream.start()
             with self.audio_lifecycle_lock:
@@ -3017,7 +3028,7 @@ class DictationEngine:
         with self.lock:
             if self.closing or self.recording or self.transcribing:
                 return
-            if not self.loaded:
+            if not self.loaded or self.asr is None:
                 self.set_status("Still loading")
                 self.load_async()
                 return
@@ -3029,6 +3040,8 @@ class DictationEngine:
 
         with self.lock:
             if self.closing or self.recording or self.transcribing:
+                return
+            if not self.loaded or self.asr is None:
                 return
             if self.stream is None:
                 reopen_audio = True
@@ -3047,6 +3060,9 @@ class DictationEngine:
                 self.recording_wall_start = time.perf_counter()
                 self.recording_wall_end = None
                 self.recording_context = None
+                self.recording_cfg = dict(self.cfg)
+                self.recording_asr = self.asr
+                self.recording_sample_rate = self.sample_rate
                 self.recording = True
                 self.set_status("Recording")
 
@@ -3071,9 +3087,9 @@ class DictationEngine:
                 punct = self.punct
             job = RecordingJob(
                 blocks=tuple(self.audio_blocks),
-                sample_rate=self.sample_rate,
-                cfg=dict(self.cfg),
-                asr=self.asr,
+                sample_rate=self.recording_sample_rate if self.recording_sample_rate is not None else self.sample_rate,
+                cfg=dict(self.recording_cfg if self.recording_cfg is not None else self.cfg),
+                asr=self.recording_asr if self.recording_asr is not None else self.asr,
                 punct=punct,
                 audio_callback_count=self.audio_callback_count,
                 audio_callback_statuses=tuple(self.audio_callback_statuses),
@@ -3089,6 +3105,7 @@ class DictationEngine:
             )
             self.audio_blocks = []
             self.recording_context = None
+            self.recording_cfg = self.recording_asr = self.recording_sample_rate = None
             self.transcribing = True
             self.transcription_done.clear()
             self.clear_pre_roll_locked()
@@ -3121,9 +3138,10 @@ class DictationEngine:
             self.recording = False
             self.audio_blocks = []
             self.recording_context = None
+            self.recording_cfg = self.recording_asr = self.recording_sample_rate = None
             self.clear_pre_roll_locked()
 
-        self.set_status("Ready" if self.loaded else "Starting")
+        self.set_status(self.readiness_status() if self.loaded else "Starting")
 
     def request_shutdown(self):
         with self.lock:
@@ -3138,11 +3156,13 @@ class DictationEngine:
         with self.lock:
             return not self.recording and not self.transcribing
 
-    def _audio_callback(self, indata, frames, time_info, status):
+    def _audio_callback(self, indata, frames, time_info, status, generation=None):
         now = time.perf_counter()
         block = indata.copy()
         status_text = str(status) if status else ""
         with self.lock:
+            if generation is not None and (generation != self._audio_generation or self.closing):
+                return
             self.append_pre_roll_block_locked(block)
             if self.recording:
                 if self.audio_first_callback_perf is None:
@@ -4524,6 +4544,10 @@ class VoiceDictationApp:
         self.overlay_progress_after_id = self.root.after(80, self.advance_overlay_progress)
 
     def update_status(self, status):
+        if self.engine.recording:
+            status = "Recording"
+        elif self.engine.transcribing and status in {"Settings saved", "Ready", "Hotkey captured", "Press hotkey"}:
+            status = "Transcribing"
         previous_status = self.current_status
         previous_secondary_visible = self.stop_without_enter_button_visible(previous_status)
         self.current_status = status
@@ -4734,6 +4758,7 @@ class VoiceDictationApp:
         self.settings_i18n_widgets = []
         self.settings_i18n_choices = []
         self.settings_i18n_tabs = []
+        self.settings_error_var = tk.StringVar(value="")
         win.title(f"{APP_NAME} {self.t('settings_title')}")
         win.attributes("-topmost", True)
         win.resizable(True, True)
@@ -5469,15 +5494,29 @@ class VoiceDictationApp:
             row=row, column=0, columnspan=2, sticky="ew", pady=(12, 6)
         )
 
+        ttk.Label(win, textvariable=self.settings_error_var, foreground="#9f3030", wraplength=scaled(700)).grid(
+            row=1, column=0, sticky="ew", pady=(6, 0),
+        )
         buttons = ttk.Frame(win)
-        buttons.grid(row=1, column=0, columnspan=2, sticky="e", pady=(14, 0))
+        buttons.grid(row=2, column=0, columnspan=2, sticky="e", pady=(14, 0))
         i18n_button(buttons, "hide_overlay", command=self.hide_overlay).pack(side="left", padx=(0, 10))
         i18n_button(buttons, "apply", command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 10))
         i18n_button(buttons, "save", command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 10))
         i18n_button(buttons, "cancel", command=close_settings).pack(side="left")
         dirty.set(False)
 
+    def settings_error(self, status):
+        if hasattr(self, "settings_error_var"):
+            self.settings_error_var.set(self.localize_status(status))
+        if self.engine.is_idle():
+            self.update_status(status)
+
     def save_settings(self, win, values, close=True):
+        if not self.engine.is_idle():
+            self.settings_error("Finish dictation before applying settings")
+            return False
+        if hasattr(self, "settings_error_var"):
+            self.settings_error_var.set("")
         hardware_info = self.engine.hardware_info or probe_openvino_hardware(values)
         values["ui_language"] = normalize_ui_language(values.get("ui_language", "en"))
         values["asr_model"] = normalize_model_id(ASR_MODEL_PROFILES, values.get("asr_model"), DEFAULT_ASR_MODEL)

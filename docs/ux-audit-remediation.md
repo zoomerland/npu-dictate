@@ -17,7 +17,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 
 - [x] UX-01: stop paste on failed target restoration/identity drift; retain manual text.
 - [x] UX-02: retain raw ASR on punctuation failure, avoid automatic sending, retry safely.
-- [ ] UX-03: defer recording-incompatible settings; preserve live recording indicators.
+- [x] UX-03: reject settings while dictation is active; preserve live recording indicators.
 - [ ] Independent review and critical-path regression gate.
 - [ ] UX-04: consistent cached-model readiness and integrity checks.
 - [ ] UX-05: validate hotkey tokens and overlapping shortcuts.
@@ -61,3 +61,11 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
 - UX-02: safety suite extended to 11 tests. Raw ASR survives load/restore/empty-output
   failures and clipboard errors. Degraded text is never auto-pasted or sent. Preload
   failure is visible; explicit retry and punctuation off/on recover the cached fault.
+- UX-03: safety suite extended to 16 tests. Both hold/toggle recordings retain
+  start-owned ASR/config/rate; settings are rejected during recording/transcription,
+  old-generation callbacks are ignored, and background statuses cannot hide recording.
+- Critical baseline: 25 smoke groups PASS after fixing a loaded-without-ASR fixture.
+  The first run reached the real loader and downloaded ASR files into the private
+  test sandbox, not the application's model directory. The isolated runner now
+  denies network and real model loaders; no user models/config or UI were touched.
+  Sandbox artifacts are retained private test residue, excluded from Git.

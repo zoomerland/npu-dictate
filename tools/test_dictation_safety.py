@@ -176,6 +176,75 @@ class SafetyTests(unittest.TestCase):
         self.assertIsNone(engine.punct_error)
         self.assertEqual(len(preloads), 1)
 
+    def test_model_and_audio_settings_are_rejected_during_recording(self):
+        for mode in ("hold", "toggle"):
+            engine = self.engine()
+            engine.cfg.update(mode=mode, auto_paste=False)
+            old_asr = FakeAsr()
+            engine.loaded, engine.asr, engine.stream, engine.sample_rate = True, old_asr, object(), 16000
+            engine.start_recording()
+            self.assertTrue(engine.recording)
+            engine.audio_blocks = [np.zeros((16000, 1), dtype=np.float32)]
+            changed = dict(engine.cfg, asr_model=app.OPENVINO_ASR_MODEL, sample_rate=48000, channels=2)
+            self.assertFalse(engine.update_config(changed))
+            self.assertIs(engine.asr, old_asr)
+            self.assertEqual(engine.cfg["sample_rate"], 0)
+            # A closed stream must not erase the rate already owned by this recording.
+            engine.sample_rate = None
+            self.assertTrue(engine.stop_recording())
+            self.assertTrue(engine.transcription_done.wait(3))
+            self.assertEqual(self.texts[-1][1], "recognized text")
+            self.assertEqual(self.texts[-1][2], 1.0)
+
+    def test_settings_update_rejected_during_transcription(self):
+        engine = self.engine()
+        engine.transcribing = True
+        old_cfg = dict(engine.cfg)
+        self.assertFalse(engine.update_config(dict(old_cfg, sample_rate=48000)))
+        self.assertEqual(engine.cfg, old_cfg)
+
+    def test_old_audio_callbacks_are_ignored(self):
+        engine = self.engine()
+        engine.recording, engine.sample_rate = True, 16000
+        engine._audio_generation = 2
+        data = np.zeros((160, 1), dtype=np.float32)
+        engine._audio_callback(data, 160, None, None, generation=1)
+        self.assertEqual(engine.audio_blocks, [])
+        engine._audio_callback(data, 160, None, None, generation=2)
+        self.assertEqual(len(engine.audio_blocks), 1)
+
+    def test_ui_apply_during_dictation_does_not_write_or_hide_recording(self):
+        engine = self.engine()
+        engine.recording = True
+        ui = app.VoiceDictationApp.__new__(app.VoiceDictationApp)
+        ui.engine, ui.cfg = engine, dict(engine.cfg, ui_language="en")
+        error = []
+        ui.settings_error_var = SimpleNamespace(set=error.append)
+        ui.update_status = lambda _status: self.fail("Recording status must not be replaced")
+        with patch.object(app, "save_config", side_effect=AssertionError("No persistence during recording")):
+            self.assertFalse(ui.save_settings(None, dict(ui.cfg)))
+        self.assertEqual(error[-1], "Finish dictation before applying settings")
+        self.assertTrue(engine.recording)
+
+    def test_background_status_preserves_recording_indicator(self):
+        ui = app.VoiceDictationApp.__new__(app.VoiceDictationApp)
+        ui.engine = self.engine()
+        ui.engine.recording = True
+        ui.cfg = dict(ui.engine.cfg, ui_language="en", press_enter_after_paste=True,
+                      show_stop_without_enter_button=True)
+        ui.current_status, ui.recording_started_at, ui.transcribing_started_at = "Recording", 1.0, None
+        ui.set_display_status = lambda value: setattr(ui, "current_display_status", value)
+        ui.schedule_status_tick = lambda: None
+        ui.set_overlay_progress_running = lambda _running: None
+        ui.apply_overlay_layout = lambda: None
+        ui.draw_overlay = lambda: None
+        for status in ("Settings saved", "Ready", "Loading punct", "Hotkey captured"):
+            ui.update_status(status)
+            self.assertEqual(ui.current_status, "Recording")
+            self.assertEqual(ui.overlay_button_text, "REC")
+            self.assertEqual(ui.recording_started_at, 1.0)
+            self.assertTrue(ui.stop_without_enter_button_visible())
+
 
 if __name__ == "__main__":
     result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(SafetyTests))
