@@ -10,6 +10,9 @@ $Spec = Join-Path $Root "packaging\npu_dictate.spec"
 $Receipt = Join-Path $Root "build\NPUDictate.build.json"
 $Inventory = Join-Path $Root "build\NPUDictate.payload.json"
 $PayloadCheck = Join-Path $Root "tools\release_payload.py"
+$Output = [IO.Path]::GetFullPath((Join-Path $Root "dist\NPUDictate"))
+$WorkspacePrefix = [IO.Path]::GetFullPath([string]$Root).TrimEnd("\", "/") + [IO.Path]::DirectorySeparatorChar
+if (-not $Output.StartsWith($WorkspacePrefix, [StringComparison]::OrdinalIgnoreCase)) { throw "Output path escapes workspace." }
 
 if (-not (Test-Path $Python)) {
     throw "Virtual environment Python not found: $Python"
@@ -21,6 +24,11 @@ if ($LASTEXITCODE -ne 0) { throw "Cannot determine build source commit." }
 $SourceStatus = git -C $Root status --porcelain
 if ($LASTEXITCODE -ne 0 -or $SourceStatus) { throw "Build requires a clean source worktree." }
 
+if (Test-Path -LiteralPath $Output) {
+    & $Python -B $PayloadCheck --app-dir $Output
+    if ($LASTEXITCODE -ne 0) { throw "Existing output contains unapproved data; preserve it before rebuilding." }
+}
+
 if (-not $SkipInstall) {
     & $Python -m pip install -r (Join-Path $Root "requirements-dev.txt")
     if ($LASTEXITCODE -ne 0) { throw "Build dependency installation failed." }
@@ -29,21 +37,16 @@ if (-not $SkipInstall) {
 if ($Clean) {
     foreach ($Relative in @("build\npu_dictate", "dist\NPUDictate")) {
         $Target = [IO.Path]::GetFullPath((Join-Path $Root $Relative))
-        $WorkspacePrefix = [IO.Path]::GetFullPath([string]$Root).TrimEnd("\", "/") + [IO.Path]::DirectorySeparatorChar
         if (-not $Target.StartsWith($WorkspacePrefix, [StringComparison]::OrdinalIgnoreCase)) {
             throw "Cleanup target escapes workspace: $Target"
         }
         if (Test-Path -LiteralPath $Target) {
-            if ($Relative -eq "dist\NPUDictate") {
-                & $Python -B $PayloadCheck --app-dir $Target
-                if ($LASTEXITCODE -ne 0) { throw "Existing output contains unapproved data; preserve it before rebuilding." }
-            }
             Remove-Item -LiteralPath $Target -Recurse -Force -ErrorAction Stop
         }
     }
 }
 
-& $Python -m PyInstaller --noconfirm --clean $Spec
+& $Python -m PyInstaller --noconfirm --clean --distpath (Split-Path -Parent $Output) --workpath (Join-Path $Root "build") $Spec
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed." }
 
 $Exe = Join-Path $Root "dist\NPUDictate\NPUDictate.exe"

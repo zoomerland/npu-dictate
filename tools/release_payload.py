@@ -22,9 +22,12 @@ def checked_path(name):
         if part.startswith(("gigaam-v3", "rupunct_big")):
             raise ValueError(f"Model payload path: {name}")
     basename = parts[-1]
-    if (basename.startswith(("voice_dictation_config.json", "voice_dictation.log"))
+    if ((basename.startswith("voice_dictation_config") and basename != "voice_dictation_config.example.json")
+            or basename.startswith("voice_dictation.log")
             or re.fullmatch(r"v3_ctc.*\.(onnx|xml|bin)", basename)
-            or basename in {"openvino_model.xml", "openvino_model.bin"}):
+            or basename.endswith((".safetensors", ".gguf"))
+            or (basename.startswith("pytorch_model") and basename.endswith(".bin"))
+            or basename in {"openvino_model.xml", "openvino_model.bin", "flax_model.msgpack", "tf_model.h5"}):
         raise ValueError(f"Private/model payload file: {name}")
     return path.as_posix()
 
@@ -49,6 +52,8 @@ def inventory(app_dir=None, archive=None):
         root = Path(app_dir)
         if not root.is_dir():
             raise ValueError("Application directory does not exist")
+        if root.is_symlink() or (hasattr(root, "is_junction") and root.is_junction()):
+            raise ValueError("Linked application directory is not a build output")
         for path in sorted(root.rglob("*")):
             name = checked_path(path.relative_to(root).as_posix())
             if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):

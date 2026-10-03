@@ -71,7 +71,7 @@ Record incremental outputs, frozen source refs, artifact hashes and exact CI run
 here. If any mandatory gate fails, do not tag/publish on the basis of stale assets.
 
 - Integrated alpha.5 source: 69 headless tests PASS, no visible UI/input/model work.
-- Packaging safety: 14 synthetic tests PASS. Actual PowerShell script definitions
+- Packaging safety: 18 synthetic tests PASS. Actual PowerShell script definitions
   run with AST-substituted native commands and owned temporary files, rejecting
   failed builders/cleanup, stale receipts, dirty source and payload/version drift.
 - Preflight at `e49b8f0` required changes for native build failure and incomplete
@@ -87,3 +87,10 @@ here. If any mandatory gate fails, do not tag/publish on the basis of stale asse
   That is not application code signing; no installer signing certificate is claimed.
 - Previous generated alpha.4 EXE folder retained in ignored
   `dist/preserved-alpha4-20261003`; prior installer assets retained as well.
+- Source follow-up at `549a2dd` closed native-failure/metadata/claims findings but
+  required unconditional prior-output protection and broader config/weight names.
+  Existing dist is now validated before ALL builder paths, with explicit backend
+  dist/work paths. Contamination rejects both Clean/default modes before deletion;
+  sentinel bytes survive. Config backups and standard model-weight filename
+  families are denied at every depth while public examples/library binaries remain.
+  Final source and fresh binary gates remain pending at this checkpoint.
