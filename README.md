@@ -170,6 +170,25 @@ Generated local artifacts:
 
 The first NPU/OpenVINO run can spend noticeable time compiling and caching models. Later starts should be faster once the OpenVINO cache is warm.
 
+The source preparation change below is not included in the released alpha.5
+packages yet and still needs live cold/warm acceptance.
+
+With **Warm up models on startup** enabled, preparation runs in the background
+before recording is allowed. Speech preparation uses the active buckets; punctuation
+also gets a first inference. The overlay and Models settings distinguish model
+reading, compilation/cache loading and inference warm-up. Compilation has no
+reliable percentage or ETA, so it uses an activity indicator instead.
+
+Cache use is reported only after OpenVINO returns its actual compiled-model result.
+When the runtime does not expose that property, cache use is shown as unknown, not
+guessed from existing files. A preparation failure offers an explicit retry/device
+change rather than silently declaring the model ready.
+
+Turning startup warm-up off allows deferred first-use work and shows a readiness
+warning. Native driver compilation cannot safely be cancelled inside a Python
+thread. Settings and exit stay on the UI thread; live cold/warm startup acceptance
+for this preparation change is tracked in [the validation plan](docs/npu-preparation-states.md).
+
 ## Privacy and Offline Behavior
 
 The intended runtime flow is local:

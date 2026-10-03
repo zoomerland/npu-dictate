@@ -10,7 +10,7 @@ def forbidden(*_args, **_kwargs):
     raise AssertionError("Real UI/input/model/network work is forbidden in this suite")
 
 
-def main():
+def main(test_cases=None):
     with tempfile.TemporaryDirectory(prefix="npu-dictate-ux-") as root, \
          patch.dict(os.environ, {"LOCAL_VOICE_DICTATION_DATA_ROOT": root}):
         import voice_dictation_app as app
@@ -19,12 +19,15 @@ def main():
         from test_settings_ux import SettingsTests
         from test_model_readiness import ReadinessTests
         from test_rupunct_windows import PunctuationWindowTests
+        from test_npu_preparation import PreparationTests
+        import openvino as ov
 
         patches = [patch.object(app, "sd", None), patch.object(app, "log_debug", lambda _message: None),
                    patch.object(model_setup, "urlopen", forbidden), patch.object(app.tk, "Tk", forbidden),
                    patch.object(app.tk, "Toplevel", forbidden), patch.object(app.pyperclip, "copy", forbidden),
                    patch.object(app.pyperclip, "paste", forbidden), patch.object(app.keyboard, "Controller", forbidden),
-                   patch.object(app, "probe_openvino_hardware", forbidden)]
+                   patch.object(app, "probe_openvino_hardware", forbidden),
+                   patch.object(ov, "Core", forbidden)]
         for name in ("_load_asr_profile", "_load_punct_profile", "_get_vad", "ensure_audio_stream", "ensure_audio_stream_async", "send_ctrl_v", "send_enter"):
             patches.append(patch.object(app.DictationEngine, name, forbidden))
         from contextlib import ExitStack
@@ -32,7 +35,8 @@ def main():
             for guard in patches:
                 stack.enter_context(guard)
             suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case)
-                                       for case in (SafetyTests, SettingsTests, ReadinessTests, PunctuationWindowTests))
+                                       for case in (test_cases or (SafetyTests, SettingsTests, ReadinessTests,
+                                                                  PunctuationWindowTests, PreparationTests)))
             result = unittest.TextTestRunner(verbosity=2).run(suite)
         return 0 if result.wasSuccessful() else 1
 

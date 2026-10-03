@@ -82,7 +82,9 @@ class GigaamOpenVinoCtcAsr:
         bucket_frames=DEFAULT_BUCKET_FRAMES,
         pad_mode="zero",
         device_config=None,
+        status_callback=None,
     ):
+        self.status_callback = status_callback
         self.model_dir = Path(model_dir)
         self.device = device
         self.model_path = self.model_dir / model_filename
@@ -160,20 +162,34 @@ class GigaamOpenVinoCtcAsr:
         step = self.bucket_frames[-1]
         return ((int(frames) + step - 1) // step) * step
 
-    def _compile(self, bucket):
+    def _compile(self, bucket, status_callback=None):
         with self.lock:
             compiled = self.compiled.get(bucket)
             if compiled is not None:
+                self._report("ASR already in memory", bucket, status_callback)
                 return compiled
 
+            self._report("Reading ASR model", bucket, status_callback)
             model = self.core.read_model(str(self.model_path))
             model.reshape({"features": [1, 64, bucket], "feature_lengths": [1]})
+            self._report("Compiling ASR", bucket, status_callback)
             if self.device_config:
                 compiled = self.core.compile_model(model, self.device, self.device_config)
             else:
                 compiled = self.core.compile_model(model, self.device)
             self.compiled[bucket] = compiled
+            try:
+                cached = compiled.get_property("LOADED_FROM_CACHE")
+            except Exception:
+                cached = None
+            phase = "ASR cache loaded" if cached is True else (
+                "ASR compiled without cache" if cached is False else "ASR cache unknown")
+            self._report(phase, bucket, status_callback)
             return compiled
+
+    def _report(self, phase, bucket, status_callback):
+        if status_callback is not None:
+            status_callback(f"{phase}: {bucket} frames")
 
     def _pad_features(self, features, bucket):
         frames = features.shape[2]
@@ -197,7 +213,9 @@ class GigaamOpenVinoCtcAsr:
         warmed = []
         for bucket in tuple(buckets or self.bucket_frames):
             bucket = int(bucket)
-            compiled = self._compile(bucket)
+            callback = getattr(self, "status_callback", None)
+            compiled = self._compile(bucket, callback)
+            self._report("Warming ASR", bucket, callback)
             features = np.zeros((1, 64, bucket), dtype=np.float32)
             feature_lengths = np.array([bucket], dtype=np.int64)
             compiled({"features": features, "feature_lengths": feature_lengths})

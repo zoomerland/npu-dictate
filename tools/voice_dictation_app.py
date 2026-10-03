@@ -103,7 +103,7 @@ TRANSLATIONS = {
         "model_status_asr": "Speech files",
         "model_status_punct": "Punctuation files",
         "warmup_models": "Warm up models on startup",
-        "warmup_notice": "NPU speech warmup is deferred until first recognition to avoid startup hangs. First recognition may take longer.",
+        "warmup_notice": "Startup preparation compiles and warms the active speech buckets and punctuation in the background. Recording waits for preparation. With warmup off, first use may take longer. Native driver work cannot be cancelled; settings and exit remain available.",
         "retry_models": "Retry model loading",
         "stop_without_enter": "Finish without sending",
         "overlay_tip_hold": "Hold to record",
@@ -178,6 +178,22 @@ TRANSLATIONS = {
         "Loading punct dependencies": "Loading punct dependencies",
         "Loading punct": "Loading punct",
         "Warming models": "Warming models",
+        "Reading ASR model": "Reading speech model",
+        "Compiling ASR": "Preparing speech model (compile or cache load; duration unknown)",
+        "ASR cache loaded": "Speech model loaded from compiled cache",
+        "ASR compiled without cache": "Speech model compiled without a cache hit",
+        "ASR cache unknown": "Speech compilation complete; cache use unknown",
+        "ASR already in memory": "Speech model already compiled in memory",
+        "Warming ASR": "Warming speech inference",
+        "Reading punct model": "Reading punctuation model",
+        "Compiling punct": "Preparing punctuation (compile or cache load; duration unknown)",
+        "Punct cache loaded": "Punctuation loaded from compiled cache",
+        "Punct compiled without cache": "Punctuation compiled without a cache hit",
+        "Punct cache unknown": "Punctuation compilation complete; cache use unknown",
+        "Warming punct": "Warming punctuation inference",
+        "ASR preparation failed": "Speech preparation failed; retry model loading or change device",
+        "Punct preparation failed": "Punctuation preparation failed; retry model loading or change device",
+        "Ready - warmup deferred": "Ready to record; warmup disabled, first use may take longer",
         "Ready": "Ready",
         "Starting": "Starting",
         "Starting audio": "Starting audio",
@@ -247,7 +263,7 @@ TRANSLATIONS = {
         "model_status_asr": "Файлы распознавания",
         "model_status_punct": "Файлы пунктуации",
         "warmup_models": "Прогревать модели при запуске",
-        "warmup_notice": "Прогрев распознавания на NPU отложен до первой диктовки для защиты от зависания при запуске. Первая обработка может занять больше времени.",
+        "warmup_notice": "При запуске в фоне компилируются и прогреваются активные размеры распознавания и пунктуация. Запись ждёт подготовки. Без прогрева первая обработка может быть долгой. Работу драйвера нельзя отменить; настройки и выход остаются доступны.",
         "retry_models": "Повторить загрузку моделей",
         "stop_without_enter": "Завершить без отправки",
         "overlay_tip_hold": "Удерживайте для записи",
@@ -322,6 +338,22 @@ TRANSLATIONS = {
         "Loading punct dependencies": "Загрузка зависимостей пунктуации",
         "Loading punct": "Запуск пунктуации",
         "Warming models": "Прогрев моделей",
+        "Reading ASR model": "Чтение модели распознавания",
+        "Compiling ASR": "Подготовка распознавания (компиляция или загрузка кэша; срок неизвестен)",
+        "ASR cache loaded": "Распознавание загружено из кэша компиляции",
+        "ASR compiled without cache": "Распознавание скомпилировано без попадания в кэш",
+        "ASR cache unknown": "Компиляция распознавания завершена; использование кэша неизвестно",
+        "ASR already in memory": "Распознавание уже скомпилировано в памяти",
+        "Warming ASR": "Прогрев распознавания",
+        "Reading punct model": "Чтение модели пунктуации",
+        "Compiling punct": "Подготовка пунктуации (компиляция или загрузка кэша; срок неизвестен)",
+        "Punct cache loaded": "Пунктуация загружена из кэша компиляции",
+        "Punct compiled without cache": "Пунктуация скомпилирована без попадания в кэш",
+        "Punct cache unknown": "Компиляция пунктуации завершена; использование кэша неизвестно",
+        "Warming punct": "Прогрев пунктуации",
+        "ASR preparation failed": "Ошибка подготовки распознавания; повторите загрузку или смените устройство",
+        "Punct preparation failed": "Ошибка подготовки пунктуации; повторите загрузку или смените устройство",
+        "Ready - warmup deferred": "Можно записывать; прогрев выключен, первая обработка может быть долгой",
         "Ready": "Готово",
         "Starting": "Запуск",
         "Starting audio": "Запуск микрофона",
@@ -360,6 +392,28 @@ TRANSLATIONS = {
         "Settings rollback failed": "Не удалось восстановить прежние настройки",
     },
 }
+
+PREPARATION_PHASES = (
+    "Reading ASR model", "Compiling ASR", "ASR cache loaded",
+    "ASR compiled without cache", "ASR cache unknown", "ASR already in memory", "Warming ASR",
+    "Reading punct model", "Compiling punct", "Punct cache loaded",
+    "Punct compiled without cache", "Punct cache unknown", "Warming punct",
+)
+
+
+def is_preparation_status(status):
+    return any(status == phase or status.startswith(phase + ": ") for phase in PREPARATION_PHASES)
+
+
+class PreparationSuperseded(RuntimeError):
+    """Cooperative stop between native calls, never cancellation of a driver call."""
+
+
+class ModelPreparationError(RuntimeError):
+    def __init__(self, phase, cause):
+        self.status = f"{phase}: {type(cause).__name__}"
+        super().__init__(self.status)
+
 
 CHOICE_TRANSLATION_KEYS = {
     "mode": [
@@ -932,6 +986,8 @@ def localize_progress_metrics(text, language):
 def localize_model_detail(prefix, detail, language):
     if normalize_ui_language(language) != "ru":
         return detail
+    if prefix in PREPARATION_PHASES:
+        return detail.replace(" frames", " кадров")
     if prefix == "First model setup":
         components = {"ASR": "распознавание", "punctuation": "пунктуация"}
         return ": " + ", ".join(components.get(item, item) for item in detail.removeprefix(": ").split(", "))
@@ -2211,6 +2267,10 @@ class RecordingJob:
 
 
 ASR_RELOAD_CONFIG_KEYS = (
+    "warmup_models",
+    "asr_warmup_buckets",
+    "asr_retry_fragmented",
+    "asr_retry_buckets",
     "asr_model",
     "asr_device",
     "asr_pad_mode",
@@ -2233,7 +2293,7 @@ def config_signature(cfg, keys):
 
 
 def punct_model_signature(cfg):
-    return cfg.get("punct_model"), cfg.get("punct_device")
+    return cfg.get("punct_model"), cfg.get("punct_device"), cfg.get("warmup_models", True)
 
 
 class DictationEngine:
@@ -2334,8 +2394,7 @@ class DictationEngine:
                 or old_cfg.get("channels") != cfg.get("channels")
             )
             punct_changed = punct_model_signature(old_cfg) != punct_model_signature(cfg)
-            punct_enabled = cfg.get("use_punctuation", True) and not old_cfg.get("use_punctuation", True)
-            if punct_enabled and self.punct_error is not None:
+            if cfg.get("use_punctuation", True) != old_cfg.get("use_punctuation", True):
                 punct_changed = True
             self.cfg = cfg
             if restart_audio:
@@ -2410,6 +2469,7 @@ class DictationEngine:
                 cache_dir=repo_root() / "models" / "openvino" / "cache" / profile.get("cache_key", "asr_gigaam"),
                 bucket_frames=normalize_asr_bucket_frames(cfg.get("asr_bucket_frames")),
                 pad_mode=normalize_asr_pad_mode(cfg.get("asr_pad_mode")),
+                status_callback=status_callback,
             )
 
         ensure_asr_model(status_callback)
@@ -2469,11 +2529,20 @@ class DictationEngine:
         ensure_punct_model(emit_status)
         log_debug("load punct ensure done")
         punct_start = time.perf_counter()
-        punct = RUPunctRestorer(
-            punct_profile["model_dir"](),
-            cfg.get("punct_device", "NPU"),
-            cache_dir=repo_root() / "models" / "openvino" / "cache",
-        )
+        try:
+            punct = RUPunctRestorer(
+                punct_profile["model_dir"](),
+                cfg.get("punct_device", "NPU"),
+                cache_dir=repo_root() / "models" / "openvino" / "cache",
+                status_callback=emit_status,
+            )
+            self._warmup_models(None, punct, cfg, emit_status)
+        except PreparationSuperseded:
+            raise
+        except ModelPreparationError:
+            raise
+        except Exception as exc:
+            raise ModelPreparationError("Punct preparation failed", exc) from exc
         log_debug(
             "load punct done "
             f"model={cfg.get('punct_model')} device={cfg.get('punct_device')} "
@@ -2510,12 +2579,19 @@ class DictationEngine:
         return self._load_punct_generation(generation, requested_signature, cfg, status_callback)
 
     def _load_punct_generation(self, generation, signature, cfg, status_callback=None):
+        def emit_status(status):
+            if not self._punct_generation_is_current(generation, signature):
+                raise PreparationSuperseded()
+            if status_callback is not None:
+                status_callback(status)
+
         try:
-            punct = self._load_punct_profile(cfg, status_callback)
+            punct = self._load_punct_profile(cfg, emit_status)
         except Exception as exc:
             with self.punct_condition:
                 owns_load = self._punct_loading_generation == generation
-                current = generation == self._punct_generation and signature == self._punct_signature
+                current = (generation == self._punct_generation
+                           and signature == self._punct_signature and not self.closing)
                 if owns_load:
                     self._punct_loading_generation = None
                     self._punct_loading_signature = None
@@ -2602,6 +2678,9 @@ class DictationEngine:
     def _set_punct_status(self, generation, signature, status):
         if not self._punct_generation_is_current(generation, signature):
             return False
+        with self.lock:
+            if not self.cfg.get("use_punctuation", True):
+                return False
         if self.punct_status_callback is not None:
             self.punct_status_callback(generation, status)
         else:
@@ -2617,10 +2696,12 @@ class DictationEngine:
             if self.cfg.get("use_punctuation", True):
                 with self.punct_lock:
                     if self.punct_error is not None:
+                        if isinstance(self.punct_error, ModelPreparationError):
+                            return self.punct_error.status
                         return "Punctuation unavailable"
-                    if self.punct is None:
+                    if self.punct is None or self.punct_loading:
                         return "Loading punct"
-            return "Ready"
+            return "Ready" if self.cfg.get("warmup_models", True) else "Ready - warmup deferred"
 
     def _queue_current_punct_preload(self):
         with self.lock:
@@ -2727,55 +2808,42 @@ class DictationEngine:
     def _warmup_models(self, asr, punct, cfg, status_callback=None):
         if not cfg.get("warmup_models", True):
             log_debug("warmup skipped disabled=True")
+            for model in (asr, punct):
+                if hasattr(model, "status_callback"):
+                    model.status_callback = None
             return
 
         emit_status = status_callback or self.set_status
-        emit_status("Warming models")
-        if hasattr(asr, "warmup"):
-            if str(cfg.get("asr_device", "")).upper().startswith("NPU"):
-                log_debug(
-                    "warmup asr skipped "
-                    f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} reason=npu-startup-hang-guard"
-                )
-            else:
+        if asr is not None:
+            try:
+                emit_status("Warming ASR")
                 buckets = active_asr_warmup_buckets(asr, cfg)
-                start = time.perf_counter()
-                log_debug(
-                    "warmup asr start "
-                    f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} "
-                    f"buckets={','.join(str(bucket) for bucket in buckets)}"
-                )
-                try:
-                    warmed = asr.warmup(buckets)
-                    log_debug(
-                        "warmup asr done "
-                        f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} "
-                        f"buckets={','.join(str(bucket) for bucket in warmed)} "
-                        f"seconds={time.perf_counter() - start:.3f}"
-                    )
-                except Exception as exc:
-                    log_debug(f"warmup asr error type={type(exc).__name__}")
-        else:
-            log_debug(
-                "warmup asr skipped "
-                f"model={cfg.get('asr_model')} device={cfg.get('asr_device')} reason=no-warmup-method"
-            )
+                if hasattr(asr, "warmup"):
+                    asr.warmup(buckets)
+                else:
+                    asr.recognize(np.zeros(16000, dtype=np.float32), sample_rate=16000)
+            except PreparationSuperseded:
+                raise
+            except Exception as exc:
+                raise ModelPreparationError("ASR preparation failed", exc) from exc
+            finally:
+                if hasattr(asr, "status_callback"):
+                    asr.status_callback = None
 
         if punct is not None:
-            start = time.perf_counter()
-            log_debug(
-                "warmup punct start "
-                f"model={cfg.get('punct_model')} device={cfg.get('punct_device')}"
-            )
+            emit_status("Warming punct")
             try:
-                punct.restore("проверка прогрева модели")
-                log_debug(
-                    "warmup punct done "
-                    f"model={cfg.get('punct_model')} device={cfg.get('punct_device')} "
-                    f"seconds={time.perf_counter() - start:.3f}"
-                )
+                if hasattr(punct, "warmup"):
+                    punct.warmup()
+                else:
+                    punct.restore("проверка прогрева модели")
+            except PreparationSuperseded:
+                raise
             except Exception as exc:
-                log_debug(f"warmup punct error type={type(exc).__name__}")
+                raise ModelPreparationError("Punct preparation failed", exc) from exc
+            finally:
+                if hasattr(punct, "status_callback"):
+                    punct.status_callback = None
 
     def _asr_generation_is_current(self, generation, asr=None):
         with self.lock:
@@ -2796,7 +2864,9 @@ class DictationEngine:
         try:
             load_start = time.perf_counter()
             log_debug(f"load start generation={generation}")
-            emit_status = lambda status: self._set_asr_status(generation, status)
+            def emit_status(status):
+                if not self._set_asr_status(generation, status):
+                    raise PreparationSuperseded()
             hardware_info = probe_openvino_hardware(cfg)
             log_openvino_hardware(hardware_info)
             normalized_cfg = normalize_model_config(dict(cfg), hardware_info)
@@ -2881,7 +2951,8 @@ class DictationEngine:
             for line in traceback.format_exc().splitlines():
                 log_debug(f"load traceback {line}")
             if current:
-                self._set_asr_status(generation, f"Load error: {type(exc).__name__}")
+                status = exc.status if isinstance(exc, ModelPreparationError) else f"Load error: {type(exc).__name__}"
+                self._set_asr_status(generation, status)
             elif retry_latest:
                 self.load_async()
 
@@ -2973,7 +3044,7 @@ class DictationEngine:
                     and self.stream is not None
                 )
                 if announce_ready:
-                    self.set_status("Ready")
+                    self._set_asr_status(self._asr_generation, self.readiness_status())
                 restart_latest = (
                     self._audio_open_retry_requested
                     and not self.closing
@@ -3167,6 +3238,9 @@ class DictationEngine:
                 self.set_status("Still loading")
                 self.load_async()
                 return
+            if self._recording_preparation_blocked():
+                self.set_status(self.readiness_status())
+                return
             stream_ready = self.stream is not None
 
         if not stream_ready:
@@ -3177,6 +3251,8 @@ class DictationEngine:
             if self.closing or self.recording or self.transcribing:
                 return
             if not self.loaded or self.asr is None:
+                return
+            if self._recording_preparation_blocked():
                 return
             if self.stream is None:
                 reopen_audio = True
@@ -3210,6 +3286,17 @@ class DictationEngine:
         with self.lock:
             if self.recording:
                 self.recording_context = context
+
+    def _recording_preparation_blocked(self):
+        # Called with engine.lock held; native preparation never holds that lock.
+        if self.loading:
+            return True
+        if self.cfg.get("use_punctuation", True) and self.cfg.get("warmup_models", True):
+            with self.punct_lock:
+                return (self.punct_loading or
+                        (self.punct is None and self.punct_error is None) or
+                        isinstance(self.punct_error, ModelPreparationError))
+        return False
 
     def stop_recording(self, suppress_enter_after_paste=False):
         with self.lock:
@@ -3919,7 +4006,7 @@ class VoiceDictationApp:
             "Verifying models",
             "Retrying models",
             "Downloading punct failed",
-        ):
+        ) + PREPARATION_PHASES + ("ASR preparation failed", "Punct preparation failed"):
             if status.startswith(prefix) and status != prefix:
                 detail = localize_model_detail(prefix, status[len(prefix):], self.cfg.get("ui_language", "en"))
                 return f"{self.t(prefix)}{detail}"
@@ -4551,10 +4638,16 @@ class VoiceDictationApp:
             elif item[0] == "asr_status":
                 _, generation, status = item
                 if self.engine._asr_generation_is_current(generation):
+                    if status in {"Ready", "Ready - warmup deferred"}:
+                        status = self.engine.readiness_status()
                     self.update_status(status)
             elif item[0] == "punct_status":
                 _, generation, status = item
                 if self.engine._punct_generation_is_current(generation):
+                    if not self.engine.cfg.get("use_punctuation", True):
+                        continue
+                    if status in {"Ready", "Ready - warmup deferred"}:
+                        status = self.engine.readiness_status()
                     self.update_status(status)
             elif item[0] == "text":
                 _, raw_text, final_text, duration, asr_sec, punct_sec = item
@@ -4758,27 +4851,42 @@ class VoiceDictationApp:
             bar.stop()
             if percent is not None:
                 bar.configure(mode="determinate", value=percent)
-            elif status.startswith(("Loading", "Downloading", "Verifying", "Converting", "Preparing", "Retrying", "First model setup")) or status in {"Warming models", "Still loading"}:
+            elif is_preparation_status(status) or status.startswith(("Loading", "Downloading", "Verifying", "Converting", "Preparing", "Retrying", "First model setup")) or status in {"Warming models", "Still loading"}:
                 bar.configure(mode="indeterminate")
                 bar.start(100)
             else:
                 bar.configure(mode="determinate", value=100 if status == "Ready" else 0)
         refresh = getattr(self, "settings_refresh_models", None)
-        if refresh is not None and (status.startswith(("Loading", "Verifying", "Load error")) or status in {"Ready", "Punctuation unavailable"}):
+        if refresh is not None and (status.startswith(("Loading", "Verifying", "Load error", "ASR preparation failed", "Punct preparation failed")) or status in {"Ready", "Ready - warmup deferred", "Punctuation unavailable"}):
             refresh()
 
     def update_status(self, status):
+        phase = getattr(self, "current_status", "")
+        if status in {"Still loading", "Loading punct"} and is_preparation_status(phase):
+            # A repeated start request must not erase the ongoing native phase.
+            with self.engine.lock:
+                asr_pending = (self.engine.loading and
+                               self.engine._asr_loading_generation == self.engine._asr_generation)
+                with self.engine.punct_lock:
+                    punct_pending = (self.engine.cfg.get("use_punctuation", True) and
+                                     self.engine.cfg.get("warmup_models", True) and
+                                     self.engine.punct_loading and self.engine.punct_error is None and
+                                     self.engine._punct_loading_generation == self.engine._punct_generation)
+            if ((status == "Still loading" and "ASR" in phase and asr_pending) or
+                    (status == "Loading punct" and "punct" in phase.lower() and punct_pending)):
+                status = phase
         review_button = getattr(self, "settings_review_button", None)
         if review_button is not None:
             review_button.configure(state="normal" if self.engine.recording else "disabled")
-        if status.startswith(("First model setup", "Preparing", "Downloading", "Verifying", "Retrying", "Converting", "Loading", "Load error")) or status in {
-            "Warming models", "Ready", "Still loading", "Punctuation unavailable", "Audio unavailable",
-        }:
+        model_status = is_preparation_status(status) or status.startswith(("First model setup", "Preparing", "Downloading", "Verifying", "Retrying", "Converting", "Loading", "Load error", "ASR preparation failed", "Punct preparation failed")) or status in {
+            "Warming models", "Ready", "Ready - warmup deferred", "Still loading", "Punctuation unavailable", "Audio unavailable",
+        }
+        if model_status:
             self.model_load_status = status
             self.refresh_model_progress()
         if self.engine.recording:
             status = "Recording"
-        elif self.engine.transcribing and status in {"Settings saved", "Ready", "Hotkey captured", "Press hotkey"}:
+        elif self.engine.transcribing and (model_status or status in {"Settings saved", "Hotkey captured", "Press hotkey"}):
             status = "Transcribing"
         previous_status = self.current_status
         previous_secondary_visible = self.stop_without_enter_button_visible(previous_status)
@@ -4804,7 +4912,8 @@ class VoiceDictationApp:
             self.set_display_status(self.compact_download_status(status, localized_status))
 
         busy = (
-            status.startswith("First model setup")
+            is_preparation_status(status)
+            or status.startswith("First model setup")
             or status.startswith("Preparing model download")
             or status.startswith("Downloading")
             or status.startswith("Verifying")
@@ -4822,9 +4931,9 @@ class VoiceDictationApp:
 
         if status == "Recording":
             self.set_overlay_button_state("button_record", "#b83030", "#982727")
-        elif status == "Loading ASR":
+        elif status == "Loading ASR" or (is_preparation_status(status) and "ASR" in status):
             self.set_overlay_button_state("button_asr", "#81612b", "#6d5124")
-        elif status in {"Loading punct", "Loading punct dependencies"}:
+        elif status in {"Loading punct", "Loading punct dependencies"} or (is_preparation_status(status) and "punct" in status.lower()):
             self.set_overlay_button_state("button_punct", "#81612b", "#6d5124")
         elif status == "Warming models":
             self.set_overlay_button_state("button_warm", "#81612b", "#6d5124")
@@ -4853,7 +4962,9 @@ class VoiceDictationApp:
             self.set_overlay_button_state("button_paste", "#b85528", "#98441f")
         elif status in {"No audio", "Too short", "No speech"}:
             self.set_overlay_button_state("button_empty", "#5f6773", "#505762")
-        elif status.startswith("Error") or status.startswith("Load error") or status in {
+        elif status == "Ready - warmup deferred":
+            self.set_overlay_button_state("button_dict", "#b85528", "#98441f")
+        elif status.startswith(("Error", "Load error", "ASR preparation failed", "Punct preparation failed")) or status in {
             "Bad hotkey",
             "Bad overlay key",
             "Hotkey conflict",

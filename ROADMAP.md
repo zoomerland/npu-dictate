@@ -275,9 +275,13 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Test fast speech and long dictation from saved WAV files.
   - Compare against the CPU dynamic-shape baseline.
 - [ ] Make NPU warmup states explicit:
-  - Distinguish cold OpenVINO/NPU compile/cache creation from quick startup load and already-warm in-memory inference.
-  - Do not let the first real dictation silently absorb the long first compile.
-  - Add user-facing progress/status for first NPU preparation when cache is new or model/device/bucket settings change.
+  - [x] Distinguish preparation, actual cache-hit/miss/unknown results, in-memory reuse, and inference warm-up.
+  - [x] Prepare active ASR buckets and punctuation in background workers before recording when startup warm-up is enabled; do not silently defer compilation to the first dictation.
+  - [x] Localize preparation and failure states in RU/EN, with an activity indicator rather than invented compilation percentages or ETA.
+  - [x] Warn explicitly about deferred first-use work when startup warm-up is disabled.
+  - [x] Add hermetic regressions for cache results, pending/failed preparation, settings changes, stale generations, active transcription and shutdown.
+  - [ ] Validate cold-cache and warm-cache startup, first live dictation, UI responsiveness and native-driver behavior on the test laptop before release.
+  - Implementation and acceptance boundaries: [NPU preparation states](docs/npu-preparation-states.md). Source-only feature; no new package or live restart yet.
   - Keep the current observation: after the long first NPU compile/cache pass, repeated dictation becomes fast and stable.
 - [ ] Benchmark CPU vs NPU:
   - [x] Preliminary warm ASR benchmark on 9 live post-pre-roll debug WAV files:
