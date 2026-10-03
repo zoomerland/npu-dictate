@@ -161,6 +161,38 @@ class SettingsTests(unittest.TestCase):
             self.assertTrue(ui.save_settings(None, dict(ui.cfg), close=False))
         self.assertEqual(ui.statuses[-1], "Punctuation unavailable")
 
+    def test_settings_geometry_fits_each_workarea_at_multiple_scales(self):
+        for bounds in ((0, 0, 640, 440), (0, 0, 800, 560), (0, 0, 1024, 728),
+                       (-1920, -300, 0, 740), (1280, 300, 2304, 1028)):
+            for scale in (1.0, 1.5, 2.0):
+                width, height, x, y = app.fit_settings_geometry(bounds, scale)
+                left, top, right, bottom = bounds
+                self.assertGreater(width, 0)
+                self.assertGreater(height, 0)
+                self.assertGreaterEqual(x, left)
+                self.assertGreaterEqual(y, top)
+                self.assertLessEqual(x + width, right)
+                self.assertLessEqual(y + height, bottom)
+
+    def test_overlay_clamp_uses_one_monitor_workarea_not_virtual_gap(self):
+        ui = self.ui()
+        ui.monitor_workarea = lambda x, y: (1280, 300, 2304, 1028)
+        self.assertEqual(ui.clamp_overlay_position(1100, -200, 160, 88), (1280, 300))
+        self.assertEqual(ui.clamp_overlay_position(2400, 1200, 160, 88), (2144, 940))
+
+    def test_single_column_rows_preserve_all_controls_without_collisions(self):
+        class Grid:
+            def __init__(self, row, column, span=1):
+                self.info = dict(row=row, column=column, columnspan=span)
+            def grid_info(self):
+                return self.info.copy()
+            def grid_configure(self, **kwargs):
+                self.info.update(kwargs)
+        widgets = [Grid(0, 0, 2), Grid(1, 0), Grid(1, 1), Grid(2, 1), Grid(3, 0, 2)]
+        app.stack_settings_rows(widgets)
+        self.assertEqual([widget.info["row"] for widget in widgets], list(range(5)))
+        self.assertTrue(all(widget.info["column"] == 0 and widget.info["columnspan"] == 1 for widget in widgets))
+
 
 if __name__ == "__main__":
     import sys

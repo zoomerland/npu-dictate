@@ -24,7 +24,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [x] UX-06: recoverable settings-save failures and exit behavior.
 - [x] UX-07: preserve the system-default/missing microphone choice.
 - [x] UX-08: full live model progress, refresh installed labels, honest warmup states.
-- [ ] UX-09: responsive settings widths and per-monitor workarea placement.
+- [x] UX-09: responsive settings widths and per-monitor workarea placement.
 - [ ] UX-10: redact dictated text/logs from default copied diagnostics.
 - [ ] UX-11: localize dynamic status details and correct opacity terminology.
 - [ ] UX-12: accumulate wheel delta, expose review-stop command, safe hide fallback.
@@ -92,3 +92,9 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   Non-string and punctuation-only results now fall back at the final boundary;
   synthetic raw fallback never pastes or sends. The safety harness denies real
   loaders, network and audio opening globally. Independent re-review is pending.
+- UX-09: settings suite extended to 15 tests. Geometry stays within individual
+  workareas at 640/800/1024 widths, 100/150/200% input scales, negative coordinates
+  and staggered-monitor bounds. Controls use a single column with width-bound
+  wrapping and two-row footer; section selection no longer relies on wide tabs.
+  Actual Tk rendering, checkbutton wrapping and mixed-DPI monitor transitions still
+  require later visual acceptance; no product window was opened for these checks.

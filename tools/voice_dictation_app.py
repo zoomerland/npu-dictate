@@ -600,8 +600,8 @@ def model_status_line(profiles, value, default, title, hardware_info=None, ui_la
     available = "/".join(model_available_devices(profile, hardware_info)) or "-"
     installed = model_install_state_label(model_is_installed(profiles, model_id, default), ui_language)
     if normalize_ui_language(ui_language) == "ru":
-        return f"{title}: {installed}. Язык: {language}. Модель: {supported}. На этом ПК: {available}."
-    return f"{title}: {installed}. Language: {language}. Model: {supported}. This PC: {available}."
+        return f"{title}: {profile['label']}, {installed}. Язык: {language}. Модель: {supported}. На этом ПК: {available}."
+    return f"{title}: {profile['label']}, {installed}. Language: {language}. Model: {supported}. This PC: {available}."
 
 
 def pending_model_downloads(cfg):
@@ -908,6 +908,32 @@ def input_devices(backend=_DEFAULT_SOUNDDEVICE):
         except Exception as exc:
             log_debug(f"audio device skipped index={index} error={type(exc).__name__}")
     return devices
+
+
+def fit_settings_geometry(bounds, scale=1.0):
+    left, top, right, bottom = bounds
+    available_width, available_height = max(1, right - left), max(1, bottom - top)
+    width = min(int(960 * scale), max(1, available_width - 32))
+    height = min(int(650 * scale), max(1, available_height - 32))
+    return width, height, left + (available_width - width) // 2, top + (available_height - height) // 2
+
+
+def clamp_to_workarea(x, y, width, height, bounds):
+    left, top, right, bottom = bounds
+    return min(max(int(x), left), max(left, right - width)), min(max(int(y), top), max(top, bottom - height))
+
+
+def stack_settings_rows(widgets):
+    rows = {}
+    for widget in widgets:
+        info = widget.grid_info()
+        if info:
+            rows.setdefault(int(info["row"]), []).append(widget)
+    row = 0
+    for original_row in sorted(rows):
+        for widget in sorted(rows[original_row], key=lambda child: int(child.grid_info()["column"])):
+            widget.grid_configure(row=row, column=0, columnspan=1, sticky="ew")
+            row += 1
 
 
 def microphone_choices(devices, current_index, language="en"):
@@ -4227,7 +4253,7 @@ class VoiceDictationApp:
         x = self.cfg.get("overlay_x")
         y = self.cfg.get("overlay_y")
         if x is None or y is None:
-            left, top, right, bottom = self.virtual_screen_bounds()
+            left, top, right, bottom = self.monitor_workarea()
             x = right - width - 32
             y = bottom - height - 80
         requested_x = x
@@ -4258,14 +4284,31 @@ class VoiceDictationApp:
         return 0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight()
 
     def clamp_overlay_position(self, x, y, width=None, height=None):
-        left, top, right, bottom = self.virtual_screen_bounds()
         width = int(width if width is not None else max(self.root.winfo_width(), self.root.winfo_reqwidth()))
         height = int(height if height is not None else max(self.root.winfo_height(), self.root.winfo_reqheight()))
-        max_x = max(left, right - width)
-        max_y = max(top, bottom - height)
-        x = min(max(int(x), left), max_x)
-        y = min(max(int(y), top), max_y)
-        return x, y
+        return clamp_to_workarea(x, y, width, height, self.monitor_workarea(x, y))
+
+    def monitor_workarea(self, x=None, y=None):
+        if x is None or y is None:
+            x, y = self.root.winfo_x(), self.root.winfo_y()
+        if os.name == "nt":
+            class MonitorInfo(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                            ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+            try:
+                user32 = ctypes.WinDLL("user32", use_last_error=True)
+                user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+                user32.MonitorFromPoint.restype = wintypes.HANDLE
+                user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MonitorInfo)]
+                user32.GetMonitorInfoW.restype = wintypes.BOOL
+                monitor = user32.MonitorFromPoint(wintypes.POINT(int(x), int(y)), 2)
+                info = MonitorInfo(cbSize=ctypes.sizeof(MonitorInfo))
+                if user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+                    rect = info.rcWork
+                    return rect.left, rect.top, rect.right, rect.bottom
+            except (AttributeError, OSError, ValueError):
+                pass
+        return 0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight()
 
     def _build_menu(self):
         self.menu = tk.Menu(
@@ -4394,6 +4437,11 @@ class VoiceDictationApp:
                 variable.set(self.choice_label(group, value))
             except tk.TclError:
                 pass
+
+        refresh = getattr(self, "settings_refresh_navigation", None)
+        if refresh is not None:
+            refresh()
+        self.refresh_model_progress()
 
     def dispatch(self, action):
         self.event_queue.put(("action", action))
@@ -4865,15 +4913,9 @@ class VoiceDictationApp:
         def scaled(value):
             return max(1, int(round(value * settings_scale)))
 
-        left, top, right, bottom = self.virtual_screen_bounds()
-        screen_width = max(1, right - left)
-        screen_height = max(1, bottom - top)
-        window_width = min(max(scaled(960), 860), max(760, screen_width - scaled(80)))
-        window_height = min(max(scaled(560), 540), max(520, screen_height - scaled(100)))
-        window_x = left + max(0, (screen_width - window_width) // 2)
-        window_y = top + max(0, (screen_height - window_height) // 2)
-        win.configure(padx=scaled(24), pady=scaled(20))
-        win.minsize(window_width, window_height)
+        window_width, window_height, window_x, window_y = fit_settings_geometry(self.monitor_workarea(), settings_scale)
+        win.configure(padx=scaled(12), pady=scaled(10))
+        win.minsize(min(window_width, 480), min(window_height, 320))
         win.geometry(f"{window_width}x{window_height}+{window_x}+{window_y}")
         win.columnconfigure(0, weight=1)
         win.rowconfigure(0, weight=1)
@@ -4964,7 +5006,10 @@ class VoiceDictationApp:
             return remember_i18n(ttk.Button(parent, text=self.t(key), **kwargs), key)
 
         def i18n_checkbutton(parent, key, **kwargs):
-            return remember_i18n(ttk.Checkbutton(parent, text=self.t(key), **kwargs), key)
+            style = f"SettingsWrap{len(self.settings_i18n_widgets)}.TCheckbutton"
+            widget = remember_i18n(ttk.Checkbutton(parent, text=self.t(key), style=style, **kwargs), key)
+            widget.bind("<Configure>", lambda event: settings_style.configure(style, wraplength=max(40, event.width - scaled(36))), add="+")
+            return widget
 
         def settings_t(key, ui_language_code=None):
             language = normalize_ui_language(ui_language_code or UI_LANGUAGE_BY_NAME.get(ui_language.get(), ui_lang_code))
@@ -4978,13 +5023,13 @@ class VoiceDictationApp:
                 self.settings_refresh_models = None
                 self.settings_model_progress_var = None
                 self.settings_model_progress_bar = None
+                self.settings_refresh_navigation = None
 
         win.bind("<Destroy>", clear_i18n_registry, add="+")
 
         devices = input_devices()
         current_device = self.cfg.get("input_device_index")
         device_choices, selected_label = microphone_choices(devices, current_device, ui_lang_code)
-        device_labels = list(device_choices)
         selected_device = tk.StringVar(value=selected_label)
 
         def mark_dirty(*_):
@@ -5075,6 +5120,13 @@ class VoiceDictationApp:
                 asr_model.set(next_asr_label)
             if punct_model.get() != next_punct_label:
                 punct_model.set(next_punct_label)
+            device_index = device_choices[selected_device.get()]
+            next_choices, next_device_label = microphone_choices(devices, device_index, language)
+            device_choices.clear()
+            device_choices.update(next_choices)
+            if "audio" in model_combo_widgets:
+                model_combo_widgets["audio"].configure(values=list(device_choices))
+            selected_device.set(next_device_label)
             refresh_model_status_texts()
             refreshing_labels = False
 
@@ -5258,9 +5310,35 @@ class VoiceDictationApp:
 
         win.protocol("WM_DELETE_WINDOW", close_settings)
 
-        settings_notebook = ttk.Notebook(win, style="Settings.TNotebook")
-        settings_notebook.grid(row=0, column=0, sticky="nsew")
+        navigation = ttk.Frame(win)
+        navigation.grid(row=0, column=0, sticky="nsew")
+        navigation.columnconfigure(0, weight=1)
+        navigation.rowconfigure(1, weight=1)
+        section_name = tk.StringVar()
+        section_selector = ttk.Combobox(navigation, textvariable=section_name, state="readonly", width=20, font=settings_font)
+        section_selector.grid(row=0, column=0, sticky="ew", pady=(0, scaled(8)))
+        settings_style.layout("Settings.TNotebook.Tab", [])
+        settings_notebook = ttk.Notebook(navigation, style="Settings.TNotebook")
+        settings_notebook.grid(row=1, column=0, sticky="nsew")
         settings_scroll_areas = []
+        settings_sections = []
+
+        def refresh_navigation():
+            selected = settings_notebook.select()
+            section_selector.configure(values=[self.t(key) for container, key in settings_sections])
+            for container, key in settings_sections:
+                if str(container) == selected:
+                    section_name.set(self.t(key))
+                    break
+
+        def select_section(_event=None):
+            index = section_selector.current()
+            if 0 <= index < len(settings_sections):
+                settings_notebook.select(settings_sections[index][0])
+
+        section_selector.bind("<<ComboboxSelected>>", select_section)
+        settings_notebook.bind("<<NotebookTabChanged>>", lambda _event: refresh_navigation())
+        self.settings_refresh_navigation = refresh_navigation
 
         def settings_section(key):
             container = ttk.Frame(settings_notebook)
@@ -5273,8 +5351,8 @@ class VoiceDictationApp:
             canvas.grid(row=0, column=0, sticky="nsew")
             scrollbar.grid(row=0, column=1, sticky="ns")
 
-            frame = ttk.Frame(canvas, padding=(scaled(22), scaled(18)))
-            frame.columnconfigure(1, weight=1)
+            frame = ttk.Frame(canvas, padding=(scaled(12), scaled(12)))
+            frame.columnconfigure(0, weight=1)
             content_window = canvas.create_window((0, 0), window=frame, anchor="nw")
 
             def update_scroll_region(_event=None):
@@ -5282,6 +5360,10 @@ class VoiceDictationApp:
 
             def fit_content_width(event):
                 canvas.itemconfigure(content_window, width=event.width)
+                available = max(40, event.width - scaled(32))
+                for child in frame.winfo_children():
+                    if isinstance(child, ttk.Label):
+                        child.configure(wraplength=available)
                 update_scroll_region()
 
             def update_scrollbar_visibility(_event=None):
@@ -5297,7 +5379,8 @@ class VoiceDictationApp:
             frame.bind("<Configure>", update_scrollbar_visibility, add="+")
             canvas.bind("<Configure>", fit_content_width, add="+")
             canvas.bind("<Configure>", update_scrollbar_visibility, add="+")
-            settings_scroll_areas.append((container, canvas))
+            settings_scroll_areas.append((container, canvas, frame))
+            settings_sections.append((container, key))
 
             settings_notebook.add(container, text=self.t(key))
             remember_tab(settings_notebook, container, key)
@@ -5314,7 +5397,7 @@ class VoiceDictationApp:
             if not event.delta:
                 return None
             pointer_widget = win.winfo_containing(event.x_root, event.y_root)
-            for container, canvas in settings_scroll_areas:
+            for container, canvas, _frame in settings_scroll_areas:
                 if container.winfo_ismapped() and is_descendant(pointer_widget, container):
                     canvas.yview_scroll(-int(event.delta / 120), "units")
                     return "break"
@@ -5386,7 +5469,7 @@ class VoiceDictationApp:
             textvariable=asr_model,
             values=model_display_labels(ASR_MODEL_PROFILES, DEFAULT_ASR_MODEL, settings_ui_language_code()),
             state="readonly",
-            width=74,
+            width=20,
             font=settings_font,
         )
         asr_model_combo.grid(row=row, column=1, sticky="ew", pady=6)
@@ -5433,7 +5516,7 @@ class VoiceDictationApp:
             textvariable=punct_model,
             values=model_display_labels(PUNCT_MODEL_PROFILES, DEFAULT_PUNCT_MODEL, settings_ui_language_code()),
             state="readonly",
-            width=74,
+            width=20,
             font=settings_font,
         )
         punct_model_combo.grid(row=row, column=1, sticky="ew", pady=6)
@@ -5528,7 +5611,7 @@ class VoiceDictationApp:
         dict_hotkey_frame = ttk.Frame(hotkey_section)
         dict_hotkey_frame.grid(row=row, column=1, sticky="ew", pady=6)
         dict_hotkey_frame.columnconfigure(0, weight=1)
-        dict_hotkey_entry = ttk.Entry(dict_hotkey_frame, textvariable=dict_hotkey, width=36, font=settings_font)
+        dict_hotkey_entry = ttk.Entry(dict_hotkey_frame, textvariable=dict_hotkey, width=12, font=settings_font)
         dict_hotkey_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         i18n_button(
             dict_hotkey_frame,
@@ -5541,7 +5624,7 @@ class VoiceDictationApp:
         overlay_hotkey_frame = ttk.Frame(hotkey_section)
         overlay_hotkey_frame.grid(row=row, column=1, sticky="ew", pady=6)
         overlay_hotkey_frame.columnconfigure(0, weight=1)
-        overlay_hotkey_entry = ttk.Entry(overlay_hotkey_frame, textvariable=overlay_hotkey, width=36, font=settings_font)
+        overlay_hotkey_entry = ttk.Entry(overlay_hotkey_frame, textvariable=overlay_hotkey, width=12, font=settings_font)
         overlay_hotkey_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         i18n_button(
             overlay_hotkey_frame,
@@ -5552,9 +5635,9 @@ class VoiceDictationApp:
         audio_section = settings_section("settings_section_audio")
         row = 0
         i18n_label(audio_section, "input_device").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
-        ttk.Combobox(audio_section, textvariable=selected_device, values=device_labels, state="readonly", width=72, font=settings_font).grid(
-            row=row, column=1, sticky="ew", pady=6
-        )
+        microphone_combo = ttk.Combobox(audio_section, textvariable=selected_device, values=list(device_choices), state="readonly", width=20, font=settings_font)
+        microphone_combo.grid(row=row, column=1, sticky="ew", pady=6)
+        model_combo_widgets["audio"] = microphone_combo
 
         row += 1
         i18n_label(audio_section, "sample_rate").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
@@ -5587,16 +5670,16 @@ class VoiceDictationApp:
             "show_stop_without_enter_button",
             variable=show_stop_without_enter_button,
         )
+        stop_without_enter_checkbox.grid(row=row, column=1, sticky="ew", pady=6)
         stop_without_enter_row = row
 
         def refresh_stop_without_enter_checkbox(*_):
             if press_enter_after_paste.get():
-                stop_without_enter_checkbox.grid(row=stop_without_enter_row, column=1, sticky="w", pady=6)
+                stop_without_enter_checkbox.grid(row=stop_without_enter_row, column=0, sticky="ew", pady=6)
             else:
                 stop_without_enter_checkbox.grid_remove()
 
         press_enter_after_paste.trace_add("write", refresh_stop_without_enter_checkbox)
-        refresh_stop_without_enter_checkbox()
 
         row += 1
         i18n_checkbutton(insertion_section, "use_context", variable=use_context).grid(
@@ -5613,15 +5696,21 @@ class VoiceDictationApp:
             row=row, column=0, columnspan=2, sticky="ew", pady=(12, 6)
         )
 
-        ttk.Label(win, textvariable=self.settings_error_var, foreground="#9f3030", wraplength=scaled(700)).grid(
-            row=1, column=0, sticky="ew", pady=(6, 0),
-        )
+        error_label = ttk.Label(win, textvariable=self.settings_error_var, foreground="#9f3030", wraplength=scaled(700))
+        error_label.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        error_label.bind("<Configure>", lambda event: error_label.configure(wraplength=max(40, event.width)), add="+")
         buttons = ttk.Frame(win)
-        buttons.grid(row=2, column=0, columnspan=2, sticky="e", pady=(14, 0))
-        i18n_button(buttons, "hide_overlay", command=self.hide_overlay).pack(side="left", padx=(0, 10))
-        i18n_button(buttons, "apply", command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 10))
-        i18n_button(buttons, "save", command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 10))
-        i18n_button(buttons, "cancel", command=close_settings).pack(side="left")
+        buttons.grid(row=2, column=0, sticky="ew", pady=(14, 0))
+        buttons.columnconfigure((0, 1), weight=1)
+        i18n_button(buttons, "hide_overlay", command=self.hide_overlay).grid(row=0, column=0, sticky="ew", padx=4, pady=4)
+        i18n_button(buttons, "apply", command=lambda: apply_settings(close=False)).grid(row=0, column=1, sticky="ew", padx=4, pady=4)
+        i18n_button(buttons, "save", command=lambda: apply_settings(close=True)).grid(row=1, column=0, sticky="ew", padx=4, pady=4)
+        i18n_button(buttons, "cancel", command=close_settings).grid(row=1, column=1, sticky="ew", padx=4, pady=4)
+        for _container, _canvas, frame in settings_scroll_areas:
+            stack_settings_rows(frame.winfo_children())
+        stop_without_enter_row = int(stop_without_enter_checkbox.grid_info()["row"])
+        refresh_stop_without_enter_checkbox()
+        refresh_navigation()
         dirty.set(False)
 
     def settings_error(self, status):
