@@ -49,8 +49,9 @@ unclassified implementation work. Origin is the public
 - [x] Independent local binary evidence and final CI-source delta review.
 - [x] Release preparation merged into features/next, then main.
 - [x] Main/features/next pushed without force.
-- [ ] Tag pushed; tagged GitHub Actions build succeeds.
-- [ ] CI ZIP/MSI downloaded, independently checked and hashed.
+- [x] Tag pushed; tagged GitHub Actions build succeeds.
+- [x] CI ZIP/MSI downloaded, payload checked, smoke-tested and hashed by parent.
+- [ ] Independent tagged-CI binary publication review.
 - [ ] GitHub prerelease published with all three assets and limitations.
 - [ ] Published asset names, sizes and hashes rechecked.
 - [ ] Clean final refs/worktree, owned test processes stopped, handoff recorded.
@@ -131,5 +132,26 @@ here. If any mandatory gate fails, do not tag/publish on the basis of stale asse
   `0f13dafb31720ea2873c4b105913c4ce72dd06b6`. Atomic, non-forced push published
   both branches and the new annotated `v0.1.0-alpha.5` tag.
 - Tagged CI run: https://github.com/zoomerland/npu-dictate/actions/runs/37120140199
-  (`push`, exact head/tag source `0f13dafb`). Build outcome and package checks
-  remain pending at this documentation checkpoint.
+  (`push`, exact head/tag source `0f13dafb`), SUCCESS in 6m31s.
+  Headless UX and packaging regressions, EXE import, MSI administrative extraction
+  and import, archive inventory and both uploads passed on the CI runner.
+- Both downloaded CI artifacts are from that exact run: unsigned packages
+  `11273321895`, build evidence `11273321901`. Both required manifest files and
+  both packages are present. Receipt source equals the annotated tag commit.
+  CI inventory, ZIP stream, ZIP extraction and MSI-extracted payload match
+  5,443 files / 905,719,017 bytes. Local e9 build counts/hashes remain distinct.
+- Downloaded CI ZIP and MSI-extracted EXE passed finite ImportOnly on this laptop,
+  using explicit CI inventory for MSI validation. EXE string version: alpha.5;
+  MSI ProductVersion: 0.1.5; stable UpgradeCode unchanged. Both remain NotSigned.
+  No visible UI/model load or installed-product change occurred.
+- CI receipt SHA256:
+  `2A5AF7BB5C876B523B1693DD0232FE740CB2E32F0210E783F65690226355B765`.
+  CI inventory SHA256:
+  `79F3CDDBB887F007F240C104D1A0BF2D63FF1FCAA67F8ABD6B45B608589BC63E`.
+  CI EXE: 61,861,394 bytes; SHA256:
+  `19F7BF82F9AC95EFFFECB118DE608B300BD2EA7C0D44A0AAE9E1B118C5712342`.
+  Release MSI: 247,590,085 bytes; SHA256:
+  `E2834EBFCBFE0AB04DFF7EEFE79FF03092049BAF000E19BCA08BEDE4DE9ED127`.
+  Release ZIP: 331,442,959 bytes; SHA256:
+  `4F6CC4E2136E7F91718DE1DE2F02A39046EA3E4A492262FE0AA67C561E91BA7F`.
+  `SHA256SUMS.txt` is generated from those two exact CI files.
