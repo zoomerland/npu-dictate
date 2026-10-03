@@ -105,6 +105,10 @@ TRANSLATIONS = {
         "warmup_models": "Warm up models on startup",
         "warmup_notice": "NPU speech warmup is deferred until first recognition to avoid startup hangs. First recognition may take longer.",
         "retry_models": "Retry model loading",
+        "stop_without_enter": "Finish without sending",
+        "overlay_tip_hold": "Hold to record",
+        "overlay_tip_toggle": "Start / stop recording",
+        "Tray unavailable": "Tray unavailable - overlay remains visible",
         "compare_asr": "Compare ASR CPU/NPU",
         "overlay_size": "Overlay size",
         "overlay_size_small": "Small",
@@ -147,7 +151,7 @@ TRANSLATIONS = {
         "button_paste": "PASTE",
         "button_empty": "EMPTY",
         "button_error": "ERR",
-        "button_no_enter": "TEXT",
+        "button_no_enter": "REVIEW",
         "assign": "Assign",
         "press_keys": "Press keys...",
         "apply": "Apply",
@@ -245,6 +249,10 @@ TRANSLATIONS = {
         "warmup_models": "Прогревать модели при запуске",
         "warmup_notice": "Прогрев распознавания на NPU отложен до первой диктовки для защиты от зависания при запуске. Первая обработка может занять больше времени.",
         "retry_models": "Повторить загрузку моделей",
+        "stop_without_enter": "Завершить без отправки",
+        "overlay_tip_hold": "Удерживайте для записи",
+        "overlay_tip_toggle": "Начать / закончить запись",
+        "Tray unavailable": "Трей недоступен - кнопка останется видимой",
         "compare_asr": "Сравнивать ASR CPU/NPU",
         "overlay_size": "Размер кнопки",
         "overlay_size_small": "Маленькая",
@@ -287,7 +295,7 @@ TRANSLATIONS = {
         "button_paste": "ВСТ",
         "button_empty": "ПУСТО",
         "button_error": "ОШИБ",
-        "button_no_enter": "ТЕКСТ",
+        "button_no_enter": "ПРОВ.",
         "assign": "Назначить",
         "press_keys": "Нажмите клавиши...",
         "apply": "Применить",
@@ -939,6 +947,12 @@ def localize_model_detail(prefix, detail, language):
 
 def startup_lock_error_message(code, language="en"):
     return TRANSLATIONS[normalize_ui_language(language)]["single_instance_error"].format(code=code)
+
+
+def wheel_scroll_units(delta, remainder=0):
+    total = remainder + delta
+    steps = int(total / 120)
+    return -steps, total - steps * 120
 
 
 def fit_settings_geometry(bounds, scale=1.0):
@@ -3833,6 +3847,7 @@ class VoiceDictationApp:
         self.mouse_recording_active = False
         self.mouse_pressed_on_button = False
         self.mouse_pressed_button_kind = None
+        self.overlay_hover_kind = None
 
         self.foreground_tracker = ForegroundWindowTracker()
         self.input_tracker = FocusedInputTracker()
@@ -3856,7 +3871,7 @@ class VoiceDictationApp:
         self.start_tray_icon()
 
         if not self.cfg.get("overlay_visible", True):
-            self.root.withdraw()
+            self.hide_overlay()
 
         self.root.after(100, self.poll_events)
         self.root.after(100, self.track_foreground)
@@ -3933,6 +3948,8 @@ class VoiceDictationApp:
             widget.bind("<Button-3>", self.show_menu)
             widget.bind("<ButtonPress-1>", self.on_overlay_press)
             widget.bind("<B1-Motion>", self.on_overlay_motion)
+            widget.bind("<Motion>", self.on_overlay_hover)
+            widget.bind("<Leave>", lambda _event: self.clear_overlay_hover())
             widget.bind("<ButtonRelease-1>", self.on_overlay_release)
 
     def overlay_size_profile(self):
@@ -4219,7 +4236,7 @@ class VoiceDictationApp:
             canvas.create_text(
                 text_x,
                 geometry["status_y"] + profile["status_height"] / 2,
-                text=self.fit_overlay_text(self.status_var.get(), profile["status_font"], content_width),
+                text=self.fit_overlay_text(self.overlay_hover_text() or self.status_var.get(), profile["status_font"], content_width),
                 fill=OVERLAY_TEXT_FG,
                 font=profile["status_font"],
                 justify="center",
@@ -4303,7 +4320,7 @@ class VoiceDictationApp:
         if self.cfg.get("overlay_x") != x or self.cfg.get("overlay_y") != y:
             self.cfg["overlay_x"] = x
             self.cfg["overlay_y"] = y
-            save_config(self.cfg)
+            self.persist_ui_config()
 
     def virtual_screen_bounds(self):
         if os.name == "nt":
@@ -4352,6 +4369,8 @@ class VoiceDictationApp:
             activeborderwidth=2,
         )
         self.menu.add_command(label=self.t("start_stop"), command=self.engine.toggle_recording)
+        self.menu.add_command(label=self.t("stop_without_enter"), command=lambda: self.handle_action("stop_without_enter"),
+                              state="normal" if self.engine.recording else "disabled")
         self.menu.add_command(label=self.t("settings"), command=self.open_settings)
         self.menu.add_command(label=self.t("hide_overlay"), command=self.hide_overlay)
         self.menu.add_command(label=self.t("copy_debug_info"), command=self.copy_debug_info)
@@ -4359,6 +4378,8 @@ class VoiceDictationApp:
         self.menu.add_command(label=self.t("exit"), command=self.exit_app)
 
     def show_menu(self, event):
+        self.clear_overlay_hover()
+        self.menu.entryconfigure(1, state="normal" if self.engine.recording else "disabled")
         self.menu.tk_popup(event.x_root, event.y_root)
 
     def make_tray_image(self):
@@ -4413,6 +4434,8 @@ class VoiceDictationApp:
             pystray.MenuItem(self.t("show_overlay"), lambda: self.dispatch("show_overlay"), default=True),
             pystray.MenuItem(self.t("hide_overlay"), lambda: self.dispatch("hide_overlay")),
             pystray.MenuItem(self.t("settings"), lambda: self.dispatch("open_settings")),
+            pystray.MenuItem(self.t("stop_without_enter"), lambda: self.dispatch("stop_without_enter"),
+                             enabled=lambda _item: self.engine.recording),
             pystray.MenuItem(self.t("copy_debug_info"), lambda: self.dispatch("copy_debug_info")),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(self.t("quit"), lambda: self.dispatch("exit_app")),
@@ -4618,6 +4641,9 @@ class VoiceDictationApp:
             self.engine.stop_recording()
         elif action == "toggle_recording":
             self.engine.toggle_recording()
+        elif action == "stop_without_enter":
+            if self.engine.recording:
+                self.engine.stop_recording(suppress_enter_after_paste=True)
 
         elif action == "retry_models":
             self.retry_model_loading()
@@ -4712,6 +4738,9 @@ class VoiceDictationApp:
             refresh()
 
     def update_status(self, status):
+        review_button = getattr(self, "settings_review_button", None)
+        if review_button is not None:
+            review_button.configure(state="normal" if self.engine.recording else "disabled")
         if status.startswith(("First model setup", "Preparing", "Downloading", "Verifying", "Retrying", "Converting", "Loading", "Load error")) or status in {
             "Warming models", "Ready", "Still loading", "Punctuation unavailable", "Audio unavailable",
         }:
@@ -4805,7 +4834,29 @@ class VoiceDictationApp:
         else:
             self.set_overlay_button_state("button_dict", "#2864d8", "#1f55bd")
 
+    def overlay_hover_text(self):
+        kind = getattr(self, "overlay_hover_kind", None)
+        if kind == "no_enter":
+            return self.t("stop_without_enter")
+        if kind == "primary" and not self.engine.recording:
+            return self.t("overlay_tip_hold" if self.cfg.get("mode", "hold") == "hold" else "overlay_tip_toggle")
+        return None
+
+    def on_overlay_hover(self, event):
+        if self.mouse_pressed_on_button or self.dragging_overlay:
+            return
+        kind = self.event_overlay_button_kind(event)
+        if kind != getattr(self, "overlay_hover_kind", None):
+            self.overlay_hover_kind = kind
+            self.draw_overlay()
+
+    def clear_overlay_hover(self):
+        if getattr(self, "overlay_hover_kind", None) is not None:
+            self.overlay_hover_kind = None
+            self.draw_overlay()
+
     def on_overlay_press(self, event):
+        self.clear_overlay_hover()
         self.drag_start_x = event.x_root
         self.drag_start_y = event.y_root
         self.overlay_start_x = self.root.winfo_x()
@@ -4877,7 +4928,15 @@ class VoiceDictationApp:
     def persist_overlay_position(self):
         self.cfg["overlay_x"] = int(self.root.winfo_x())
         self.cfg["overlay_y"] = int(self.root.winfo_y())
-        save_config(self.cfg)
+        self.persist_ui_config()
+
+    def persist_ui_config(self):
+        try:
+            save_config(self.cfg)
+            return True
+        except OSError as exc:
+            self.settings_error(f"Settings save failed: {type(exc).__name__}")
+            return False
 
     def toggle_overlay(self):
         if self.root.state() == "withdrawn":
@@ -4887,7 +4946,7 @@ class VoiceDictationApp:
 
     def show_overlay(self):
         self.cfg["overlay_visible"] = True
-        save_config(self.cfg)
+        self.persist_ui_config()
         self.root.deiconify()
         self.root.attributes("-topmost", True)
         self.apply_overlay_transparency()
@@ -4895,9 +4954,15 @@ class VoiceDictationApp:
         self._position_overlay()
 
     def hide_overlay(self):
+        if self.tray_icon is None:
+            self.cfg["overlay_visible"] = True
+            self.settings_error("Tray unavailable")
+            return False
+        self.clear_overlay_hover()
         self.cfg["overlay_visible"] = False
-        save_config(self.cfg)
+        self.persist_ui_config()
         self.root.withdraw()
+        return True
 
     def settings_ui_scale(self):
         try:
@@ -5053,6 +5118,7 @@ class VoiceDictationApp:
                 self.settings_model_progress_var = None
                 self.settings_model_progress_bar = None
                 self.settings_refresh_navigation = None
+                self.settings_review_button = None
 
         win.bind("<Destroy>", clear_i18n_registry, add="+")
 
@@ -5375,6 +5441,7 @@ class VoiceDictationApp:
             container.rowconfigure(0, weight=1)
 
             canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
+            canvas.wheel_remainder = 0
             scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
             canvas.configure(yscrollcommand=scrollbar.set)
             canvas.grid(row=0, column=0, sticky="nsew")
@@ -5428,7 +5495,9 @@ class VoiceDictationApp:
             pointer_widget = win.winfo_containing(event.x_root, event.y_root)
             for container, canvas, _frame in settings_scroll_areas:
                 if container.winfo_ismapped() and is_descendant(pointer_widget, container):
-                    canvas.yview_scroll(-int(event.delta / 120), "units")
+                    units, canvas.wheel_remainder = wheel_scroll_units(event.delta, canvas.wheel_remainder)
+                    if units:
+                        canvas.yview_scroll(units, "units")
                     return "break"
             return None
 
@@ -5462,6 +5531,10 @@ class VoiceDictationApp:
         i18n_checkbutton(general_section, "start_with_windows", variable=start_with_windows).grid(
             row=row, column=1, sticky="w", pady=6
         )
+        row += 1
+        self.settings_review_button = i18n_button(general_section, "stop_without_enter", command=lambda: self.handle_action("stop_without_enter"),
+                                                 state="normal" if self.engine.recording else "disabled")
+        self.settings_review_button.grid(row=row, column=0, columnspan=2, sticky="w", pady=6)
 
         models_section = settings_section("settings_section_models")
         row = 0

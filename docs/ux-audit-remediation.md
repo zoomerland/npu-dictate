@@ -27,7 +27,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [x] UX-09: responsive settings widths and per-monitor workarea placement.
 - [x] UX-10: redact dictated text/logs from default copied diagnostics.
 - [x] UX-11: localize dynamic status details and correct opacity terminology.
-- [ ] UX-12: accumulate wheel delta, expose review-stop command, safe hide fallback.
+- [x] UX-12: accumulate wheel delta, expose review-stop command, safe hide fallback.
 - [ ] Final headless suite, review findings, roadmap and handoff.
 
 ## Initial Git Revision
@@ -106,3 +106,9 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   remaining bytes, speed and ETA are localized without modifying filenames. Both
   language dictionaries and placeholders match. Single-instance failure follows
   the saved UI language; the alpha slider is correctly labeled opacity.
+- UX-12: settings suite extended to 23 tests. Small wheel events accumulate.
+  Review-stop is available through a native settings button and context/tray menus;
+  Canvas hover help changes the in-place caption, with no tooltip window/focus calls.
+  A missing tray prevents hiding; overlay-save errors are recoverable too.
+  Canvas itself is still not a native accessible Button. Screen-reader acceptance,
+  tooltip visibility in button-only mode and real tray recovery remain later checks.

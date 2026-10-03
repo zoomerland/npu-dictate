@@ -233,6 +233,52 @@ class SettingsTests(unittest.TestCase):
         self.assertIn("Windows error: 5", app.startup_lock_error_message(5, "en"))
         self.assertEqual(app.TRANSLATIONS["ru"]["overlay_opacity"], "Непрозрачность кнопки")
 
+    def test_small_wheel_events_accumulate_and_reverse(self):
+        remainder = 0
+        outputs = []
+        for delta in (30, 30, 30, 30, -60, -60, 240):
+            units, remainder = app.wheel_scroll_units(delta, remainder)
+            outputs.append(units)
+        self.assertEqual(outputs, [0, 0, 0, -1, 0, 1, -2])
+        self.assertEqual(remainder, 0)
+
+    def test_review_stop_has_a_semantic_action_and_idle_guard(self):
+        ui = self.ui()
+        calls = []
+        ui.engine.recording = True
+        ui.engine.stop_recording = lambda **kwargs: calls.append(kwargs)
+        ui.handle_action("stop_without_enter")
+        self.assertEqual(calls, [dict(suppress_enter_after_paste=True)])
+        ui.engine.recording = False
+        ui.handle_action("stop_without_enter")
+        self.assertEqual(len(calls), 1)
+
+    def test_overlay_cannot_be_hidden_without_tray(self):
+        ui = self.ui()
+        ui.tray_icon = None
+        ui.root = SimpleNamespace(withdraw=lambda: self.fail("No recovery icon available"))
+        with patch.object(app, "save_config", side_effect=AssertionError("No visibility change")):
+            self.assertFalse(ui.hide_overlay())
+        self.assertTrue(ui.cfg["overlay_visible"])
+        self.assertIn("overlay remains visible", ui.settings_error_var.get())
+
+    def test_visibility_and_drag_save_failure_are_recoverable(self):
+        ui = self.ui()
+        with patch.object(app, "save_config", side_effect=PermissionError("synthetic")):
+            self.assertFalse(ui.persist_ui_config())
+        self.assertIn("Could not save settings", ui.settings_error_var.get())
+
+    def test_hover_help_uses_no_window_or_focus_operations(self):
+        ui = self.ui()
+        ui.mouse_pressed_on_button = ui.dragging_overlay = False
+        ui.engine.recording = True
+        ui.event_overlay_button_kind = lambda _event: "no_enter"
+        ui.draw_overlay = lambda: None
+        ui.on_overlay_hover(SimpleNamespace())
+        self.assertEqual(ui.overlay_hover_text(), "Finish without sending")
+        ui.clear_overlay_hover()
+        self.assertIsNone(ui.overlay_hover_text())
+
 
 if __name__ == "__main__":
     import sys
