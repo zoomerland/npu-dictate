@@ -1,5 +1,7 @@
 """Offline integrity regressions; files are synthetic and never model-loaded."""
 import hashlib
+import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -40,7 +42,7 @@ class ReadinessTests(unittest.TestCase):
                 (directory / name).write_bytes(payload)
 
     def manifest(self, relative, expected, profile, component):
-        artifact = {"install_path": relative, "size_bytes": len(expected),
+        artifact = {"install_path": relative, "repo_path": relative, "size_bytes": len(expected),
                     "sha256": hashlib.sha256(expected).hexdigest(), "profile_id": profile, "component": component}
         return {"repo_id": setup.ARTIFACT_MODEL_REPO, "artifacts": [artifact]}
 
@@ -129,13 +131,15 @@ class ReadinessTests(unittest.TestCase):
 
     def test_malformed_manifest_metadata_is_unavailable_not_an_exception(self):
         self.model_files()
-        base = dict(profile_id=setup.PUNCT_OPENVINO_FP16_PROFILE, component="punctuation")
+        base = dict(profile_id=setup.PUNCT_OPENVINO_FP16_PROFILE, component="punctuation", repo_path="model.bin")
         values = [{}, {"artifacts": "text"}, {"artifacts": [None]}, {"artifacts": [base]},
                   {"artifacts": [dict(base, install_path="../escape.bin")]},
                   {"artifacts": [dict(base, install_path="model.bin", size_bytes="bad")]},
                   {"artifacts": [dict(base, install_path="model.bin", sha256="bad")]}]
         for manifest in values:
+            manifest["repo_id"] = setup.ARTIFACT_MODEL_REPO
             with self.subTest(manifest=manifest), patch.object(setup, "load_cached_artifact_manifest", return_value=manifest):
+                self.assertFalse(setup.valid_artifact_manifest(manifest))
                 self.assertFalse(setup.punct_model_ready())
                 self.assertFalse(setup.asr_openvino_artifact_model_ready())
         for artifact in (None, {}, {"install_path": "../escape.bin"}):
@@ -147,6 +151,71 @@ class ReadinessTests(unittest.TestCase):
              patch.object(setup, "read_json_url", return_value=manifest) as download:
             self.assertEqual(setup.load_remote_artifact_manifest(), manifest)
             download.assert_called_once()
+
+    def invalid_manifests(self, valid):
+        for key, values in (("repo_path", (None, "", " ", 12, [], "../escape.bin", "/model.bin", ".", "C:/model.bin", "bad\x00.bin", "model.bin/", "./model.bin", "folder/./model.bin")),
+                            ("repo_id", (None, "", "Other/models", 12, []))):
+            for value in values:
+                invalid = copy.deepcopy(valid)
+                owner = invalid["artifacts"][0] if key == "repo_path" else invalid
+                if value is None:
+                    owner.pop(key)
+                else:
+                    owner[key] = value
+                yield key, value, invalid
+
+    def test_missing_source_metadata_is_unavailable_and_rejected_remotely(self):
+        self.model_files()
+        for profile, component, relative in (
+            (setup.PUNCT_OPENVINO_FP16_PROFILE, "punctuation", "models/openvino/RUPunct_big_fp16_static128/openvino_model.bin"),
+            (setup.ASR_OPENVINO_NNCF_INT8_PROFILE, "asr", "models/asr/gigaam-v3-ctc-openvino-int8-calib96/v3_ctc_bucket400_nncf_int8.bin"),
+        ):
+            valid = self.manifest(relative, b"weights", profile, component)
+            for key, value, invalid in self.invalid_manifests(valid):
+                with self.subTest(component=component, key=key, value=value):
+                    self.assertFalse(setup.valid_artifact_manifest(invalid))
+                    with patch.object(setup, "load_cached_artifact_manifest", return_value=invalid):
+                        self.assertFalse(setup.punct_model_ready(verify_hash=True))
+                        self.assertFalse(setup.asr_openvino_artifact_model_ready(verify_hash=True))
+                    with patch.object(setup, "read_json_url", return_value=invalid):
+                        with self.assertRaisesRegex(RuntimeError, "Invalid model artifact manifest"):
+                            setup.load_remote_artifact_manifest(force=True)
+
+    def test_invalid_source_cache_refreshes_and_installs_with_hash_checks(self):
+        self.model_files()
+        for profile, component, relative in (
+            (setup.PUNCT_OPENVINO_FP16_PROFILE, "punctuation", "models/openvino/RUPunct_big_fp16_static128/openvino_model.bin"),
+            (setup.ASR_OPENVINO_NNCF_INT8_PROFILE, "asr", "models/asr/gigaam-v3-ctc-openvino-int8-calib96/v3_ctc_bucket400_nncf_int8.bin"),
+        ):
+            valid = self.manifest(relative, b"weights", profile, component)
+            target = self.root / relative
+            for key, value, invalid in self.invalid_manifests(valid):
+                for payload in (b"weights", b"WEIGHTS"):
+                    with self.subTest(component=component, key=key, value=value, payload=payload):
+                        target.unlink(missing_ok=True)
+                        cache = setup.artifact_manifest_cache_path()
+                        cache.parent.mkdir(parents=True, exist_ok=True)
+                        cache.write_text(json.dumps(invalid), encoding="utf-8")
+                        def fake_download(url, path, **kwargs):
+                            self.assertEqual(url, setup.artifact_url(relative))
+                            self.assertEqual(kwargs["expected_size"], len(payload))
+                            temporary = path.with_name(path.name + ".download")
+                            temporary.write_bytes(payload)
+                            return temporary
+                        with patch.object(setup, "read_json_url", return_value=valid) as remote, \
+                             patch.object(setup, "download_url_to_file", side_effect=fake_download) as download, \
+                             patch.object(setup.time, "sleep", lambda _seconds: None):
+                            if payload == b"weights":
+                                self.assertEqual(setup.ensure_profile_artifacts(profile, component), valid)
+                                self.assertEqual(target.read_bytes(), payload)
+                                download.assert_called_once()
+                            else:
+                                with self.assertRaisesRegex(RuntimeError, "SHA256 mismatch"):
+                                    setup.ensure_profile_artifacts(profile, component)
+                                self.assertFalse(target.exists())
+                                self.assertFalse(target.with_name(target.name + ".download").exists())
+                            remote.assert_called_once()
+                        self.assertEqual(setup.load_cached_artifact_manifest(), valid)
 
 
 if __name__ == "__main__":

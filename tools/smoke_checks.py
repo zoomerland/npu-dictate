@@ -1157,7 +1157,7 @@ def check_model_artifact_helpers():
             "size_bytes": len(payload),
             "sha256": digest,
         }
-        manifest = {"artifacts": [artifact]}
+        manifest = {"repo_id": model_setup.ARTIFACT_MODEL_REPO, "artifacts": [artifact]}
 
         assert model_setup.safe_install_path("models/test/artifact.bin", root) == target.resolve()
         assert model_setup.artifact_ready(artifact, root)

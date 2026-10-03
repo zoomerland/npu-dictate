@@ -4,7 +4,7 @@ import re
 import shutil
 import time
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -142,15 +142,13 @@ def load_cached_artifact_manifest():
 
 def load_remote_artifact_manifest(status_callback=None, force=False):
     cached = None if force else load_cached_artifact_manifest()
-    if valid_artifact_manifest(cached) and cached.get("repo_id") == ARTIFACT_MODEL_REPO:
+    if valid_artifact_manifest(cached):
         return cached
 
     emit(status_callback, "Downloading model manifest")
     manifest = read_json_url(manifest_url())
     if not valid_artifact_manifest(manifest):
         raise RuntimeError("Invalid model artifact manifest")
-    if manifest.get("repo_id") != ARTIFACT_MODEL_REPO:
-        raise RuntimeError(f"Unexpected model artifact repo id: {manifest.get('repo_id')}")
     path = artifact_manifest_cache_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as file:
@@ -223,7 +221,7 @@ def artifact_ready(artifact, root=None, verify_hash=True):
 
 
 def valid_artifact_manifest(manifest):
-    if not isinstance(manifest, dict):
+    if not isinstance(manifest, dict) or manifest.get("repo_id") != ARTIFACT_MODEL_REPO:
         return False
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
@@ -231,9 +229,15 @@ def valid_artifact_manifest(manifest):
     for artifact in artifacts:
         if not isinstance(artifact, dict):
             return False
-        for key in ("install_path", "profile_id", "component"):
+        for key in ("install_path", "repo_path", "profile_id", "component"):
             if not isinstance(artifact.get(key), str) or not artifact[key].strip():
                 return False
+        repo_path = artifact["repo_path"].replace("\\", "/")
+        remote_path = PurePosixPath(repo_path)
+        if (not remote_path.parts or remote_path.is_absolute() or ".." in remote_path.parts
+                or ":" in remote_path.parts[0] or "\x00" in repo_path
+                or repo_path != repo_path.strip() or repo_path != remote_path.as_posix()):
+            return False
         try:
             safe_install_path(artifact["install_path"])
         except (OSError, ValueError):

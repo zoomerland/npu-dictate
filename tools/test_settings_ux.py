@@ -417,8 +417,21 @@ class SettingsTests(unittest.TestCase):
                 self.assertFalse(ui.save_settings(None, dict(ui.cfg, overlay_hotkey="f8"), close=False))
 
     def test_model_labels_survive_malformed_cached_artifact_metadata(self):
-        for manifest in ({}, {"artifacts": [None]}, {"artifacts": "bad"},
-                         {"artifacts": [dict(profile_id=model_setup.PUNCT_OPENVINO_FP16_PROFILE, component="punctuation", install_path="../escape")]}):
+        artifact = dict(profile_id=model_setup.PUNCT_OPENVINO_FP16_PROFILE, component="punctuation",
+                        install_path="models/openvino/RUPunct_big_fp16_static128/openvino_model.bin",
+                        repo_path="punctuation/openvino_model.bin")
+        invalid_manifests = [{}, {"artifacts": [None]}, {"artifacts": "bad"},
+                             {"artifacts": [dict(artifact, install_path="../escape")]}]
+        for key, values in (("repo_path", (None, "", [], 12)), ("repo_id", (None, "Other/models"))):
+            for value in values:
+                manifest = {"repo_id": model_setup.ARTIFACT_MODEL_REPO, "artifacts": [dict(artifact)]}
+                owner = manifest["artifacts"][0] if key == "repo_path" else manifest
+                if value is None:
+                    owner.pop(key)
+                else:
+                    owner[key] = value
+                invalid_manifests.append(manifest)
+        for manifest in invalid_manifests:
             with patch.object(model_setup, "model_file_ready", return_value=True), \
                  patch.object(model_setup, "load_cached_artifact_manifest", return_value=manifest):
                 label = app.model_display_label(app.PUNCT_MODEL_PROFILES, app.DEFAULT_PUNCT_MODEL, app.DEFAULT_PUNCT_MODEL)
