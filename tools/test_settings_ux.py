@@ -1,5 +1,6 @@
 """Headless settings and presentation regressions with fake widgets/services."""
 import os
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -192,6 +193,23 @@ class SettingsTests(unittest.TestCase):
         app.stack_settings_rows(widgets)
         self.assertEqual([widget.info["row"] for widget in widgets], list(range(5)))
         self.assertTrue(all(widget.info["column"] == 0 and widget.info["columnspan"] == 1 for widget in widgets))
+
+    def test_diagnostics_do_not_read_or_copy_private_text_and_paths(self):
+        ui = self.ui()
+        ui.cfg.update(private_path="C:/Users/PRIVATE_PERSON/private", auth_token="PRIVATE_TOKEN")
+        ui.current_status = "Error: C:/Users/PRIVATE_PERSON/private"
+        ui.tray_icon = None
+        ui.root = SimpleNamespace(state=lambda: "normal")
+        ui.last_text_var = SimpleNamespace(get=lambda: self.fail("Dictation must not be read"))
+        ui.engine.hardware_info["private_log"] = "PRIVATE_TEXT"
+        with patch.object(app, "model_is_installed", return_value=True), \
+             patch.object(app.Path, "read_text", side_effect=AssertionError("No log/config reads")):
+            serialized = ui.collect_debug_info()
+        for secret in ("PRIVATE_PERSON", "PRIVATE_TEXT", "PRIVATE_TOKEN", "log_tail", "last_text", "raw_status"):
+            self.assertNotIn(secret, serialized)
+        parsed = json.loads(serialized)
+        self.assertEqual(parsed["status_phase"], "Error")
+        self.assertEqual(parsed["config"]["asr_model"], ui.cfg["asr_model"])
 
 
 if __name__ == "__main__":

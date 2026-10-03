@@ -25,7 +25,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [x] UX-07: preserve the system-default/missing microphone choice.
 - [x] UX-08: full live model progress, refresh installed labels, honest warmup states.
 - [x] UX-09: responsive settings widths and per-monitor workarea placement.
-- [ ] UX-10: redact dictated text/logs from default copied diagnostics.
+- [x] UX-10: redact dictated text/logs from default copied diagnostics.
 - [ ] UX-11: localize dynamic status details and correct opacity terminology.
 - [ ] UX-12: accumulate wheel delta, expose review-stop command, safe hide fallback.
 - [ ] Final headless suite, review findings, roadmap and handoff.
@@ -98,3 +98,7 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   wrapping and two-row footer; section selection no longer relies on wide tabs.
   Actual Tk rendering, checkbutton wrapping and mixed-DPI monitor transitions still
   require later visual acceptance; no product window was opened for these checks.
+- UX-10: settings suite extended to 16 tests. Default diagnostics use technical
+  allowlists and a status phase, excluding free-form status suffixes, paths, logs,
+  clipboard content and dictated text. A denied text/log read probe passes.
+  This does not erase existing local logs or change the debug-recording policy.

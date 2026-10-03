@@ -4517,25 +4517,28 @@ class VoiceDictationApp:
         return self.input_tracker.context_before_cursor(max_chars)
 
     def collect_debug_info(self):
-        log_path = repo_root() / "voice_dictation.log"
-        log_tail = []
-        if log_path.exists():
-            try:
-                log_tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
-            except OSError as exc:
-                log_tail = [f"log read error: {type(exc).__name__}"]
-
+        config_keys = (
+            "ui_language", "mode", "asr_model", "asr_device", "punct_model", "punct_device",
+            "sample_rate", "channels", "use_punctuation", "warmup_models", "compare_asr",
+            "asr_bucket_frames", "asr_chunked", "asr_chunk_bucket", "asr_chunk_overlap_ms",
+            "asr_vad_segments", "asr_vad_stitch", "asr_vad_fuzzy_stitch", "asr_pad_mode",
+            "auto_paste", "restore_clipboard_after_paste", "press_enter_after_paste",
+            "show_stop_without_enter_button", "use_context", "append_space", "audio_pre_roll_ms",
+            "overlay_size", "overlay_shape", "overlay_details", "overlay_opacity",
+        )
+        hardware = self.engine.hardware_info or {}
+        hardware_keys = ("available", "version", "devices", "device_names", "selected_devices", "error")
+        status = self.current_status
+        phase = next((key for key in sorted(TRANSLATIONS["en"], key=len, reverse=True)
+                      if status == key or status.startswith(key + ": ") or status.startswith(key + " ")), "Unknown")
         info = {
             "app": APP_NAME,
             "version": APP_VERSION,
-            "status": self.current_display_status,
+            "status_phase": phase,
+            "progress_percent": status_percent(status),
             "python": sys.version,
             "platform": platform.platform(),
-            "app_root": str(app_root()),
-            "data_root": str(repo_root()),
-            "repo_root": str(repo_root()),
-            "config_path": str(config_path()),
-            "config": self.cfg,
+            "config": {key: self.cfg.get(key) for key in config_keys},
             "models": {
                 "asr_model": self.cfg.get("asr_model"),
                 "asr_model_installed": model_is_installed(
@@ -4549,20 +4552,12 @@ class VoiceDictationApp:
                     self.cfg.get("punct_model"),
                     DEFAULT_PUNCT_MODEL,
                 ),
-                "asr_dir_exists": asr_model_dir().exists(),
-                "asr_openvino_artifact_dir_exists": (
-                    repo_root() / "models" / "asr" / "gigaam-v3-ctc-openvino-int8-calib96"
-                ).exists(),
-                "punct_dir_exists": default_punct_model_dir().exists(),
-                "artifact_manifest_exists": artifact_manifest_cache_path().exists(),
             },
-            "hardware": self.engine.hardware_info,
-            "raw_status": self.current_status,
+            "hardware": {key: hardware.get(key) for key in hardware_keys},
             "tray_available": pystray is not None,
             "tray_running": self.tray_icon is not None,
             "overlay_state": self.root.state(),
-            "last_text": self.last_text_var.get(),
-            "log_tail": log_tail,
+            "privacy": "Dictated text, logs and local paths are excluded.",
         }
         return json.dumps(info, ensure_ascii=False, indent=2)
 
