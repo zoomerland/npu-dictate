@@ -120,7 +120,9 @@ TRANSLATIONS = {
         "dictation_hotkey": "Dictation hotkey",
         "overlay_hotkey": "Overlay hotkey",
         "input_device": "Input device",
-        "sample_rate": "Sample rate",
+        "sample_rate": "Sample rate (Hz; 0 = automatic)",
+        "system_input": "System default microphone",
+        "missing_input": "Unavailable microphone",
         "use_punctuation": "Use punctuation",
         "paste_into_active_field": "Paste into active field",
         "restore_clipboard_after_paste": "Restore text clipboard after paste",
@@ -255,7 +257,9 @@ TRANSLATIONS = {
         "dictation_hotkey": "Горячая клавиша диктовки",
         "overlay_hotkey": "Горячая клавиша кнопки",
         "input_device": "Микрофон",
-        "sample_rate": "Частота дискретизации",
+        "sample_rate": "Частота (Гц; 0 = автоматически)",
+        "system_input": "Системный микрофон по умолчанию",
+        "missing_input": "Недоступный микрофон",
         "use_punctuation": "Использовать пунктуацию",
         "paste_into_active_field": "Вставлять в активное поле",
         "restore_clipboard_after_paste": "Восстанавливать текстовый буфер после вставки",
@@ -900,6 +904,18 @@ def input_devices(backend=_DEFAULT_SOUNDDEVICE):
         except Exception as exc:
             log_debug(f"audio device skipped index={index} error={type(exc).__name__}")
     return devices
+
+
+def microphone_choices(devices, current_index, language="en"):
+    strings = TRANSLATIONS[normalize_ui_language(language)]
+    choices = {strings["system_input"]: None}
+    for device in devices:
+        label = f"{device['index']}: {device['name']} [{device['hostapi']}, {device['sample_rate']} Hz]"
+        choices[label] = device["index"]
+    if current_index is not None and current_index not in choices.values():
+        choices[f"{strings['missing_input']} ({current_index})"] = current_index
+    selected = next(label for label, index in choices.items() if index == current_index)
+    return choices, selected
 
 
 def choose_default_device_index(backend=_DEFAULT_SOUNDDEVICE):
@@ -4905,17 +4921,10 @@ class VoiceDictationApp:
         win.bind("<Destroy>", clear_i18n_registry, add="+")
 
         devices = input_devices()
-        device_labels = [
-            f"{d['index']}: {d['name']} [{d['hostapi']}, {d['sample_rate']} Hz]" for d in devices
-        ]
         current_device = self.cfg.get("input_device_index")
-        selected_device = tk.StringVar(value="")
-        for label in device_labels:
-            if label.startswith(f"{current_device}:"):
-                selected_device.set(label)
-                break
-        if not selected_device.get() and device_labels:
-            selected_device.set(device_labels[0])
+        device_choices, selected_label = microphone_choices(devices, current_device, ui_lang_code)
+        device_labels = list(device_choices)
+        selected_device = tk.StringVar(value=selected_label)
 
         def mark_dirty(*_):
             dirty.set(True)
@@ -5135,7 +5144,7 @@ class VoiceDictationApp:
                 "overlay_shape": self.choice_value("overlay_shape", overlay_shape.get(), "rounded"),
                 "overlay_details": self.choice_value("overlay_details", overlay_details.get(), "full"),
                 "overlay_opacity": clamp_overlay_opacity(overlay_opacity.get() / 100),
-                "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
+                "input_device_index": device_choices[selected_device.get()],
                 "sample_rate": sample_rate_value,
                 "use_punctuation": bool(use_punctuation.get()),
                 "warmup_models": bool(warmup_models.get()),

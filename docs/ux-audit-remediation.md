@@ -22,7 +22,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [x] UX-04: consistent cached-model readiness and integrity checks.
 - [x] UX-05: validate hotkey tokens and overlapping shortcuts.
 - [x] UX-06: recoverable settings-save failures and exit behavior.
-- [ ] UX-07: preserve the system-default/missing microphone choice.
+- [x] UX-07: preserve the system-default/missing microphone choice.
 - [ ] UX-08: full live model progress, refresh installed labels, honest warmup states.
 - [ ] UX-09: responsive settings widths and per-monitor workarea placement.
 - [ ] UX-10: redact dictated text/logs from default copied diagnostics.
@@ -80,3 +80,7 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
 - UX-06: settings suite extended to 8 tests. Failed persistence leaves the applied
   config unchanged; failed autostart changes restore the prior saved config. Inline
   errors keep the settings window open, and failed exit persistence cannot trap exit.
+- UX-07: settings suite extended to 10 tests. System default remains `None`; a
+  missing device is explicitly retained, not replaced by the first available index.
+  The sample-rate label explains automatic selection. Stable USB identity remains
+  a separate future improvement: PortAudio indices can change between restarts.

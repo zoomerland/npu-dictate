@@ -116,6 +116,23 @@ class SettingsTests(unittest.TestCase):
             ui.exit_app()
         self.assertEqual(closed, [True])
 
+    def test_microphone_selection_never_silently_changes_device(self):
+        devices = [dict(index=4, name="USB", hostapi="WASAPI", sample_rate=48000)]
+        for language in ("en", "ru"):
+            for current in (None, 4, 9):
+                choices, selected = app.microphone_choices(devices, current, language)
+                self.assertEqual(choices[selected], current)
+                self.assertIn(None, choices.values())
+            choices, selected = app.microphone_choices([], 9, language)
+            self.assertEqual(choices[selected], 9)
+
+    def test_unrelated_save_preserves_system_microphone(self):
+        ui = self.ui()
+        ui.cfg["input_device_index"] = None
+        with patch.object(app, "save_config", lambda _cfg: None):
+            self.assertTrue(ui.save_settings(None, dict(ui.cfg, overlay_size="large"), close=False))
+        self.assertIsNone(ui.cfg["input_device_index"])
+
 
 if __name__ == "__main__":
     import sys
