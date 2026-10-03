@@ -2,7 +2,8 @@
 
 This project is a Windows-first, local-first dictation app. The core promise is simple: fast offline speech-to-text, practical insertion into any active text field, and NPU acceleration where it actually helps.
 
-The app is not ready for packaging yet. The near-term goal is to stabilize the daily-use workflow before building an installer or signing anything.
+Unsigned Windows alpha packages are available. The current work stabilizes the
+daily-use workflow and validates the next package; signing remains a separate gate.
 
 ## Product Principles
 
@@ -202,9 +203,10 @@ Goal: make model setup transparent and legally clean.
 - [x] Replace indeterminate progress with per-model progress where possible.
   - Hugging Face converted artifacts now report aggregate download progress.
   - Direct ASR CPU/FP32 downloads now go through the app downloader instead of a silent library call.
-- [ ] Add retry and failure messages for model setup.
+- [x] Add retry and failure messages for model setup.
   - [x] Hugging Face converted-artifact downloader retries failed file downloads and surfaces load errors.
-  - [ ] Add user-facing retry/rebuild controls in the Models settings section.
+  - [x] Add an idle-only retry action in the Models settings section.
+  - [ ] Explicit force-rebuild and cache-management controls remain separate work.
 - [ ] Add "Models" settings section:
   - [x] Show selected model language, purpose, supported devices, current-PC devices, and downloaded/missing status.
   - [x] State clearly that v0.1 alpha dictation currently supports Russian only.
@@ -236,6 +238,11 @@ Goal: make model setup transparent and legally clean.
 Goal: move more of the useful pipeline to NPU without sacrificing reliability.
 
 - [x] RUPunct OpenVINO static model runs on NPU.
+- [x] Preserve long transcripts beyond RUPunct's 128-token input limit:
+  - Use overlapping static windows and original whole-word offsets; do not add paragraphs at window boundaries.
+  - Keep short-input behavior and context-aware insertion, on both CPU and NPU.
+  - Validate with deterministic regressions and a 300-second saved-audio fixture through the app handler on NPU.
+  - All raw ASR words and the final tail are preserved; see [validation report](docs/validation-long-punctuation.md).
 - [x] GigaAM ONNX can compile on NPU with static input shapes.
 - [x] Build an OpenVINO/NPU GigaAM CTC wrapper.
 - [x] Keep existing CTC decoder behavior.
@@ -411,6 +418,35 @@ Do this last.
   - Submitted the SignPath Foundation application; approval remains pending.
   - Published unsigned pre-release artifacts while the application is under review.
 - [ ] Sign installer and app binaries if practical.
+
+## UI/UX Audit Remediation (2026-10-03)
+
+Source changes are integrated into `features/next`; the unsigned alpha.5 release
+is being prepared. Publication is recorded separately after the tagged CI gate.
+Detailed scope and validation: `docs/ux-audit-remediation.md`.
+
+- [x] Block automatic paste when target restoration fails or identity drifts.
+- [x] Preserve raw ASR on punctuation failure without automatic paste/Enter.
+- [x] Preserve recording ownership; reject Apply/Save during active dictation.
+- [x] Reject empty/corrupt model files and malformed integrity metadata.
+- [x] Validate named hotkeys, canonical modifier aliases and subset conflicts.
+- [x] Keep failed settings persistence recoverable; allow exit after save failure.
+- [x] Preserve system-default and missing microphone choices.
+- [x] Show full model progress and provide explicit retry; discard stale progress.
+- [x] Fit settings to per-monitor workareas and use width-bound single-column layouts.
+- [x] Exclude dictated text, log tails and local paths from copied diagnostics.
+- [x] Localize dynamic progress details and correct the opacity label.
+- [x] Accumulate small wheel events and expose native review-stop commands.
+- [x] Prevent hiding without a tray icon; add in-place overlay hover help.
+- [x] Add an isolated headless regression gate: `tools/headless_ux_checks.py`.
+- [x] Close independent audit findings: invalid source-manifest recovery, modifier
+  aliases and stale punctuation completion events. Final offline gate: 69 tests and
+  25 smoke groups PASS; reviewed source checkpoint `c4d3080`.
+- [ ] Later visual acceptance: Tk wrapping, negative-coordinate monitors, mixed DPI,
+  dropdowns, real tray recovery and screen-reader behavior. No product windows were
+  opened for this remediation's tests.
+- [ ] Future improvements: resumable downloads, stable USB microphone identity,
+  native accessibility of Canvas buttons and hover help in button-only mode.
 
 ## Test Matrix
 

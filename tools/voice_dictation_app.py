@@ -52,7 +52,7 @@ except ImportError:
 
 
 APP_NAME = "NPU Dictate"
-APP_VERSION = "0.1.0-alpha.4"
+APP_VERSION = "0.1.0-alpha.5"
 APP_ICON_PNG = Path("assets") / "app-icon-256.png"
 SINGLE_INSTANCE_MUTEX_NAME = os.environ.get(
     "LOCAL_VOICE_DICTATION_MUTEX_NAME",
@@ -103,6 +103,12 @@ TRANSLATIONS = {
         "model_status_asr": "Speech files",
         "model_status_punct": "Punctuation files",
         "warmup_models": "Warm up models on startup",
+        "warmup_notice": "NPU speech warmup is deferred until first recognition to avoid startup hangs. First recognition may take longer.",
+        "retry_models": "Retry model loading",
+        "stop_without_enter": "Finish without sending",
+        "overlay_tip_hold": "Hold to record",
+        "overlay_tip_toggle": "Start / stop recording",
+        "Tray unavailable": "Tray unavailable - overlay remains visible",
         "compare_asr": "Compare ASR CPU/NPU",
         "overlay_size": "Overlay size",
         "overlay_size_small": "Small",
@@ -120,7 +126,9 @@ TRANSLATIONS = {
         "dictation_hotkey": "Dictation hotkey",
         "overlay_hotkey": "Overlay hotkey",
         "input_device": "Input device",
-        "sample_rate": "Sample rate",
+        "sample_rate": "Sample rate (Hz; 0 = automatic)",
+        "system_input": "System default microphone",
+        "missing_input": "Unavailable microphone",
         "use_punctuation": "Use punctuation",
         "paste_into_active_field": "Paste into active field",
         "restore_clipboard_after_paste": "Restore text clipboard after paste",
@@ -143,7 +151,7 @@ TRANSLATIONS = {
         "button_paste": "PASTE",
         "button_empty": "EMPTY",
         "button_error": "ERR",
-        "button_no_enter": "TEXT",
+        "button_no_enter": "REVIEW",
         "assign": "Assign",
         "press_keys": "Press keys...",
         "apply": "Apply",
@@ -153,6 +161,7 @@ TRANSLATIONS = {
         "save_settings_before_closing": "Save settings before closing?",
         "load_error": "Load error",
         "error": "Error",
+        "single_instance_error": "Could not initialize the single-instance lock. Windows error: {code}.",
         "Loading models": "Loading models",
         "Downloading ASR": "Downloading ASR",
         "Downloading ASR NPU": "Downloading ASR NPU",
@@ -183,6 +192,10 @@ TRANSLATIONS = {
         "Pasted - Enter failed": "Pasted - Enter failed",
         "Copied": "Copied",
         "Copied - paste manually": "Copied - paste manually",
+        "Text ready - clipboard failed": "Text ready - clipboard unavailable",
+        "Copied - punctuation unavailable": "Copied without punctuation - paste manually",
+        "Text ready - punctuation unavailable": "Text ready without punctuation - clipboard unavailable",
+        "Punctuation unavailable": "Punctuation unavailable - retry in settings",
         "No audio": "No audio",
         "Too short": "Too short",
         "No speech": "No speech",
@@ -195,9 +208,12 @@ TRANSLATIONS = {
         "Bad sample rate": "Bad sample rate",
         "Bad hotkey": "Bad hotkey",
         "Bad overlay key": "Bad overlay key",
-        "Hotkey conflict": "Hotkey conflict",
+        "Hotkey conflict": "Hotkeys must not match or include each other",
         "Startup error": "Startup error",
         "Settings saved": "Settings saved",
+        "Finish dictation before applying settings": "Finish dictation before applying settings",
+        "Settings save failed": "Could not save settings",
+        "Settings rollback failed": "Could not restore previous settings",
     },
     "ru": {
         "settings_title": "Настройки",
@@ -231,6 +247,12 @@ TRANSLATIONS = {
         "model_status_asr": "Файлы распознавания",
         "model_status_punct": "Файлы пунктуации",
         "warmup_models": "Прогревать модели при запуске",
+        "warmup_notice": "Прогрев распознавания на NPU отложен до первой диктовки для защиты от зависания при запуске. Первая обработка может занять больше времени.",
+        "retry_models": "Повторить загрузку моделей",
+        "stop_without_enter": "Завершить без отправки",
+        "overlay_tip_hold": "Удерживайте для записи",
+        "overlay_tip_toggle": "Начать / закончить запись",
+        "Tray unavailable": "Трей недоступен - кнопка останется видимой",
         "compare_asr": "Сравнивать ASR CPU/NPU",
         "overlay_size": "Размер кнопки",
         "overlay_size_small": "Маленькая",
@@ -244,11 +266,13 @@ TRANSLATIONS = {
         "overlay_details_button": "Только кнопка",
         "overlay_details_status": "Кнопка и статус",
         "overlay_details_full": "Полная",
-        "overlay_opacity": "Прозрачность кнопки",
+        "overlay_opacity": "Непрозрачность кнопки",
         "dictation_hotkey": "Горячая клавиша диктовки",
         "overlay_hotkey": "Горячая клавиша кнопки",
         "input_device": "Микрофон",
-        "sample_rate": "Частота дискретизации",
+        "sample_rate": "Частота (Гц; 0 = автоматически)",
+        "system_input": "Системный микрофон по умолчанию",
+        "missing_input": "Недоступный микрофон",
         "use_punctuation": "Использовать пунктуацию",
         "paste_into_active_field": "Вставлять в активное поле",
         "restore_clipboard_after_paste": "Восстанавливать текстовый буфер после вставки",
@@ -259,7 +283,7 @@ TRANSLATIONS = {
         "start_with_windows": "Запускать вместе с Windows",
         "button_dict": "ДИКТ",
         "button_record": "ЗАП",
-        "button_asr": "АСР",
+        "button_asr": "РЕЧЬ",
         "button_punct": "ПУНКТ",
         "button_text": "ТЕКСТ",
         "button_busy": "ЗАНЯТ",
@@ -271,7 +295,7 @@ TRANSLATIONS = {
         "button_paste": "ВСТ",
         "button_empty": "ПУСТО",
         "button_error": "ОШИБ",
-        "button_no_enter": "ТЕКСТ",
+        "button_no_enter": "ПРОВ.",
         "assign": "Назначить",
         "press_keys": "Нажмите клавиши...",
         "apply": "Применить",
@@ -281,9 +305,10 @@ TRANSLATIONS = {
         "save_settings_before_closing": "Сохранить настройки перед закрытием?",
         "load_error": "Ошибка загрузки",
         "error": "Ошибка",
+        "single_instance_error": "Не удалось настроить защиту от повторного запуска. Код ошибки Windows: {code}.",
         "Loading models": "Загрузка моделей",
-        "Downloading ASR": "Загрузка ASR",
-        "Downloading ASR NPU": "Загрузка ASR NPU",
+        "Downloading ASR": "Загрузка распознавания",
+        "Downloading ASR NPU": "Загрузка распознавания NPU",
         "Downloading model manifest": "Загрузка манифеста моделей",
         "Preparing model download": "Подготовка загрузки моделей",
         "First model setup": "Первичная загрузка моделей",
@@ -291,7 +316,7 @@ TRANSLATIONS = {
         "Verifying models": "Проверка моделей",
         "Retrying models": "Повтор загрузки моделей",
         "Downloading punct failed": "Не удалось скачать пунктуацию",
-        "Loading ASR": "Запуск ASR",
+        "Loading ASR": "Запуск распознавания",
         "Downloading punct": "Загрузка пунктуации",
         "Converting punct": "Конвертация пунктуации",
         "Loading punct dependencies": "Загрузка зависимостей пунктуации",
@@ -311,6 +336,10 @@ TRANSLATIONS = {
         "Pasted - Enter failed": "Вставлено - ошибка Enter",
         "Copied": "Скопировано",
         "Copied - paste manually": "Скопировано - вставьте вручную",
+        "Text ready - clipboard failed": "Текст готов - буфер недоступен",
+        "Copied - punctuation unavailable": "Без пунктуации - скопировано, вставьте вручную",
+        "Text ready - punctuation unavailable": "Текст без пунктуации готов - буфер недоступен",
+        "Punctuation unavailable": "Пунктуация недоступна - повторите загрузку в настройках",
         "No audio": "Нет звука",
         "Too short": "Слишком коротко",
         "No speech": "Речь не найдена",
@@ -323,9 +352,12 @@ TRANSLATIONS = {
         "Bad sample rate": "Неверная частота",
         "Bad hotkey": "Неверная клавиша",
         "Bad overlay key": "Неверная клавиша кнопки",
-        "Hotkey conflict": "Конфликт клавиш",
+        "Hotkey conflict": "Сочетания не должны совпадать или включать друг друга",
         "Startup error": "Ошибка автозапуска",
         "Settings saved": "Настройки сохранены",
+        "Finish dictation before applying settings": "Завершите диктовку перед применением настроек",
+        "Settings save failed": "Не удалось сохранить настройки",
+        "Settings rollback failed": "Не удалось восстановить прежние настройки",
     },
 }
 
@@ -578,8 +610,8 @@ def model_status_line(profiles, value, default, title, hardware_info=None, ui_la
     available = "/".join(model_available_devices(profile, hardware_info)) or "-"
     installed = model_install_state_label(model_is_installed(profiles, model_id, default), ui_language)
     if normalize_ui_language(ui_language) == "ru":
-        return f"{title}: {installed}. Язык: {language}. Модель: {supported}. На этом ПК: {available}."
-    return f"{title}: {installed}. Language: {language}. Model: {supported}. This PC: {available}."
+        return f"{title}: {profile['label']}, {installed}. Язык: {language}. Модель: {supported}. На этом ПК: {available}."
+    return f"{title}: {profile['label']}, {installed}. Language: {language}. Model: {supported}. This PC: {available}."
 
 
 def pending_model_downloads(cfg):
@@ -886,6 +918,79 @@ def input_devices(backend=_DEFAULT_SOUNDDEVICE):
         except Exception as exc:
             log_debug(f"audio device skipped index={index} error={type(exc).__name__}")
     return devices
+
+
+def localize_progress_metrics(text, language):
+    if normalize_ui_language(language) != "ru":
+        return text
+    units = {"B": "Б", "KB": "КБ", "MB": "МБ", "GB": "ГБ"}
+    text = re.sub(r"(\d+(?:\.\d+)?) (GB|MB|KB|B)(/s)?",
+                  lambda match: f"{match[1]} {units[match[2]]}{'/с' if match[3] else ''}", text)
+    return text.replace(" left", " осталось").replace("ETA ", "время ")
+
+
+def localize_model_detail(prefix, detail, language):
+    if normalize_ui_language(language) != "ru":
+        return detail
+    if prefix == "First model setup":
+        components = {"ASR": "распознавание", "punctuation": "пунктуация"}
+        return ": " + ", ".join(components.get(item, item) for item in detail.removeprefix(": ").split(", "))
+    if prefix == "Preparing model download":
+        return localize_progress_metrics(re.sub(r"(\d+) files(?=,|$)", r"\1 файлов", detail), language)
+    if prefix == "Downloading models" and ("/s" in detail or "ETA " in detail or ", --," in detail):
+        parts = detail.split(", ", 4)
+        count = 4 if len(parts) == 5 and parts[3].startswith("ETA ") else min(2, len(parts) - 1)
+        return ", ".join([localize_progress_metrics(part, language) if index < count else part
+                          for index, part in enumerate(parts)])
+    return detail
+
+
+def startup_lock_error_message(code, language="en"):
+    return TRANSLATIONS[normalize_ui_language(language)]["single_instance_error"].format(code=code)
+
+
+def wheel_scroll_units(delta, remainder=0):
+    total = remainder + delta
+    steps = int(total / 120)
+    return -steps, total - steps * 120
+
+
+def fit_settings_geometry(bounds, scale=1.0):
+    left, top, right, bottom = bounds
+    available_width, available_height = max(1, right - left), max(1, bottom - top)
+    width = min(int(960 * scale), max(1, available_width - 32))
+    height = min(int(650 * scale), max(1, available_height - 32))
+    return width, height, left + (available_width - width) // 2, top + (available_height - height) // 2
+
+
+def clamp_to_workarea(x, y, width, height, bounds):
+    left, top, right, bottom = bounds
+    return min(max(int(x), left), max(left, right - width)), min(max(int(y), top), max(top, bottom - height))
+
+
+def stack_settings_rows(widgets):
+    rows = {}
+    for widget in widgets:
+        info = widget.grid_info()
+        if info:
+            rows.setdefault(int(info["row"]), []).append(widget)
+    row = 0
+    for original_row in sorted(rows):
+        for widget in sorted(rows[original_row], key=lambda child: int(child.grid_info()["column"])):
+            widget.grid_configure(row=row, column=0, columnspan=1, sticky="ew")
+            row += 1
+
+
+def microphone_choices(devices, current_index, language="en"):
+    strings = TRANSLATIONS[normalize_ui_language(language)]
+    choices = {strings["system_input"]: None}
+    for device in devices:
+        label = f"{device['index']}: {device['name']} [{device['hostapi']}, {device['sample_rate']} Hz]"
+        choices[label] = device["index"]
+    if current_index is not None and current_index not in choices.values():
+        choices[f"{strings['missing_input']} ({current_index})"] = current_index
+    selected = next(label for label, index in choices.items() if index == current_index)
+    return choices, selected
 
 
 def choose_default_device_index(backend=_DEFAULT_SOUNDDEVICE):
@@ -1211,6 +1316,7 @@ def key_to_token(key):
 
 
 MODIFIER_TOKENS = {"ctrl", "alt", "shift", "win"}
+NAMED_HOTKEY_TOKENS = {key.name for key in keyboard.Key} | MODIFIER_TOKENS
 TOKEN_LABELS = {
     "ctrl": "Ctrl",
     "alt": "Alt",
@@ -1246,6 +1352,9 @@ def tk_key_to_token(event):
         "super_r": "win",
         "escape": "esc",
         "return": "enter",
+        "prior": "page_up",
+        "next": "page_down",
+        "kp_enter": "enter",
     }
     keysym = (event.keysym or "").lower()
     if keysym in aliases:
@@ -1269,11 +1378,28 @@ def parse_hotkey(value):
         "super": "win",
     }
     tokens = []
-    for raw in value.lower().replace(" ", "").split("+"):
+    for raw in str(value or "").lower().replace(" ", "").split("+"):
         if not raw:
             continue
-        tokens.append(aliases.get(raw, raw))
+        token = aliases.get(raw, raw)
+        if token in NAMED_HOTKEY_TOKENS:
+            for name, canonical in (("ctrl", "ctrl"), ("alt", "alt"), ("shift", "shift"), ("cmd", "win")):
+                if token.startswith(name):
+                    token = canonical
+                    break
+        valid = (
+            token in NAMED_HOTKEY_TOKENS
+            or bool(re.fullmatch(r"f(?:[1-9]|1[0-9]|2[0-4])", token))
+            or (len(token) == 1 and token.isascii() and token.isprintable())
+        )
+        if not valid:
+            return frozenset()
+        tokens.append(token)
     return frozenset(tokens)
+
+
+def hotkeys_conflict(first, second):
+    return bool(first and second and (first <= second or second <= first))
 
 
 def result_to_text(result):
@@ -2026,9 +2152,11 @@ class HotkeyManager:
 
         dictation_hotkey, overlay_hotkey = self.hotkeys()
 
-        if overlay_hotkey and overlay_hotkey <= self.pressed and not self.overlay_down:
-            self.overlay_down = True
-            self.dispatch("toggle_overlay")
+        if overlay_hotkey and overlay_hotkey <= self.pressed:
+            if not self.overlay_down:
+                self.overlay_down = True
+                self.dispatch("toggle_overlay")
+            return
 
         if not dictation_hotkey or not dictation_hotkey <= self.pressed:
             return
@@ -2118,6 +2246,7 @@ class DictationEngine:
         context_callback=None,
         target_identity_callback=None,
         asr_status_callback=None,
+        punct_status_callback=None,
     ):
         self.cfg = cfg
         self.status_callback = status_callback
@@ -2126,6 +2255,7 @@ class DictationEngine:
         self.context_callback = context_callback
         self.target_identity_callback = target_identity_callback
         self.asr_status_callback = asr_status_callback
+        self.punct_status_callback = punct_status_callback
         self.asr = None
         self.compare_asr = None
         self.compare_asr_signature = None
@@ -2169,7 +2299,11 @@ class DictationEngine:
         self.recording_wall_start = None
         self.recording_wall_end = None
         self.recording_context = None
+        self.recording_cfg = None
+        self.recording_asr = None
+        self.recording_sample_rate = None
         self.last_paste_target_identity = None
+        self.last_paste_copied = False
         self.last_enter_failure_reason = None
         self.closing = False
         self.transcription_thread = None
@@ -2186,6 +2320,9 @@ class DictationEngine:
     def update_config(self, cfg):
         cfg = normalize_model_config(cfg, self.hardware_info)
         with self.lock:
+            if self.recording or self.transcribing:
+                log_debug("settings update rejected reason=active_dictation")
+                return False
             old_cfg = self.cfg
             reload_asr = config_signature(old_cfg, ASR_RELOAD_CONFIG_KEYS) != config_signature(
                 cfg,
@@ -2197,6 +2334,9 @@ class DictationEngine:
                 or old_cfg.get("channels") != cfg.get("channels")
             )
             punct_changed = punct_model_signature(old_cfg) != punct_model_signature(cfg)
+            punct_enabled = cfg.get("use_punctuation", True) and not old_cfg.get("use_punctuation", True)
+            if punct_enabled and self.punct_error is not None:
+                punct_changed = True
             self.cfg = cfg
             if restart_audio:
                 self._audio_generation += 1
@@ -2218,6 +2358,7 @@ class DictationEngine:
             self.load_async()
         elif punct_changed and cfg.get("use_punctuation", True):
             self.load_punct_async(cfg)
+        return True
 
     def set_status(self, status):
         self.status_callback(status)
@@ -2427,13 +2568,18 @@ class DictationEngine:
 
         def run():
             try:
-                self._load_punct_generation(generation, signature, cfg)
+                self._load_punct_generation(generation, signature, cfg,
+                    lambda status: self._set_punct_status(generation, signature, status))
                 with self.punct_condition:
                     current = self._punct_loaded_generation == generation and self.punct is not None
                 if current and self.loaded and self.is_idle() and not self.closing:
-                    self.set_status("Ready")
+                    self._set_punct_status(generation, signature, self.readiness_status())
             except Exception as exc:
                 log_debug(f"load punct async error type={type(exc).__name__}")
+                with self.punct_condition:
+                    current = generation == self._punct_generation and signature == self._punct_signature
+                if current and self.loaded and self.is_idle() and not self.closing:
+                    self._set_punct_status(generation, signature, self.readiness_status())
 
         worker = threading.Thread(target=run, daemon=True)
         try:
@@ -2447,6 +2593,34 @@ class DictationEngine:
                     self.punct_condition.notify_all()
             raise
         return True
+
+    def _punct_generation_is_current(self, generation, signature=None):
+        with self.punct_condition:
+            return not self.closing and generation == self._punct_generation and (
+                signature is None or signature == self._punct_signature)
+
+    def _set_punct_status(self, generation, signature, status):
+        if not self._punct_generation_is_current(generation, signature):
+            return False
+        if self.punct_status_callback is not None:
+            self.punct_status_callback(generation, status)
+        else:
+            self.set_status(status)
+        return True
+
+    def readiness_status(self):
+        with self.lock:
+            if not self.loaded:
+                return "Still loading"
+            if self.stream is None:
+                return "Audio unavailable"
+            if self.cfg.get("use_punctuation", True):
+                with self.punct_lock:
+                    if self.punct_error is not None:
+                        return "Punctuation unavailable"
+                    if self.punct is None:
+                        return "Loading punct"
+            return "Ready"
 
     def _queue_current_punct_preload(self):
         with self.lock:
@@ -2689,10 +2863,10 @@ class DictationEngine:
             if not self._asr_generation_is_current(generation, asr):
                 return
             log_debug(f"load ready generation={generation} seconds={time.perf_counter() - load_start:.3f}")
-            if audio_ready:
-                self._set_asr_status(generation, "Ready")
             if current_cfg.get("use_punctuation", True):
                 self.load_punct_async(current_cfg)
+            if audio_ready and self.is_idle():
+                self._set_asr_status(generation, self.readiness_status())
         except Exception as exc:
             with self.lock:
                 current = generation == self._asr_generation and not self.closing
@@ -2898,7 +3072,9 @@ class DictationEngine:
                 channels=channels,
                 dtype="float32",
                 device=device_index,
-                callback=self._audio_callback,
+                callback=lambda data, frames, timing, status: self._audio_callback(
+                    data, frames, timing, status, generation=generation,
+                ),
             )
             stream.start()
             with self.audio_lifecycle_lock:
@@ -2987,7 +3163,7 @@ class DictationEngine:
         with self.lock:
             if self.closing or self.recording or self.transcribing:
                 return
-            if not self.loaded:
+            if not self.loaded or self.asr is None:
                 self.set_status("Still loading")
                 self.load_async()
                 return
@@ -2999,6 +3175,8 @@ class DictationEngine:
 
         with self.lock:
             if self.closing or self.recording or self.transcribing:
+                return
+            if not self.loaded or self.asr is None:
                 return
             if self.stream is None:
                 reopen_audio = True
@@ -3017,6 +3195,9 @@ class DictationEngine:
                 self.recording_wall_start = time.perf_counter()
                 self.recording_wall_end = None
                 self.recording_context = None
+                self.recording_cfg = dict(self.cfg)
+                self.recording_asr = self.asr
+                self.recording_sample_rate = self.sample_rate
                 self.recording = True
                 self.set_status("Recording")
 
@@ -3041,9 +3222,9 @@ class DictationEngine:
                 punct = self.punct
             job = RecordingJob(
                 blocks=tuple(self.audio_blocks),
-                sample_rate=self.sample_rate,
-                cfg=dict(self.cfg),
-                asr=self.asr,
+                sample_rate=self.recording_sample_rate if self.recording_sample_rate is not None else self.sample_rate,
+                cfg=dict(self.recording_cfg if self.recording_cfg is not None else self.cfg),
+                asr=self.recording_asr if self.recording_asr is not None else self.asr,
                 punct=punct,
                 audio_callback_count=self.audio_callback_count,
                 audio_callback_statuses=tuple(self.audio_callback_statuses),
@@ -3059,6 +3240,7 @@ class DictationEngine:
             )
             self.audio_blocks = []
             self.recording_context = None
+            self.recording_cfg = self.recording_asr = self.recording_sample_rate = None
             self.transcribing = True
             self.transcription_done.clear()
             self.clear_pre_roll_locked()
@@ -3091,9 +3273,10 @@ class DictationEngine:
             self.recording = False
             self.audio_blocks = []
             self.recording_context = None
+            self.recording_cfg = self.recording_asr = self.recording_sample_rate = None
             self.clear_pre_roll_locked()
 
-        self.set_status("Ready" if self.loaded else "Starting")
+        self.set_status(self.readiness_status() if self.loaded else "Starting")
 
     def request_shutdown(self):
         with self.lock:
@@ -3108,11 +3291,13 @@ class DictationEngine:
         with self.lock:
             return not self.recording and not self.transcribing
 
-    def _audio_callback(self, indata, frames, time_info, status):
+    def _audio_callback(self, indata, frames, time_info, status, generation=None):
         now = time.perf_counter()
         block = indata.copy()
         status_text = str(status) if status else ""
         with self.lock:
+            if generation is not None and (generation != self._audio_generation or self.closing):
+                return
             self.append_pre_roll_block_locked(block)
             if self.recording:
                 if self.audio_first_callback_perf is None:
@@ -3239,21 +3424,35 @@ class DictationEngine:
             final_text = raw_text
             context = job.context
             punct_sec = 0.0
+            punct_failed = False
             if raw_text and cfg.get("use_punctuation", True):
-                punct = job.punct or self._get_punct(cfg, self.set_status)
                 start = time.perf_counter()
-                if context is None:
-                    context = self.context_before_cursor(cfg)
-                if context:
-                    if hasattr(punct, "restore_inserted"):
-                        final_text = punct.restore_inserted(context, raw_text)
-                        final_text = adjust_inserted_casing(raw_text, final_text, context)
+                try:
+                    punct = job.punct or self._get_punct(cfg, self.set_status)
+                    if context is None:
+                        context = self.context_before_cursor(cfg)
+                    if context:
+                        if hasattr(punct, "restore_inserted"):
+                            final_text = punct.restore_inserted(context, raw_text)
+                            if not isinstance(final_text, str) or not final_text.strip():
+                                raise ValueError("Punctuation returned invalid text")
+                            final_text = adjust_inserted_casing(raw_text, final_text, context)
+                        else:
+                            restored = punct.restore(f"{context} {raw_text}".strip())
+                            if not isinstance(restored, str) or not restored.strip():
+                                raise ValueError("Punctuation returned invalid text")
+                            final_text = inserted_text_from_context(raw_text, restored, context)
                     else:
-                        restored = punct.restore(f"{context} {raw_text}".strip())
-                        final_text = inserted_text_from_context(raw_text, restored, context)
-                else:
-                    final_text = punct.restore(raw_text)
-                    final_text = adjust_inserted_casing(raw_text, final_text)
+                        final_text = punct.restore(raw_text)
+                        if not isinstance(final_text, str) or not final_text.strip():
+                            raise ValueError("Punctuation returned invalid text")
+                        final_text = adjust_inserted_casing(raw_text, final_text)
+                    if not isinstance(final_text, str) or not final_text.strip():
+                        raise ValueError("Punctuation returned no text")
+                except Exception as exc:
+                    punct_failed = True
+                    final_text = raw_text
+                    log_debug(f"punctuation fallback error={type(exc).__name__}")
                 punct_sec = time.perf_counter() - start
 
             final_text = strip_leading_punctuation(final_text, context)
@@ -3262,6 +3461,9 @@ class DictationEngine:
                 context or "",
                 append_trailing_space=bool(cfg.get("append_space", False)),
             )
+            if raw_text and (not final_text.strip() or not any(char.isalnum() for char in final_text)):
+                punct_failed = True
+                final_text = raw_text
 
             if final_text:
                 log_debug(
@@ -3275,7 +3477,14 @@ class DictationEngine:
                     f"context_chars={len(context or '') if 'context' in locals() else 0}"
                 )
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
-                if cfg.get("auto_paste", True):
+                if punct_failed:
+                    try:
+                        pyperclip.copy(final_text)
+                        self.set_status("Copied - punctuation unavailable")
+                    except Exception as exc:
+                        log_debug(f"raw text clipboard failed error={type(exc).__name__}")
+                        self.set_status("Text ready - punctuation unavailable")
+                elif cfg.get("auto_paste", True):
                     if self.paste_text(final_text, cfg):
                         press_enter = bool(cfg.get("press_enter_after_paste", False))
                         enter_sent = None
@@ -3292,7 +3501,7 @@ class DictationEngine:
                             )
                         )
                     else:
-                        self.set_status("Copied - paste manually")
+                        self.set_status("Copied - paste manually" if self.last_paste_copied else "Text ready - clipboard failed")
                 else:
                     pyperclip.copy(final_text)
                     self.set_status("Copied")
@@ -3329,6 +3538,7 @@ class DictationEngine:
     def paste_text(self, text, cfg=None):
         cfg = cfg or self.cfg
         self.last_paste_target_identity = None
+        self.last_paste_copied = False
         self.last_enter_failure_reason = None
         restore_clipboard = bool(cfg.get("restore_clipboard_after_paste", True))
         previous_clipboard = ""
@@ -3379,13 +3589,23 @@ class DictationEngine:
         if not clipboard_ready:
             log_debug("clipboard verify mismatch")
             return False
+        self.last_paste_copied = True
 
         target_ready = None
         if self.focus_callback:
-            target_ready = bool(self.focus_callback())
+            try:
+                target_ready = bool(self.focus_callback())
+            except Exception as exc:
+                log_debug(f"paste focus failed error={type(exc).__name__}")
+                return False
+            if not target_ready:
+                log_debug("paste skipped reason=focus_failed")
+                return False
+        self.last_paste_target_identity = self.current_target_identity()
         time.sleep(0.12)
-        if target_ready is not False:
-            self.last_paste_target_identity = self.current_target_identity()
+        if not self.paste_target_is_current():
+            log_debug("paste skipped reason=target_changed_or_unavailable")
+            return False
 
         def restore_previous_clipboard():
             if not restore_clipboard or not has_previous_clipboard:
@@ -3403,6 +3623,8 @@ class DictationEngine:
             restore_previous_clipboard()
             return True
 
+        if not self.paste_target_is_current():
+            return False
         try:
             self.keyboard.press(keyboard.Key.ctrl)
             self.keyboard.press("v")
@@ -3615,6 +3837,7 @@ class VoiceDictationApp:
 
         self.status_var = tk.StringVar(value="Loading models")
         self.current_status = "Loading models"
+        self.model_load_status = "Loading models"
         self.current_display_status = "Loading models"
         self.last_text_var = tk.StringVar(value="")
         self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
@@ -3646,6 +3869,7 @@ class VoiceDictationApp:
         self.mouse_recording_active = False
         self.mouse_pressed_on_button = False
         self.mouse_pressed_button_kind = None
+        self.overlay_hover_kind = None
 
         self.foreground_tracker = ForegroundWindowTracker()
         self.input_tracker = FocusedInputTracker()
@@ -3657,6 +3881,7 @@ class VoiceDictationApp:
             context_callback=self.context_before_cursor,
             target_identity_callback=self.current_paste_target_identity,
             asr_status_callback=self.queue_asr_status,
+            punct_status_callback=self.queue_punct_status,
         )
         self.hotkeys = HotkeyManager(self.cfg, self.dispatch)
 
@@ -3669,7 +3894,7 @@ class VoiceDictationApp:
         self.start_tray_icon()
 
         if not self.cfg.get("overlay_visible", True):
-            self.root.withdraw()
+            self.hide_overlay()
 
         self.root.after(100, self.poll_events)
         self.root.after(100, self.track_foreground)
@@ -3686,6 +3911,8 @@ class VoiceDictationApp:
         if status.startswith("Error: "):
             return f"{self.t('error')}: {status.split(': ', 1)[1]}"
         for prefix in (
+            "Settings save failed",
+            "Settings rollback failed",
             "First model setup",
             "Preparing model download",
             "Downloading models",
@@ -3694,7 +3921,8 @@ class VoiceDictationApp:
             "Downloading punct failed",
         ):
             if status.startswith(prefix) and status != prefix:
-                return f"{self.t(prefix)}{status[len(prefix):]}"
+                detail = localize_model_detail(prefix, status[len(prefix):], self.cfg.get("ui_language", "en"))
+                return f"{self.t(prefix)}{detail}"
         return self.t(status)
 
     def compact_download_status(self, status, localized_status):
@@ -3703,7 +3931,8 @@ class VoiceDictationApp:
             return localized_status
         speed_eta = re.search(r", ([^,]+/s), ETA ([^,]+),", str(status or ""))
         if speed_eta:
-            return f"{self.t('Downloading models')} {percent}% · {speed_eta.group(1)} · {speed_eta.group(2)}"
+            speed = localize_progress_metrics(speed_eta.group(1), self.cfg.get("ui_language", "en"))
+            return f"{self.t('Downloading models')} {percent}% · {speed} · {speed_eta.group(2)}"
         return f"{self.t('Downloading models')} {percent}%"
 
     def choice_label(self, group, value):
@@ -3742,6 +3971,8 @@ class VoiceDictationApp:
             widget.bind("<Button-3>", self.show_menu)
             widget.bind("<ButtonPress-1>", self.on_overlay_press)
             widget.bind("<B1-Motion>", self.on_overlay_motion)
+            widget.bind("<Motion>", self.on_overlay_hover)
+            widget.bind("<Leave>", lambda _event: self.clear_overlay_hover())
             widget.bind("<ButtonRelease-1>", self.on_overlay_release)
 
     def overlay_size_profile(self):
@@ -4028,7 +4259,7 @@ class VoiceDictationApp:
             canvas.create_text(
                 text_x,
                 geometry["status_y"] + profile["status_height"] / 2,
-                text=self.fit_overlay_text(self.status_var.get(), profile["status_font"], content_width),
+                text=self.fit_overlay_text(self.overlay_hover_text() or self.status_var.get(), profile["status_font"], content_width),
                 fill=OVERLAY_TEXT_FG,
                 font=profile["status_font"],
                 justify="center",
@@ -4095,7 +4326,7 @@ class VoiceDictationApp:
         x = self.cfg.get("overlay_x")
         y = self.cfg.get("overlay_y")
         if x is None or y is None:
-            left, top, right, bottom = self.virtual_screen_bounds()
+            left, top, right, bottom = self.monitor_workarea()
             x = right - width - 32
             y = bottom - height - 80
         requested_x = x
@@ -4112,7 +4343,7 @@ class VoiceDictationApp:
         if self.cfg.get("overlay_x") != x or self.cfg.get("overlay_y") != y:
             self.cfg["overlay_x"] = x
             self.cfg["overlay_y"] = y
-            save_config(self.cfg)
+            self.persist_ui_config()
 
     def virtual_screen_bounds(self):
         if os.name == "nt":
@@ -4126,14 +4357,31 @@ class VoiceDictationApp:
         return 0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight()
 
     def clamp_overlay_position(self, x, y, width=None, height=None):
-        left, top, right, bottom = self.virtual_screen_bounds()
         width = int(width if width is not None else max(self.root.winfo_width(), self.root.winfo_reqwidth()))
         height = int(height if height is not None else max(self.root.winfo_height(), self.root.winfo_reqheight()))
-        max_x = max(left, right - width)
-        max_y = max(top, bottom - height)
-        x = min(max(int(x), left), max_x)
-        y = min(max(int(y), top), max_y)
-        return x, y
+        return clamp_to_workarea(x, y, width, height, self.monitor_workarea(x, y))
+
+    def monitor_workarea(self, x=None, y=None):
+        if x is None or y is None:
+            x, y = self.root.winfo_x(), self.root.winfo_y()
+        if os.name == "nt":
+            class MonitorInfo(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                            ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+            try:
+                user32 = ctypes.WinDLL("user32", use_last_error=True)
+                user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+                user32.MonitorFromPoint.restype = wintypes.HANDLE
+                user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MonitorInfo)]
+                user32.GetMonitorInfoW.restype = wintypes.BOOL
+                monitor = user32.MonitorFromPoint(wintypes.POINT(int(x), int(y)), 2)
+                info = MonitorInfo(cbSize=ctypes.sizeof(MonitorInfo))
+                if user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+                    rect = info.rcWork
+                    return rect.left, rect.top, rect.right, rect.bottom
+            except (AttributeError, OSError, ValueError):
+                pass
+        return 0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight()
 
     def _build_menu(self):
         self.menu = tk.Menu(
@@ -4144,6 +4392,8 @@ class VoiceDictationApp:
             activeborderwidth=2,
         )
         self.menu.add_command(label=self.t("start_stop"), command=self.engine.toggle_recording)
+        self.menu.add_command(label=self.t("stop_without_enter"), command=lambda: self.handle_action("stop_without_enter"),
+                              state="normal" if self.engine.recording else "disabled")
         self.menu.add_command(label=self.t("settings"), command=self.open_settings)
         self.menu.add_command(label=self.t("hide_overlay"), command=self.hide_overlay)
         self.menu.add_command(label=self.t("copy_debug_info"), command=self.copy_debug_info)
@@ -4151,6 +4401,8 @@ class VoiceDictationApp:
         self.menu.add_command(label=self.t("exit"), command=self.exit_app)
 
     def show_menu(self, event):
+        self.clear_overlay_hover()
+        self.menu.entryconfigure(1, state="normal" if self.engine.recording else "disabled")
         self.menu.tk_popup(event.x_root, event.y_root)
 
     def make_tray_image(self):
@@ -4205,6 +4457,8 @@ class VoiceDictationApp:
             pystray.MenuItem(self.t("show_overlay"), lambda: self.dispatch("show_overlay"), default=True),
             pystray.MenuItem(self.t("hide_overlay"), lambda: self.dispatch("hide_overlay")),
             pystray.MenuItem(self.t("settings"), lambda: self.dispatch("open_settings")),
+            pystray.MenuItem(self.t("stop_without_enter"), lambda: self.dispatch("stop_without_enter"),
+                             enabled=lambda _item: self.engine.recording),
             pystray.MenuItem(self.t("copy_debug_info"), lambda: self.dispatch("copy_debug_info")),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(self.t("quit"), lambda: self.dispatch("exit_app")),
@@ -4263,6 +4517,11 @@ class VoiceDictationApp:
             except tk.TclError:
                 pass
 
+        refresh = getattr(self, "settings_refresh_navigation", None)
+        if refresh is not None:
+            refresh()
+        self.refresh_model_progress()
+
     def dispatch(self, action):
         self.event_queue.put(("action", action))
 
@@ -4271,6 +4530,9 @@ class VoiceDictationApp:
 
     def queue_asr_status(self, generation, status):
         self.event_queue.put(("asr_status", generation, status))
+
+    def queue_punct_status(self, generation, status):
+        self.event_queue.put(("punct_status", generation, status))
 
     def queue_text(self, raw_text, final_text, duration, asr_sec, punct_sec):
         self.event_queue.put(("text", raw_text, final_text, duration, asr_sec, punct_sec))
@@ -4289,6 +4551,10 @@ class VoiceDictationApp:
             elif item[0] == "asr_status":
                 _, generation, status = item
                 if self.engine._asr_generation_is_current(generation):
+                    self.update_status(status)
+            elif item[0] == "punct_status":
+                _, generation, status = item
+                if self.engine._punct_generation_is_current(generation):
                     self.update_status(status)
             elif item[0] == "text":
                 _, raw_text, final_text, duration, asr_sec, punct_sec = item
@@ -4337,25 +4603,29 @@ class VoiceDictationApp:
         return self.input_tracker.context_before_cursor(max_chars)
 
     def collect_debug_info(self):
-        log_path = repo_root() / "voice_dictation.log"
-        log_tail = []
-        if log_path.exists():
-            try:
-                log_tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-80:]
-            except OSError as exc:
-                log_tail = [f"log read error: {type(exc).__name__}"]
-
+        config_keys = (
+            "ui_language", "mode", "asr_model", "asr_device", "punct_model", "punct_device",
+            "sample_rate", "channels", "use_punctuation", "warmup_models", "compare_asr",
+            "asr_bucket_frames", "asr_chunked", "asr_chunk_bucket", "asr_chunk_overlap_ms",
+            "asr_vad_segments", "asr_vad_stitch", "asr_vad_fuzzy_stitch", "asr_pad_mode",
+            "auto_paste", "restore_clipboard_after_paste", "press_enter_after_paste",
+            "show_stop_without_enter_button", "use_context", "append_space", "audio_pre_roll_ms",
+            "overlay_size", "overlay_shape", "overlay_details", "overlay_opacity",
+        )
+        hardware = self.engine.hardware_info or {}
+        hardware_keys = ("available", "version", "devices", "device_names", "selected_devices", "error")
+        status = self.current_status
+        phases = tuple(TRANSLATIONS["en"]) + ("Error", "Load error")
+        phase = next((key for key in sorted(phases, key=len, reverse=True)
+                      if status == key or status.startswith(key + ": ") or status.startswith(key + " ")), "Unknown")
         info = {
             "app": APP_NAME,
             "version": APP_VERSION,
-            "status": self.current_display_status,
+            "status_phase": phase,
+            "progress_percent": status_percent(status),
             "python": sys.version,
             "platform": platform.platform(),
-            "app_root": str(app_root()),
-            "data_root": str(repo_root()),
-            "repo_root": str(repo_root()),
-            "config_path": str(config_path()),
-            "config": self.cfg,
+            "config": {key: self.cfg.get(key) for key in config_keys},
             "models": {
                 "asr_model": self.cfg.get("asr_model"),
                 "asr_model_installed": model_is_installed(
@@ -4369,20 +4639,12 @@ class VoiceDictationApp:
                     self.cfg.get("punct_model"),
                     DEFAULT_PUNCT_MODEL,
                 ),
-                "asr_dir_exists": asr_model_dir().exists(),
-                "asr_openvino_artifact_dir_exists": (
-                    repo_root() / "models" / "asr" / "gigaam-v3-ctc-openvino-int8-calib96"
-                ).exists(),
-                "punct_dir_exists": default_punct_model_dir().exists(),
-                "artifact_manifest_exists": artifact_manifest_cache_path().exists(),
             },
-            "hardware": self.engine.hardware_info,
-            "raw_status": self.current_status,
+            "hardware": {key: hardware.get(key) for key in hardware_keys},
             "tray_available": pystray is not None,
             "tray_running": self.tray_icon is not None,
             "overlay_state": self.root.state(),
-            "last_text": self.last_text_var.get(),
-            "log_tail": log_tail,
+            "privacy": "Dictated text, logs and local paths are excluded.",
         }
         return json.dumps(info, ensure_ascii=False, indent=2)
 
@@ -4409,6 +4671,26 @@ class VoiceDictationApp:
             self.engine.stop_recording()
         elif action == "toggle_recording":
             self.engine.toggle_recording()
+        elif action == "stop_without_enter":
+            if self.engine.recording:
+                self.engine.stop_recording(suppress_enter_after_paste=True)
+
+        elif action == "retry_models":
+            self.retry_model_loading()
+
+    def retry_model_loading(self):
+        if not self.engine.is_idle():
+            self.settings_error("Finish dictation before applying settings")
+            return False
+        if not self.engine.loaded:
+            return self.engine.load_async()
+        if self.cfg.get("use_punctuation", True):
+            self.update_status("Loading punct")
+            self.engine.load_punct_async(self.cfg)
+        if self.engine.stream is None:
+            self.engine.ensure_audio_stream_async()
+        self.update_status(self.engine.readiness_status())
+        return True
 
     def set_display_status(self, status):
         self.current_display_status = status
@@ -4465,7 +4747,39 @@ class VoiceDictationApp:
         self.draw_overlay()
         self.overlay_progress_after_id = self.root.after(80, self.advance_overlay_progress)
 
+    def refresh_model_progress(self):
+        status = getattr(self, "model_load_status", "Loading models")
+        variable = getattr(self, "settings_model_progress_var", None)
+        if variable is not None:
+            variable.set(self.localize_status(status))
+        bar = getattr(self, "settings_model_progress_bar", None)
+        if bar is not None:
+            percent = status_percent(status)
+            bar.stop()
+            if percent is not None:
+                bar.configure(mode="determinate", value=percent)
+            elif status.startswith(("Loading", "Downloading", "Verifying", "Converting", "Preparing", "Retrying", "First model setup")) or status in {"Warming models", "Still loading"}:
+                bar.configure(mode="indeterminate")
+                bar.start(100)
+            else:
+                bar.configure(mode="determinate", value=100 if status == "Ready" else 0)
+        refresh = getattr(self, "settings_refresh_models", None)
+        if refresh is not None and (status.startswith(("Loading", "Verifying", "Load error")) or status in {"Ready", "Punctuation unavailable"}):
+            refresh()
+
     def update_status(self, status):
+        review_button = getattr(self, "settings_review_button", None)
+        if review_button is not None:
+            review_button.configure(state="normal" if self.engine.recording else "disabled")
+        if status.startswith(("First model setup", "Preparing", "Downloading", "Verifying", "Retrying", "Converting", "Loading", "Load error")) or status in {
+            "Warming models", "Ready", "Still loading", "Punctuation unavailable", "Audio unavailable",
+        }:
+            self.model_load_status = status
+            self.refresh_model_progress()
+        if self.engine.recording:
+            status = "Recording"
+        elif self.engine.transcribing and status in {"Settings saved", "Ready", "Hotkey captured", "Press hotkey"}:
+            status = "Transcribing"
         previous_status = self.current_status
         previous_secondary_visible = self.stop_without_enter_button_visible(previous_status)
         self.current_status = status
@@ -4497,7 +4811,7 @@ class VoiceDictationApp:
             or status.startswith("Retrying")
             or status.startswith("Converting")
             or status.startswith("Loading")
-            or status in {"Starting audio", "Still loading", "Transcribing", "Finishing"}
+            or status in {"Starting audio", "Still loading", "Transcribing", "Finishing", "Warming models"}
         )
         self.overlay_progress_percent = percent if busy else None
         show_progress = busy and self.overlay_details_mode() != "button"
@@ -4535,7 +4849,7 @@ class VoiceDictationApp:
             self.set_overlay_button_state("button_paste", "#b85528", "#98441f")
         elif status == "Copied":
             self.set_overlay_button_state("button_copy", "#2b7281", "#245f6c")
-        elif status.startswith("Copied - paste"):
+        elif status.startswith("Copied -") or status.startswith("Text ready -") or status == "Punctuation unavailable":
             self.set_overlay_button_state("button_paste", "#b85528", "#98441f")
         elif status in {"No audio", "Too short", "No speech"}:
             self.set_overlay_button_state("button_empty", "#5f6773", "#505762")
@@ -4550,7 +4864,29 @@ class VoiceDictationApp:
         else:
             self.set_overlay_button_state("button_dict", "#2864d8", "#1f55bd")
 
+    def overlay_hover_text(self):
+        kind = getattr(self, "overlay_hover_kind", None)
+        if kind == "no_enter":
+            return self.t("stop_without_enter")
+        if kind == "primary" and not self.engine.recording:
+            return self.t("overlay_tip_hold" if self.cfg.get("mode", "hold") == "hold" else "overlay_tip_toggle")
+        return None
+
+    def on_overlay_hover(self, event):
+        if self.mouse_pressed_on_button or self.dragging_overlay:
+            return
+        kind = self.event_overlay_button_kind(event)
+        if kind != getattr(self, "overlay_hover_kind", None):
+            self.overlay_hover_kind = kind
+            self.draw_overlay()
+
+    def clear_overlay_hover(self):
+        if getattr(self, "overlay_hover_kind", None) is not None:
+            self.overlay_hover_kind = None
+            self.draw_overlay()
+
     def on_overlay_press(self, event):
+        self.clear_overlay_hover()
         self.drag_start_x = event.x_root
         self.drag_start_y = event.y_root
         self.overlay_start_x = self.root.winfo_x()
@@ -4622,7 +4958,15 @@ class VoiceDictationApp:
     def persist_overlay_position(self):
         self.cfg["overlay_x"] = int(self.root.winfo_x())
         self.cfg["overlay_y"] = int(self.root.winfo_y())
-        save_config(self.cfg)
+        self.persist_ui_config()
+
+    def persist_ui_config(self):
+        try:
+            save_config(self.cfg)
+            return True
+        except OSError as exc:
+            self.settings_error(f"Settings save failed: {type(exc).__name__}")
+            return False
 
     def toggle_overlay(self):
         if self.root.state() == "withdrawn":
@@ -4632,7 +4976,7 @@ class VoiceDictationApp:
 
     def show_overlay(self):
         self.cfg["overlay_visible"] = True
-        save_config(self.cfg)
+        self.persist_ui_config()
         self.root.deiconify()
         self.root.attributes("-topmost", True)
         self.apply_overlay_transparency()
@@ -4640,9 +4984,15 @@ class VoiceDictationApp:
         self._position_overlay()
 
     def hide_overlay(self):
+        if self.tray_icon is None:
+            self.cfg["overlay_visible"] = True
+            self.settings_error("Tray unavailable")
+            return False
+        self.clear_overlay_hover()
         self.cfg["overlay_visible"] = False
-        save_config(self.cfg)
+        self.persist_ui_config()
         self.root.withdraw()
+        return True
 
     def settings_ui_scale(self):
         try:
@@ -4676,6 +5026,8 @@ class VoiceDictationApp:
         self.settings_i18n_widgets = []
         self.settings_i18n_choices = []
         self.settings_i18n_tabs = []
+        self.settings_error_var = tk.StringVar(value="")
+        self.settings_model_progress_var = tk.StringVar(value=self.localize_status(getattr(self, "model_load_status", "Loading models")))
         win.title(f"{APP_NAME} {self.t('settings_title')}")
         win.attributes("-topmost", True)
         win.resizable(True, True)
@@ -4685,15 +5037,9 @@ class VoiceDictationApp:
         def scaled(value):
             return max(1, int(round(value * settings_scale)))
 
-        left, top, right, bottom = self.virtual_screen_bounds()
-        screen_width = max(1, right - left)
-        screen_height = max(1, bottom - top)
-        window_width = min(max(scaled(960), 860), max(760, screen_width - scaled(80)))
-        window_height = min(max(scaled(560), 540), max(520, screen_height - scaled(100)))
-        window_x = left + max(0, (screen_width - window_width) // 2)
-        window_y = top + max(0, (screen_height - window_height) // 2)
-        win.configure(padx=scaled(24), pady=scaled(20))
-        win.minsize(window_width, window_height)
+        window_width, window_height, window_x, window_y = fit_settings_geometry(self.monitor_workarea(), settings_scale)
+        win.configure(padx=scaled(12), pady=scaled(10))
+        win.minsize(min(window_width, 480), min(window_height, 320))
         win.geometry(f"{window_width}x{window_height}+{window_x}+{window_y}")
         win.columnconfigure(0, weight=1)
         win.rowconfigure(0, weight=1)
@@ -4763,6 +5109,7 @@ class VoiceDictationApp:
         asr_model_status = tk.StringVar()
         punct_model_status = tk.StringVar()
         dirty = tk.BooleanVar(value=False)
+        refreshing_labels = False
 
         def remember_i18n(widget, key):
             self.settings_i18n_widgets.append((widget, key))
@@ -4783,7 +5130,10 @@ class VoiceDictationApp:
             return remember_i18n(ttk.Button(parent, text=self.t(key), **kwargs), key)
 
         def i18n_checkbutton(parent, key, **kwargs):
-            return remember_i18n(ttk.Checkbutton(parent, text=self.t(key), **kwargs), key)
+            style = f"SettingsWrap{len(self.settings_i18n_widgets)}.TCheckbutton"
+            widget = remember_i18n(ttk.Checkbutton(parent, text=self.t(key), style=style, **kwargs), key)
+            widget.bind("<Configure>", lambda event: settings_style.configure(style, wraplength=max(40, event.width - scaled(36))), add="+")
+            return widget
 
         def settings_t(key, ui_language_code=None):
             language = normalize_ui_language(ui_language_code or UI_LANGUAGE_BY_NAME.get(ui_language.get(), ui_lang_code))
@@ -4794,24 +5144,22 @@ class VoiceDictationApp:
                 self.settings_i18n_widgets = []
                 self.settings_i18n_choices = []
                 self.settings_i18n_tabs = []
+                self.settings_refresh_models = None
+                self.settings_model_progress_var = None
+                self.settings_model_progress_bar = None
+                self.settings_refresh_navigation = None
+                self.settings_review_button = None
 
         win.bind("<Destroy>", clear_i18n_registry, add="+")
 
         devices = input_devices()
-        device_labels = [
-            f"{d['index']}: {d['name']} [{d['hostapi']}, {d['sample_rate']} Hz]" for d in devices
-        ]
         current_device = self.cfg.get("input_device_index")
-        selected_device = tk.StringVar(value="")
-        for label in device_labels:
-            if label.startswith(f"{current_device}:"):
-                selected_device.set(label)
-                break
-        if not selected_device.get() and device_labels:
-            selected_device.set(device_labels[0])
+        device_choices, selected_label = microphone_choices(devices, current_device, ui_lang_code)
+        selected_device = tk.StringVar(value=selected_label)
 
         def mark_dirty(*_):
-            dirty.set(True)
+            if not refreshing_labels:
+                dirty.set(True)
 
         for variable in (
             mode,
@@ -4878,6 +5226,8 @@ class VoiceDictationApp:
             )
 
         def refresh_model_option_texts(*_):
+            nonlocal refreshing_labels
+            refreshing_labels = True
             language = settings_ui_language_code()
             asr_id = model_id_from_label(ASR_MODEL_PROFILES, asr_model.get(), DEFAULT_ASR_MODEL)
             punct_id = model_id_from_label(PUNCT_MODEL_PROFILES, punct_model.get(), DEFAULT_PUNCT_MODEL)
@@ -4895,7 +5245,17 @@ class VoiceDictationApp:
                 asr_model.set(next_asr_label)
             if punct_model.get() != next_punct_label:
                 punct_model.set(next_punct_label)
+            device_index = device_choices[selected_device.get()]
+            next_choices, next_device_label = microphone_choices(devices, device_index, language)
+            device_choices.clear()
+            device_choices.update(next_choices)
+            if "audio" in model_combo_widgets:
+                model_combo_widgets["audio"].configure(values=list(device_choices))
+            selected_device.set(next_device_label)
             refresh_model_status_texts()
+            refreshing_labels = False
+
+        self.settings_refresh_models = refresh_model_option_texts
 
         for variable in (ui_language, asr_model, asr_device, punct_model, punct_device):
             variable.trace_add("write", refresh_model_status_texts)
@@ -4999,8 +5359,10 @@ class VoiceDictationApp:
 
             try:
                 sample_rate_value = int(sample_rate.get() or 0)
+                if sample_rate_value < 0 or sample_rate_value > 384000 or 0 < sample_rate_value < 8000:
+                    raise ValueError("Unsupported sample rate range")
             except ValueError:
-                self.update_status("Bad sample rate")
+                self.settings_error("Bad sample rate")
                 return None
 
             return {
@@ -5026,7 +5388,7 @@ class VoiceDictationApp:
                 "overlay_shape": self.choice_value("overlay_shape", overlay_shape.get(), "rounded"),
                 "overlay_details": self.choice_value("overlay_details", overlay_details.get(), "full"),
                 "overlay_opacity": clamp_overlay_opacity(overlay_opacity.get() / 100),
-                "input_device_index": int(selected_device.get().split(":", 1)[0]) if selected_device.get() else None,
+                "input_device_index": device_choices[selected_device.get()],
                 "sample_rate": sample_rate_value,
                 "use_punctuation": bool(use_punctuation.get()),
                 "warmup_models": bool(warmup_models.get()),
@@ -5073,9 +5435,35 @@ class VoiceDictationApp:
 
         win.protocol("WM_DELETE_WINDOW", close_settings)
 
-        settings_notebook = ttk.Notebook(win, style="Settings.TNotebook")
-        settings_notebook.grid(row=0, column=0, sticky="nsew")
+        navigation = ttk.Frame(win)
+        navigation.grid(row=0, column=0, sticky="nsew")
+        navigation.columnconfigure(0, weight=1)
+        navigation.rowconfigure(1, weight=1)
+        section_name = tk.StringVar()
+        section_selector = ttk.Combobox(navigation, textvariable=section_name, state="readonly", width=20, font=settings_font)
+        section_selector.grid(row=0, column=0, sticky="ew", pady=(0, scaled(8)))
+        settings_style.layout("Settings.TNotebook.Tab", [])
+        settings_notebook = ttk.Notebook(navigation, style="Settings.TNotebook")
+        settings_notebook.grid(row=1, column=0, sticky="nsew")
         settings_scroll_areas = []
+        settings_sections = []
+
+        def refresh_navigation():
+            selected = settings_notebook.select()
+            section_selector.configure(values=[self.t(key) for container, key in settings_sections])
+            for container, key in settings_sections:
+                if str(container) == selected:
+                    section_name.set(self.t(key))
+                    break
+
+        def select_section(_event=None):
+            index = section_selector.current()
+            if 0 <= index < len(settings_sections):
+                settings_notebook.select(settings_sections[index][0])
+
+        section_selector.bind("<<ComboboxSelected>>", select_section)
+        settings_notebook.bind("<<NotebookTabChanged>>", lambda _event: refresh_navigation())
+        self.settings_refresh_navigation = refresh_navigation
 
         def settings_section(key):
             container = ttk.Frame(settings_notebook)
@@ -5083,13 +5471,14 @@ class VoiceDictationApp:
             container.rowconfigure(0, weight=1)
 
             canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
+            canvas.wheel_remainder = 0
             scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
             canvas.configure(yscrollcommand=scrollbar.set)
             canvas.grid(row=0, column=0, sticky="nsew")
             scrollbar.grid(row=0, column=1, sticky="ns")
 
-            frame = ttk.Frame(canvas, padding=(scaled(22), scaled(18)))
-            frame.columnconfigure(1, weight=1)
+            frame = ttk.Frame(canvas, padding=(scaled(12), scaled(12)))
+            frame.columnconfigure(0, weight=1)
             content_window = canvas.create_window((0, 0), window=frame, anchor="nw")
 
             def update_scroll_region(_event=None):
@@ -5097,6 +5486,10 @@ class VoiceDictationApp:
 
             def fit_content_width(event):
                 canvas.itemconfigure(content_window, width=event.width)
+                available = max(40, event.width - scaled(32))
+                for child in frame.winfo_children():
+                    if isinstance(child, ttk.Label):
+                        child.configure(wraplength=available)
                 update_scroll_region()
 
             def update_scrollbar_visibility(_event=None):
@@ -5112,7 +5505,8 @@ class VoiceDictationApp:
             frame.bind("<Configure>", update_scrollbar_visibility, add="+")
             canvas.bind("<Configure>", fit_content_width, add="+")
             canvas.bind("<Configure>", update_scrollbar_visibility, add="+")
-            settings_scroll_areas.append((container, canvas))
+            settings_scroll_areas.append((container, canvas, frame))
+            settings_sections.append((container, key))
 
             settings_notebook.add(container, text=self.t(key))
             remember_tab(settings_notebook, container, key)
@@ -5129,9 +5523,11 @@ class VoiceDictationApp:
             if not event.delta:
                 return None
             pointer_widget = win.winfo_containing(event.x_root, event.y_root)
-            for container, canvas in settings_scroll_areas:
+            for container, canvas, _frame in settings_scroll_areas:
                 if container.winfo_ismapped() and is_descendant(pointer_widget, container):
-                    canvas.yview_scroll(-int(event.delta / 120), "units")
+                    units, canvas.wheel_remainder = wheel_scroll_units(event.delta, canvas.wheel_remainder)
+                    if units:
+                        canvas.yview_scroll(units, "units")
                     return "break"
             return None
 
@@ -5165,6 +5561,10 @@ class VoiceDictationApp:
         i18n_checkbutton(general_section, "start_with_windows", variable=start_with_windows).grid(
             row=row, column=1, sticky="w", pady=6
         )
+        row += 1
+        self.settings_review_button = i18n_button(general_section, "stop_without_enter", command=lambda: self.handle_action("stop_without_enter"),
+                                                 state="normal" if self.engine.recording else "disabled")
+        self.settings_review_button.grid(row=row, column=0, columnspan=2, sticky="w", pady=6)
 
         models_section = settings_section("settings_section_models")
         row = 0
@@ -5201,7 +5601,7 @@ class VoiceDictationApp:
             textvariable=asr_model,
             values=model_display_labels(ASR_MODEL_PROFILES, DEFAULT_ASR_MODEL, settings_ui_language_code()),
             state="readonly",
-            width=74,
+            width=20,
             font=settings_font,
         )
         asr_model_combo.grid(row=row, column=1, sticky="ew", pady=6)
@@ -5237,13 +5637,18 @@ class VoiceDictationApp:
         )
 
         row += 1
+        i18n_label(models_section, "warmup_notice", style="SettingsHint.TLabel", wraplength=scaled(760), justify="left").grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=(0, 6)
+        )
+
+        row += 1
         i18n_label(models_section, "punct_model").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         punct_model_combo = ttk.Combobox(
             models_section,
             textvariable=punct_model,
             values=model_display_labels(PUNCT_MODEL_PROFILES, DEFAULT_PUNCT_MODEL, settings_ui_language_code()),
             state="readonly",
-            width=74,
+            width=20,
             font=settings_font,
         )
         punct_model_combo.grid(row=row, column=1, sticky="ew", pady=6)
@@ -5269,7 +5674,19 @@ class VoiceDictationApp:
         ).grid(row=row, column=1, sticky="w", pady=6)
         refresh_model_option_texts()
 
+        row += 1
+        ttk.Label(models_section, textvariable=self.settings_model_progress_var, wraplength=scaled(760), justify="left").grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=(12, 6)
+        )
+        row += 1
+        self.settings_model_progress_bar = ttk.Progressbar(models_section, maximum=100)
+        self.settings_model_progress_bar.grid(row=row, column=0, columnspan=2, sticky="ew", pady=6)
+        row += 1
+        i18n_button(models_section, "retry_models", command=self.retry_model_loading).grid(row=row, column=0, columnspan=2, sticky="w", pady=6)
+        self.refresh_model_progress()
+
         overlay_section = settings_section("settings_section_overlay")
+
         row = 0
         i18n_label(overlay_section, "overlay_size").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         overlay_size_combo = ttk.Combobox(
@@ -5326,7 +5743,7 @@ class VoiceDictationApp:
         dict_hotkey_frame = ttk.Frame(hotkey_section)
         dict_hotkey_frame.grid(row=row, column=1, sticky="ew", pady=6)
         dict_hotkey_frame.columnconfigure(0, weight=1)
-        dict_hotkey_entry = ttk.Entry(dict_hotkey_frame, textvariable=dict_hotkey, width=36, font=settings_font)
+        dict_hotkey_entry = ttk.Entry(dict_hotkey_frame, textvariable=dict_hotkey, width=12, font=settings_font)
         dict_hotkey_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         i18n_button(
             dict_hotkey_frame,
@@ -5339,7 +5756,7 @@ class VoiceDictationApp:
         overlay_hotkey_frame = ttk.Frame(hotkey_section)
         overlay_hotkey_frame.grid(row=row, column=1, sticky="ew", pady=6)
         overlay_hotkey_frame.columnconfigure(0, weight=1)
-        overlay_hotkey_entry = ttk.Entry(overlay_hotkey_frame, textvariable=overlay_hotkey, width=36, font=settings_font)
+        overlay_hotkey_entry = ttk.Entry(overlay_hotkey_frame, textvariable=overlay_hotkey, width=12, font=settings_font)
         overlay_hotkey_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         i18n_button(
             overlay_hotkey_frame,
@@ -5350,9 +5767,9 @@ class VoiceDictationApp:
         audio_section = settings_section("settings_section_audio")
         row = 0
         i18n_label(audio_section, "input_device").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
-        ttk.Combobox(audio_section, textvariable=selected_device, values=device_labels, state="readonly", width=72, font=settings_font).grid(
-            row=row, column=1, sticky="ew", pady=6
-        )
+        microphone_combo = ttk.Combobox(audio_section, textvariable=selected_device, values=list(device_choices), state="readonly", width=20, font=settings_font)
+        microphone_combo.grid(row=row, column=1, sticky="ew", pady=6)
+        model_combo_widgets["audio"] = microphone_combo
 
         row += 1
         i18n_label(audio_section, "sample_rate").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
@@ -5385,16 +5802,16 @@ class VoiceDictationApp:
             "show_stop_without_enter_button",
             variable=show_stop_without_enter_button,
         )
+        stop_without_enter_checkbox.grid(row=row, column=1, sticky="ew", pady=6)
         stop_without_enter_row = row
 
         def refresh_stop_without_enter_checkbox(*_):
             if press_enter_after_paste.get():
-                stop_without_enter_checkbox.grid(row=stop_without_enter_row, column=1, sticky="w", pady=6)
+                stop_without_enter_checkbox.grid(row=stop_without_enter_row, column=0, sticky="ew", pady=6)
             else:
                 stop_without_enter_checkbox.grid_remove()
 
         press_enter_after_paste.trace_add("write", refresh_stop_without_enter_checkbox)
-        refresh_stop_without_enter_checkbox()
 
         row += 1
         i18n_checkbutton(insertion_section, "use_context", variable=use_context).grid(
@@ -5411,15 +5828,35 @@ class VoiceDictationApp:
             row=row, column=0, columnspan=2, sticky="ew", pady=(12, 6)
         )
 
+        error_label = ttk.Label(win, textvariable=self.settings_error_var, foreground="#9f3030", wraplength=scaled(700))
+        error_label.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        error_label.bind("<Configure>", lambda event: error_label.configure(wraplength=max(40, event.width)), add="+")
         buttons = ttk.Frame(win)
-        buttons.grid(row=1, column=0, columnspan=2, sticky="e", pady=(14, 0))
-        i18n_button(buttons, "hide_overlay", command=self.hide_overlay).pack(side="left", padx=(0, 10))
-        i18n_button(buttons, "apply", command=lambda: apply_settings(close=False)).pack(side="left", padx=(0, 10))
-        i18n_button(buttons, "save", command=lambda: apply_settings(close=True)).pack(side="left", padx=(0, 10))
-        i18n_button(buttons, "cancel", command=close_settings).pack(side="left")
+        buttons.grid(row=2, column=0, sticky="ew", pady=(14, 0))
+        buttons.columnconfigure((0, 1), weight=1)
+        i18n_button(buttons, "hide_overlay", command=self.hide_overlay).grid(row=0, column=0, sticky="ew", padx=4, pady=4)
+        i18n_button(buttons, "apply", command=lambda: apply_settings(close=False)).grid(row=0, column=1, sticky="ew", padx=4, pady=4)
+        i18n_button(buttons, "save", command=lambda: apply_settings(close=True)).grid(row=1, column=0, sticky="ew", padx=4, pady=4)
+        i18n_button(buttons, "cancel", command=close_settings).grid(row=1, column=1, sticky="ew", padx=4, pady=4)
+        for _container, _canvas, frame in settings_scroll_areas:
+            stack_settings_rows(frame.winfo_children())
+        stop_without_enter_row = int(stop_without_enter_checkbox.grid_info()["row"])
+        refresh_stop_without_enter_checkbox()
+        refresh_navigation()
         dirty.set(False)
 
+    def settings_error(self, status):
+        if hasattr(self, "settings_error_var"):
+            self.settings_error_var.set(self.localize_status(status))
+        if self.engine.is_idle():
+            self.update_status(status)
+
     def save_settings(self, win, values, close=True):
+        if not self.engine.is_idle():
+            self.settings_error("Finish dictation before applying settings")
+            return False
+        if hasattr(self, "settings_error_var"):
+            self.settings_error_var.set("")
         hardware_info = self.engine.hardware_info or probe_openvino_hardware(values)
         values["ui_language"] = normalize_ui_language(values.get("ui_language", "en"))
         values["asr_model"] = normalize_model_id(ASR_MODEL_PROFILES, values.get("asr_model"), DEFAULT_ASR_MODEL)
@@ -5451,31 +5888,42 @@ class VoiceDictationApp:
         dictation_hotkey = parse_hotkey(values["dictation_hotkey"])
         overlay_hotkey = parse_hotkey(values["overlay_hotkey"])
         if not dictation_hotkey:
-            self.update_status("Bad hotkey")
+            self.settings_error("Bad hotkey")
             return False
         if not overlay_hotkey:
-            self.update_status("Bad overlay key")
+            self.settings_error("Bad overlay key")
             return False
-        if dictation_hotkey == overlay_hotkey:
-            self.update_status("Hotkey conflict")
+        if hotkeys_conflict(dictation_hotkey, overlay_hotkey):
+            self.settings_error("Hotkey conflict")
             return False
-        if bool(values.get("start_with_windows", False)) != is_startup_enabled():
-            if not set_startup_enabled(bool(values.get("start_with_windows", False))):
-                self.update_status("Startup error")
-                return False
-        values["start_with_windows"] = is_startup_enabled()
-
+        old_startup = is_startup_enabled()
+        new_startup = bool(values.get("start_with_windows", False))
+        values["start_with_windows"] = new_startup
         next_cfg = dict(self.cfg)
         next_cfg.update(values)
-        self.cfg = normalize_model_config(next_cfg, hardware_info)
-        save_config(self.cfg)
+        next_cfg = normalize_model_config(next_cfg, hardware_info)
+        try:
+            save_config(next_cfg)
+        except OSError as exc:
+            self.settings_error(f"Settings save failed: {type(exc).__name__}")
+            return False
+        if new_startup != old_startup and not set_startup_enabled(new_startup):
+            try:
+                save_config(self.cfg)
+            except OSError as exc:
+                self.settings_error(f"Settings rollback failed: {type(exc).__name__}")
+                return False
+            self.settings_error("Startup error")
+            return False
+        self.cfg = next_cfg
         self.hotkeys.update_config(self.cfg)
         self.engine.update_config(self.cfg)
         self.apply_overlay_layout()
         self.apply_overlay_opacity()
         self._position_overlay()
         self.refresh_static_ui_text()
-        self.update_status("Settings saved")
+        readiness = self.engine.readiness_status()
+        self.update_status("Settings saved" if readiness == "Ready" else readiness)
         if close:
             win.destroy()
         return True
@@ -5487,7 +5935,10 @@ class VoiceDictationApp:
             return
 
         self.exit_requested = True
-        save_config(self.cfg)
+        try:
+            save_config(self.cfg)
+        except OSError as exc:
+            log_debug(f"exit config save failed error={type(exc).__name__}")
         self.hotkeys.stop()
         if self.engine.request_shutdown():
             self.update_status("Finishing")
@@ -5548,10 +5999,11 @@ def main():
             app = VoiceDictationApp()
             app.run()
     except SingleInstanceInitializationError as exc:
-        show_startup_error(
-            "NPU Dictate could not initialize its single-instance lock. "
-            f"Windows error: {exc.error_code}."
-        )
+        try:
+            language = json.loads(config_path().read_text(encoding="utf-8-sig")).get("ui_language", "en")
+        except (OSError, UnicodeError, ValueError, AttributeError):
+            language = "en"
+        show_startup_error(startup_lock_error_message(exc.error_code, language))
         return 1
     return 0
 

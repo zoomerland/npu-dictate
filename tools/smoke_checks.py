@@ -833,6 +833,7 @@ def check_ui_audio_operations_are_nonblocking():
         engine.loaded = True
 
         started_at = time.perf_counter()
+        engine.asr = object()
         engine.start_recording()
         elapsed = time.perf_counter() - started_at
         assert elapsed < 0.5
@@ -1106,7 +1107,8 @@ def check_clipboard_paste_behavior():
             focus_callback=lambda: False,
             target_identity_callback=lambda: (303, 3003, 503, 503, 42, 9),
         )
-        assert engine.paste_text("new") is True
+        assert engine.paste_text("new") is False
+        assert app.pyperclip.value == "new"
         assert engine.last_paste_target_identity is None
         assert engine.press_enter_after_paste() is False
         assert engine.enter_count == 0
@@ -1155,7 +1157,7 @@ def check_model_artifact_helpers():
             "size_bytes": len(payload),
             "sha256": digest,
         }
-        manifest = {"artifacts": [artifact]}
+        manifest = {"repo_id": model_setup.ARTIFACT_MODEL_REPO, "artifacts": [artifact]}
 
         assert model_setup.safe_install_path("models/test/artifact.bin", root) == target.resolve()
         assert model_setup.artifact_ready(artifact, root)
@@ -1246,6 +1248,14 @@ def check_rupunct_cpu(timeout_sec):
         "cache_dir=repo_root() / 'models' / 'openvino' / 'cache')\n"
         "result = restorer.restore('привет мир как дела')\n"
         "assert result and 'Привет' in result, result\n"
+        "import re\n"
+        "long_text = ' '.join(['сегодня мы проверяем длинную диктовку и сохранение всех слов'] * 40)\n"
+        "result_long = restorer.restore(long_text)\n"
+        "words = lambda text: re.findall(r'\\w+', text.casefold())\n"
+        "assert words(result_long) == words(long_text), 'Long punctuation lost or duplicated words'\n"
+        "assert '\\n' not in result_long and '\\r' not in result_long\n"
+        "raw = 'продолжаем проверку после длинного контекста'\n"
+        "assert words(restorer.restore_inserted(long_text, raw)) == words(raw)\n"
         "print(result, flush=True)\n"
         "os._exit(0)\n"
     )
@@ -1262,6 +1272,15 @@ def check_rupunct_cpu(timeout_sec):
         env=env,
     )
     assert result.returncode == 0, (result.stdout + result.stderr).strip()
+
+
+def check_punctuation_windows():
+    import unittest
+    from test_rupunct_windows import PunctuationWindowTests
+
+    result = unittest.TestResult()
+    unittest.defaultTestLoader.loadTestsFromTestCase(PunctuationWindowTests).run(result)
+    assert result.wasSuccessful(), result.errors + result.failures
 
 
 def main():
@@ -1309,6 +1328,7 @@ def main():
     runner.check("UI audio operations stay non-blocking", check_ui_audio_operations_are_nonblocking)
     runner.check("audio discovery failure is recoverable", check_audio_discovery_is_recoverable)
     runner.check("single-instance lock distinguishes all states", check_single_instance_lock_states)
+    runner.check("punctuation windows preserve long text and context", check_punctuation_windows)
     check_model_paths(runner)
 
     if args.skip_rupunct:

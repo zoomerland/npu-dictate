@@ -1,15 +1,21 @@
 param(
     [string]$MsiPath = "",
-    [string]$ExpectedProductVersion = ""
+    [string]$ExpectedProductVersion = "",
+    [string]$ExpectedExeVersion = "0.1.0-alpha.5",
+    [string]$InventoryPath = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 if ([string]::IsNullOrWhiteSpace($MsiPath)) {
-    $MsiPath = Join-Path $Root "dist\installer\NPUDictate-0.1.0-alpha.4.msi"
+    $MsiPath = Join-Path $Root "dist\installer\NPUDictate-0.1.0-alpha.5.msi"
 }
 $MsiPath = (Resolve-Path $MsiPath).Path
+if ([string]::IsNullOrWhiteSpace($InventoryPath)) {
+    $InventoryPath = Join-Path $Root "build\NPUDictate.payload.json"
+}
+$InventoryPath = (Resolve-Path -LiteralPath $InventoryPath).Path
 
 function Get-MsiProperty {
     param(
@@ -76,12 +82,18 @@ $Log = Join-Path $env:TEMP "lvd-msi-admin-$Stamp.log"
 New-Item -ItemType Directory -Path $Target | Out-Null
 
 $ArgString = "/a `"$MsiPath`" /qn TARGETDIR=`"$Target`" /L*v `"$Log`""
-$Process = Start-Process -FilePath msiexec.exe -ArgumentList $ArgString -Wait -PassThru
+$Process = Start-Process -FilePath msiexec.exe -ArgumentList $ArgString -PassThru -WindowStyle Hidden
+try {
+    if (-not $Process.WaitForExit(300000)) { throw "MSI administrative extraction timed out." }
+} finally {
+    if (-not $Process.HasExited) { Stop-Process -Id $Process.Id -Force }
+}
 $InstallRoot = Join-Path $Target "LocalApp\NPUDictate"
 $ExePath = Join-Path $InstallRoot "NPUDictate.exe"
 $AppModelsPath = Join-Path $InstallRoot "models"
 $ProductVersion = Get-MsiProperty -Path $MsiPath -Name "ProductVersion"
 $FileCount = (Get-ChildItem -LiteralPath $Target -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
+$ExeProductVersion = if (Test-Path -LiteralPath $ExePath) { (Get-Item -LiteralPath $ExePath).VersionInfo.ProductVersion } else { "" }
 $Passed = (
     $Process.ExitCode -eq 0 `
     -and (Test-Path $ExePath) `
@@ -90,8 +102,18 @@ $Passed = (
         [string]::IsNullOrWhiteSpace($ExpectedProductVersion) `
         -or $ProductVersion -eq $ExpectedProductVersion
     ) `
-    -and $FileCount -gt 0
+    -and $FileCount -gt 0 `
+    -and $ExeProductVersion -eq $ExpectedExeVersion
 )
+
+if ($Passed) {
+    & (Join-Path $Root ".venv\Scripts\python.exe") -B (Join-Path $Root "tools\release_payload.py") --app-dir $InstallRoot --compare $InventoryPath
+    if ($LASTEXITCODE -ne 0) { $Passed = $false }
+}
+if ($Passed) {
+    & (Join-Path $Root "tools\smoke_packaged_exe.ps1") -ImportOnly -ExePath $ExePath
+    if ($LASTEXITCODE -ne 0) { $Passed = $false }
+}
 
 [PSCustomObject]@{
     msi = $MsiPath
