@@ -437,6 +437,9 @@ Detailed scope and validation: `docs/ux-audit-remediation.md`.
 - [x] Accumulate small wheel events and expose native review-stop commands.
 - [x] Prevent hiding without a tray icon; add in-place overlay hover help.
 - [x] Add an isolated headless regression gate: `tools/headless_ux_checks.py`.
+- [x] Close independent audit findings: invalid source-manifest recovery, modifier
+  aliases and stale punctuation completion events. Final offline gate: 69 tests and
+  25 smoke groups PASS; reviewed source checkpoint `c4d3080`.
 - [ ] Later visual acceptance: Tk wrapping, negative-coordinate monitors, mixed DPI,
   dropdowns, real tray recovery and screen-reader behavior. No product windows were
   opened for this remediation's tests.

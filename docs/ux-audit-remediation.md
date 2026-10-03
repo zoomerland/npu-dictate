@@ -18,7 +18,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [x] UX-01: stop paste on failed target restoration/identity drift; retain manual text.
 - [x] UX-02: retain raw ASR on punctuation failure, avoid automatic sending, retry safely.
 - [x] UX-03: reject settings while dictation is active; preserve live recording indicators.
-- [ ] Independent review and critical-path regression gate.
+- [x] Independent review and critical-path regression gate.
 - [x] UX-04: consistent cached-model readiness and integrity checks.
 - [x] UX-05: validate hotkey tokens and overlapping shortcuts.
 - [x] UX-06: recoverable settings-save failures and exit behavior.
@@ -28,7 +28,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [x] UX-10: redact dictated text/logs from default copied diagnostics.
 - [x] UX-11: localize dynamic status details and correct opacity terminology.
 - [x] UX-12: accumulate wheel delta, expose review-stop command, safe hide fallback.
-- [ ] Final headless suite, review findings, roadmap and handoff.
+- [x] Final headless suite, review findings, roadmap and handoff.
 
 ## Initial Git Revision
 
@@ -91,7 +91,8 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   and explained. Saving cannot conceal a current readiness failure.
   Non-string and punctuation-only results now fall back at the final boundary;
   synthetic raw fallback never pastes or sends. The safety harness denies real
-  loaders, network and audio opening globally. Independent re-review is pending.
+  loaders, network and audio opening globally. The subsequent independent re-review
+  closed these UX-02 findings at `03cc057`.
 - UX-09: settings suite extended to 15 tests. Geometry stays within individual
   workareas at 640/800/1024 widths, 100/150/200% input scales, negative coordinates
   and staggered-monitor bounds. Controls use a single column with width-bound
@@ -119,7 +120,7 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   drops stale progress. Suites now cover 19 safety, 26 settings and 11 readiness
   cases, including executing actual settings callbacks with fake widgets/traces.
   Real Tk initialization remains forbidden; relabel/save/close and retained dirty
-  edits are verified headlessly. Independent follow-up is still pending.
+  edits are verified headlessly. Subsequent frozen reviews are recorded below.
 - Combined offline runner: `tools/headless_ux_checks.py`, 67 tests PASS. It denies
   Tk windows, microphone access, hardware probing, real keyboard/clipboard actions,
   network and model loading, with isolated temporary data. Completion/failure
@@ -127,4 +128,66 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
 - Independent UX-09..12 review at `194a2ef`: PASS_WITH_LIMITATIONS, including actual
   source callbacks on fake widgets. Real renderer/OS/screen-reader acceptance is not
   implied. The previous two UX-02 findings are independently closed at `03cc057`.
-  Three additional UX-04/05/08 findings were fixed; their final recheck is pending.
+  Three additional UX-04/05/08 findings were fixed. The final recheck at `13ab68c`
+  closed UX-05/08 but found incomplete source-schema validation in UX-04.
+- UX-04 final correction at `c4d3080`: require the expected repository identity
+  and usable canonical relative source paths at readiness, cached reuse and remote
+  acceptance. Invalid cached JSON is replaceable through the authoritative manifest
+  path; fake installation still rejects same-size payloads with incorrect SHA256.
+  Positive fixtures now include source fields so malformed-artifact tests exercise
+  their intended validation paths, not merely the repository-identity gate.
+- Final combined offline runner: **69 tests PASS** (19 safety, 26 settings,
+  13 readiness, 11 punctuation-window cases). Actual settings callbacks execute
+  against fake widgets; no real Tk interpreter or product window is created.
+- Final isolated baseline: **25 smoke groups PASS**, failures=0, warnings=4.
+  Warnings describe missing converted-ASR/punctuation/manifest in the test sandbox
+  and the explicitly skipped real RUPunct CPU test, not production model failures.
+  This runner probes installed OpenVINO device availability but never loads models.
+  Punctuation-window checks overlap the combined suite; these are not 94 unique tests.
+- Syntax: AST parse PASS for seven changed Python files. `git diff --check` PASS.
+- Independent schema closure at frozen `c4d3080e479e3065961ba185827410445d212651`:
+  **UX-04 P2 CLOSED**. Reviewer independently executed 13 readiness tests, the
+  malformed-label regression and artifact smoke helper, plus fake-cache recovery,
+  invalid remote rejection, good/bad payload hashes and positive installed controls.
+  Earlier UX-05/08 closure and presentation PASS_WITH_LIMITATIONS are unchanged.
+  Reports remain ignored private evidence under `recordings/ux_audit_20261003`.
+
+## Final Checkpoint
+
+Product source checkpoint: `c4d3080e479e3065961ba185827410445d212651` on
+`codex/ux-audit-fixes`. Only documentation follows this reviewed source checkpoint.
+
+The full initial Git revision above is the preservation baseline. Final readback
+rechecked all local/remote-tracking refs, worktree metadata, stash state, ignored
+boundaries and the unchanged packaging workflow. There is one attached worktree,
+no stashes and no unclassified tracked/untracked implementation work. Only this
+feature branch moved; all retained historical refs remain unchanged. Therefore
+their previously classified ancestry/patch-equivalence results remain applicable.
+
+- `features/next`: `3af69614c045cbe187f1881bab33d2ba16f76862`.
+- `main`, `origin/main`, `origin/features/next`:
+  `f5a424cc8452759320bca7bfcf74a963493dae91`.
+- Origin: `https://github.com/zoomerland/npu-dictate.git`; no fetch/push performed.
+- Ignored auth, dependencies, user config/log and recordings retain their initial
+  private classifications. Only synthetic audit scaffolding/results changed;
+  none are committed. No cleanup, recording inspection or user-config edits.
+- No diff against the integration base in `tools/gigaam_openvino_asr.py` or
+  `tools/rupunct_restore.py`: ASR buckets/inference and long-punctuation logic stay intact.
+- `.github/workflows/build-windows.yml` remains unchanged; its manual/tag-triggered
+  packaging/install checks are outside this offline source-remediation scope.
+- Main profile: `gpt-6.1-sol / xhigh`, independently runtime-verified at task start;
+  final short documentation checkpoint keeps it, change required: NO. Reviewer:
+  `gpt-6.1-sol / high`, independently verified from its current turn_context.
+  Requested routing and parent-reported verification are not reviewer self-proof.
+
+No app restart, model-memory eviction, merge, release or installer build occurred.
+The already-running application is not evidence that these new sources are active.
+
+Remaining acceptance: real Tk wrapping/painting, mixed DPI and negative-coordinate
+monitor transitions, dropdown visibility, tray recovery and screen-reader behavior.
+Actual paste destinations and model quality were not re-certified by synthetic tests.
+Deferred feature work (resumable downloads, stable USB microphone identity, native
+Canvas accessibility) remains unchecked in ROADMAP.md.
+
+**Next action:** owner-controlled live visual acceptance of this branch, when
+screen interaction is convenient. Integration/restart stays a separate owner decision.
