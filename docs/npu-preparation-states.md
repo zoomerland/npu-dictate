@@ -16,7 +16,8 @@ the running app, build packages or publish this feature without a separate gate.
 - [x] Block recording until required preparation succeeds; surface failures.
 - [x] Cover enabled/disabled preparation and cold/cache/unknown results offline.
 - [x] Complete independent review and the final offline regression gate.
-- [ ] Perform live cold-cache and warm-cache acceptance in a separate gate.
+- [x] Perform isolated native cold-cache/warm-cache and saved-audio checks.
+- [ ] Complete live UI, microphone and recording-mode acceptance separately.
 
 ## Initial Evidence
 
@@ -91,8 +92,9 @@ Focused final re-review passed. The reviewer independently ran the corrected
 remaining actionable source findings were reported. This is an offline PASS,
 not deployment, release or native-driver acceptance.
 
-No current runtime/driver/UI acceptance is claimed. No app, model/cache or packaged
-binary was changed on the running system.
+The preceding results establish offline acceptance only. The subsequent isolated
+native checks are recorded below; real UI/microphone acceptance remains open.
+No running app, user model/cache or packaged binary was changed.
 
 The old NPU startup hang guard is replaced, not merely relabelled: native
 compile/inference now occurs before readiness in background preparation. Keep
@@ -126,12 +128,109 @@ scoped source/test/documentation files changed. The integration/remote refs and
 the retained outreach/research branches remain unchanged; no stash or detached
 state exists. No secret/private runtime artifact belongs to the source checkpoint.
 
-Save this feature as a local commit on `codex/npu-preparation-states`. Do not merge
-to `features/next` or `main`, push, rebuild EXE/MSI, or restart the existing app in
-this gate. The precise next action is owner-authorized live NPU startup acceptance
-using the plan above; until then the overall roadmap checkbox stays open.
+Implementation was saved as local commit `8c6d9ff` on
+`codex/npu-preparation-states`. Do not merge to `features/next` or `main`, push,
+rebuild EXE/MSI, or restart the existing app in this gate. The overall roadmap
+checkbox stays open until the remaining live UI/microphone checks are completed.
 
-## Live Acceptance (Not Run)
+## Isolated Native Acceptance
+
+Verified on 2026-10-04 (Europe/Moscow), against source commit `8c6d9ff`, using
+OpenVINO `2026.2.0-21903-52ddc073857-releases/2026/2`, Intel Core Ultra 5 135U
+and Intel AI Boost. Three serialized fresh helper processes used a new isolated
+OpenVINO cache, not the user's cache. NNCF INT8 ASR bucket 400 and static-128
+punctuation both reported `EXECUTION_DEVICES = [NPU]`. Silero VAD used CPU,
+as in the production segmentation route; no claim of an entirely NPU-only
+pipeline is made.
+
+| Case | Readiness, s | Actual ASR/punctuation cache result | First ASR, s | Punctuation, s |
+| --- | ---: | --- | ---: | ---: |
+| Empty isolated cache, warm-up on | 73.625 | Both miss | 0.407 | 0.015 |
+| Same cache, fresh process, warm-up on | 8.922 | Both hit | 0.407 | 0.031 |
+| Same cache, fresh process, warm-up off | 7.156 | Punctuation hit; ASR loaded from cache at first use | 1.641 | 0.109 |
+
+Readiness timings start at receipt initialization and include dependency imports;
+they are observations from one run per case, not a guaranteed startup duration.
+The empty cache is application-cache cold, not a factory-reset machine/driver.
+Actual cache properties, not blob presence, support the hit/miss results.
+
+In both prepared cases, each real native warm-up returned successfully before
+the first `Ready` event. First saved-audio inference retained the same compiled
+model identities and bucket keys, with no startup preparation statuses. The
+disabled case reported `Ready - warmup deferred`, had no compiled ASR at readiness,
+then loaded exactly bucket 400 at inference. It is a deferred control result,
+not fully prepared acceptance.
+
+The existing private reference WAV is 12.48 seconds long: five VAD segments,
+24 output words. Raw and punctuated output hashes match across all three cases.
+This checks startup consistency, not transcription accuracy against a human
+reference. No raw audio or transcript was printed or added to Git. Recognition
+used the production VAD/segmentation and punctuation methods, not microphone
+capture, the full paste pipeline or a GUI instance.
+
+Python main-thread readiness sampling continued during native preparation:
+maximum observed polling gaps were 0.157 s cold, 0.344 s cached and 0.125 s
+deferred. The normal polling interval was 0.1 s. These observations do not prove
+Tk rendering, settings/exit responsiveness or safe cancellation of a native call.
+
+### Isolation And Review
+
+The ignored helper and receipts are retained under
+`build/native-preparation-check/`; they are local test evidence, not product code.
+The final helper SHA-256 is
+`9f424a5b2a08f6fd4642ac986024dd1f32091989a1783410f95e5f63bfb2524f`;
+wrapper SHA-256 is
+`f5e54bd00b78f963d317ee37d803cd080d3d5411ef0aaac00e21459055aace5c`.
+
+The helper redirects data/cache/temp directories, returns validated read-only
+model paths instead of downloading, disables app logging, and replaces only
+microphone readiness with an explicitly inert marker. GUI, microphone, keyboard,
+clipboard and network operations are guarded. Hardware discovery, model load,
+compilation and inference are real; device fallback is rejected. Python guards
+are not an OS/native-code sandbox. The wrapper enforces a 420-second process
+deadline, bounded pipe capture, exclusive evidence files and PID-only cleanup.
+All final helper processes exited normally, with zero boundary violations and
+no timeout; no helper process remains running.
+
+Worker `01a10378-e421-7f33-ae67-aa7d9e01fe87` and independent reviewer
+`01a1037f-8f17-7890-ab6d-c892a3e38ebf` each used `gpt-6.1-sol / high`, confirmed
+by fresh runtime turn contexts. Independent source review cleared the frozen
+helper before native execution. Final native receipts are named `cold-on-v2.json`,
+`warm-on-v2.json` and `warm-off-v2.json` in `run-20261003-isolated-v2/`.
+The reviewer subsequently checked the native receipts and roadmap/report claims;
+timings, properties, deferred-control interpretation and acceptance limits passed.
+
+All 13 converted artifacts matched the local manifest's sizes and SHA-256 before
+and after testing. User config hash stayed unchanged. The user log's size/mtime
+and all 92 existing user-cache files' paths/sizes/mtimes stayed unchanged; cache
+contents were not independently re-hashed. The saved WAV hash also stayed
+unchanged. A fresh aggregate run passed all 93 hermetic tests. Integration and
+remote refs were not moved; no app restart, model deletion, package or publication
+was performed.
+
+### Preserved Import-Guard Failures
+
+The first helper stopped before model loading: a broad socket audit guard blocked
+ONNX Runtime's local `socket.gethostname` query. The next import-only diagnostic
+confirmed that exact operation; allowing only the local query left real network
+guards intact. A second import-only diagnostic then blocked an OpenVINO GA4
+telemetry request and encountered a fake sounddevice metadata/introspection
+error. Neither diagnostic created an engine or ran native compilation/inference.
+
+The final helper gives missing module metadata normal `AttributeError` behavior
+while keeping actual audio APIs forbidden. It creates an opt-out containing `0`
+only under its redirected `LOCALAPPDATA` before importing OpenVINO; the installed
+consent checker confirmed `DECLINED`. Background boundary violations are latched
+so they cannot be ignored by a successful foreground result. Import-only checks
+then passed with zero violations, followed by the three native cases above.
+All earlier red receipts remain retained; they are test-harness/dependency import
+findings, not evidence that NPU inference failed.
+
+The clean-home telemetry attempt is a separate unresolved product follow-up in
+the roadmap. The request was blocked before sending in this test; no claim is
+made that the product or global dependency preferences have already been fixed.
+
+## Remaining Live UI Acceptance
 
 Use a separate app instance only after explicitly stopping the existing instance.
 Do not delete the user's model or cache files to manufacture a cold start. A fresh
