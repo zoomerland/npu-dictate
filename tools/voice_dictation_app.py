@@ -4529,7 +4529,8 @@ class VoiceDictationApp:
         hardware = self.engine.hardware_info or {}
         hardware_keys = ("available", "version", "devices", "device_names", "selected_devices", "error")
         status = self.current_status
-        phase = next((key for key in sorted(TRANSLATIONS["en"], key=len, reverse=True)
+        phases = tuple(TRANSLATIONS["en"]) + ("Error", "Load error")
+        phase = next((key for key in sorted(phases, key=len, reverse=True)
                       if status == key or status.startswith(key + ": ") or status.startswith(key + " ")), "Unknown")
         info = {
             "app": APP_NAME,
