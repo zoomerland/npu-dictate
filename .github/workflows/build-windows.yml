@@ -18,8 +18,8 @@ jobs:
 
     env:
       APP_VERSION: "0.1.0"
-      APP_CHANNEL: "alpha.4"
-      MSI_PRODUCT_VERSION: "0.1.4"
+      APP_CHANNEL: "alpha.5"
+      MSI_PRODUCT_VERSION: "0.1.5"
 
     steps:
       - name: Check out repository
@@ -43,6 +43,14 @@ jobs:
           .\.venv\Scripts\python.exe -m pip install --upgrade pip
           .\.venv\Scripts\python.exe -m pip install -r requirements.txt
           .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+      - name: Run isolated headless UX regressions
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -B tools\headless_ux_checks.py
+
+      - name: Run packaging safety regressions
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -B tools\test_release_payload.py
 
       - name: Restore .NET tools
         shell: pwsh
@@ -69,6 +77,8 @@ jobs:
         run: |
           $archive = "dist\installer\NPUDictate-$env:APP_VERSION-$env:APP_CHANNEL-win-x64.zip"
           Compress-Archive -Path "dist\NPUDictate\*" -DestinationPath $archive -Force
+          .\.venv\Scripts\python.exe -B tools\release_payload.py --zip $archive --compare build\NPUDictate.payload.json
+          if ($LASTEXITCODE -ne 0) { throw "Archive payload validation failed." }
 
       - name: Upload unsigned artifacts
         uses: actions/upload-artifact@v4

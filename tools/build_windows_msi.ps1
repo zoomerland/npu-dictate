@@ -1,6 +1,6 @@
 param(
     [string]$Version = "0.1.0",
-    [string]$Configuration = "alpha.4",
+    [string]$Configuration = "alpha.5",
     [string]$ProductVersion = "",
     [switch]$SkipExeBuild
 )
@@ -76,6 +76,7 @@ function Get-RelativePath {
 
 if (-not $SkipExeBuild) {
     & (Join-Path $Root "tools\build_windows_exe.ps1") -Clean -SkipInstall
+    if ($LASTEXITCODE -ne 0) { throw "EXE build failed; MSI was not created." }
 }
 
 if (-not (Test-Path $ExePath)) {
@@ -87,6 +88,23 @@ if (-not (Test-Path $IconPath)) {
 if (-not (Test-Path $LicenseRtfPath)) {
     throw "Installer license file not found: $LicenseRtfPath"
 }
+
+$ReceiptPath = Join-Path $Root "build\NPUDictate.build.json"
+$InventoryPath = Join-Path $Root "build\NPUDictate.payload.json"
+$Receipt = Get-Content -LiteralPath $ReceiptPath -Raw | ConvertFrom-Json
+$SourceCommit = git -C $Root rev-parse HEAD
+if ($LASTEXITCODE -ne 0 -or $Receipt.source_commit -ne $SourceCommit) { throw "EXE receipt does not match the current source commit." }
+$SourceStatus = git -C $Root status --porcelain
+if ($LASTEXITCODE -ne 0 -or $SourceStatus) { throw "MSI build requires a clean source worktree." }
+if ($Receipt.version -ne "$Version-$Configuration" -or (Get-Item -LiteralPath $ExePath).VersionInfo.ProductVersion -ne "$Version-$Configuration") {
+    throw "EXE version does not match intended MSI version."
+}
+if ((Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash -ne $Receipt.exe_sha256 -or
+    (Get-FileHash -LiteralPath $InventoryPath -Algorithm SHA256).Hash -ne $Receipt.inventory_sha256) {
+    throw "EXE or payload inventory differs from the accepted build."
+}
+& (Join-Path $Root ".venv\Scripts\python.exe") -B (Join-Path $Root "tools\release_payload.py") --app-dir $DistDir --compare $InventoryPath
+if ($LASTEXITCODE -ne 0) { throw "MSI payload differs from the accepted build." }
 
 $toolList = dotnet tool list --local
 if ($LASTEXITCODE -ne 0 -or -not ($toolList -match "wix\s+5\.")) {
@@ -102,7 +120,12 @@ if ($LASTEXITCODE -ne 0 -or -not ($extensionList -match "WixToolset\.UI\.wixext\
 }
 
 New-Item -ItemType Directory -Path $InstallerDir -Force | Out-Null
-Remove-Item -LiteralPath $IntermediateDir -Recurse -Force -ErrorAction SilentlyContinue
+$IntermediateDir = [IO.Path]::GetFullPath($IntermediateDir)
+$WorkspacePrefix = [IO.Path]::GetFullPath([string]$Root).TrimEnd("\", "/") + [IO.Path]::DirectorySeparatorChar
+if (-not $IntermediateDir.StartsWith($WorkspacePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "MSI intermediate directory escapes workspace."
+}
+if (Test-Path -LiteralPath $IntermediateDir) { Remove-Item -LiteralPath $IntermediateDir -Recurse -Force -ErrorAction Stop }
 New-Item -ItemType Directory -Path $IntermediateDir -Force | Out-Null
 
 $directories = @{}

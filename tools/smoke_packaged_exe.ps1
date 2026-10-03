@@ -2,10 +2,12 @@ param(
     [switch]$ImportOnly,
     [switch]$FullLoad,
     [int]$WaitForReadySeconds = 360,
+    [ValidateRange(1, 600)][int]$ImportTimeoutSeconds = 120,
     [string]$ExePath = ""
 )
 
 $ErrorActionPreference = "Stop"
+if ($ImportOnly -and $FullLoad) { throw "Choose ImportOnly or FullLoad, not both." }
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 if ([string]::IsNullOrWhiteSpace($ExePath)) {
     $ExePath = Join-Path $Root "dist\NPUDictate\NPUDictate.exe"
@@ -63,7 +65,12 @@ $env:LOCAL_VOICE_DICTATION_MUTEX_NAME = "Local\NPUDictate.PackageSmoke.$PID"
 
 if ($ImportOnly) {
     $env:LOCAL_VOICE_DICTATION_SMOKE_IMPORT = "1"
-    $process = Start-Process -FilePath $Exe -PassThru -Wait -WindowStyle Hidden
+    $process = Start-Process -FilePath $Exe -PassThru -WindowStyle Hidden
+    try {
+        if (-not $process.WaitForExit($ImportTimeoutSeconds * 1000)) { throw "Packaged import smoke timed out." }
+    } finally {
+        if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+    }
     $tail = Get-LogTail -LogPath $logPath -Lines 10
     [PSCustomObject]@{
         test_root = $testRoot

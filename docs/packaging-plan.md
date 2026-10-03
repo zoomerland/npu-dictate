@@ -91,7 +91,7 @@ Build the MSI from an existing packaged `.exe` directory:
 Default output:
 
 ```text
-dist\installer\NPUDictate-0.1.0-alpha.4.msi
+dist\installer\NPUDictate-0.1.0-alpha.5.msi
 ```
 
 Smoke-check the MSI by extracting an administrative image into a temporary directory:
@@ -109,7 +109,7 @@ Current installer decisions:
 - Install per-user under `%LOCALAPPDATA%\NPUDictate` so models, config, logs, and OpenVINO cache can stay app-local and writable.
 - Add a Start Menu shortcut.
 - Use the app icon for the executable, tray, Start Menu shortcut, and installer metadata.
-- Map SemVer alpha tags to increasing numeric MSI versions so upgrades work: `0.1.0-alpha.4` uses MSI `ProductVersion=0.1.4`.
+- Map SemVer alpha tags to increasing numeric MSI versions so upgrades work: `0.1.0-alpha.5` uses MSI `ProductVersion=0.1.5`.
 
 Last local MSI smoke result:
 

@@ -2,7 +2,8 @@
 
 This project is a Windows-first, local-first dictation app. The core promise is simple: fast offline speech-to-text, practical insertion into any active text field, and NPU acceleration where it actually helps.
 
-The app is not ready for packaging yet. The near-term goal is to stabilize the daily-use workflow before building an installer or signing anything.
+Unsigned Windows alpha packages are available. The current work stabilizes the
+daily-use workflow and validates the next package; signing remains a separate gate.
 
 ## Product Principles
 
