@@ -1,6 +1,6 @@
 # NPU Dictate 0.1.0-alpha.5 Release Checklist
 
-Date: 2026-10-03. Status: preparing an unsigned public prerelease.
+Date: 2026-10-03. Status: published unsigned public prerelease.
 
 ## Authority And Boundaries
 
@@ -51,10 +51,10 @@ unclassified implementation work. Origin is the public
 - [x] Main/features/next pushed without force.
 - [x] Tag pushed; tagged GitHub Actions build succeeds.
 - [x] CI ZIP/MSI downloaded, payload checked, smoke-tested and hashed by parent.
-- [ ] Independent tagged-CI binary publication review.
-- [ ] GitHub prerelease published with all three assets and limitations.
-- [ ] Published asset names, sizes and hashes rechecked.
-- [ ] Clean final refs/worktree, owned test processes stopped, handoff recorded.
+- [x] Independent tagged-CI binary publication review.
+- [x] GitHub prerelease published with all three assets and limitations.
+- [x] Published asset names, sizes and hashes rechecked.
+- [x] Release handoff checked: clean source, owned test processes stopped, evidence recorded.
 
 ## Acceptance Limits
 
@@ -155,3 +155,29 @@ here. If any mandatory gate fails, do not tag/publish on the basis of stale asse
   Release ZIP: 331,442,959 bytes; SHA256:
   `4F6CC4E2136E7F91718DE1DE2F02A39046EA3E4A492262FE0AA67C561E91BA7F`.
   `SHA256SUMS.txt` is generated from those two exact CI files.
+- Independent tagged-CI binary review: PASS_WITH_LIMITATIONS. Run/tag/receipt,
+  versions, signatures, all CI payload forms and the checksum file independently
+  reconciled. No publication blocker or unclassified payload found.
+- Public prerelease: https://github.com/zoomerland/npu-dictate/releases/tag/v0.1.0-alpha.5
+  Release ID `402494625`, published `2026-10-03T12:10:43Z`, prerelease=true,
+  draft=false. The three reviewed files were uploaded to a draft, digests and
+  release notes checked, then that exact release ID was published.
+  The initial draft lookup by tag returned 404; listing releases resolved its ID.
+  No duplicate creation, upload retry, tag movement or release recreation occurred.
+- Public readback confirms exactly the three allowlisted names/sizes/SHA256
+  digests, unchanged unsigned notes and limitations. Both binary download URLs
+  return HTTP 200 with matching Content-Length. A fresh public checksum-file
+  download matches the reviewed 200 bytes / SHA256:
+  `2F19CB2BFF073C2EF969D721C61F40C3930D7462C422703C1565E78965AC78E5`.
+  The two binaries were not downloaded a second time after publication; their
+  published GitHub digests match the independently reviewed CI bytes.
+- Release source and annotated tag remain immutable at `0f13dafb`. Final
+  documentation is integrated through `codex/alpha5-release-evidence` into
+  features/next and main, without any app/build/dependency source change.
+  Before this documentation handoff: one clean worktree at `e2d3a849`, no
+  stashes/detached HEAD, all historical refs retained. Private classifications
+  unchanged; new CI outputs and review reports are generated evidence, not Git
+  candidates. No unresolved ignored implementation. Final branch/remote snapshot
+  is retained in ignored `build/alpha5-final-git.json` after the docs-only push.
+  No owned smoke/build session remains running; reviewer closed. The user's
+  installed/running application and model data were not restarted or changed.
