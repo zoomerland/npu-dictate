@@ -47,8 +47,8 @@ unclassified implementation work. Origin is the public
 - [x] Fresh local EXE build, isolated import smoke, payload/version checks.
 - [x] Local MSI build, numeric metadata and administrative-extraction smoke.
 - [x] Independent local binary evidence and final CI-source delta review.
-- [ ] Release preparation merged into features/next, then main.
-- [ ] Main/features/next pushed without force.
+- [x] Release preparation merged into features/next, then main.
+- [x] Main/features/next pushed without force.
 - [ ] Tag pushed; tagged GitHub Actions build succeeds.
 - [ ] CI ZIP/MSI downloaded, independently checked and hashed.
 - [ ] GitHub prerelease published with all three assets and limitations.
@@ -126,3 +126,10 @@ here. If any mandatory gate fails, do not tag/publish on the basis of stale asse
   fetch. Ignored build/dist and owned review reports are generated evidence;
   dependency/model/private-data classifications from the full snapshot remain.
   No new ignored implementation or unresolved tracked work appeared.
+- Integration tree exactly matches reviewed `40ca0e0`: features/next merge
+  `200a6df1632257638022f18187c1b5cd093194ce`; main/release tag commit
+  `0f13dafb31720ea2873c4b105913c4ce72dd06b6`. Atomic, non-forced push published
+  both branches and the new annotated `v0.1.0-alpha.5` tag.
+- Tagged CI run: https://github.com/zoomerland/npu-dictate/actions/runs/37120140199
+  (`push`, exact head/tag source `0f13dafb`). Build outcome and package checks
+  remain pending at this documentation checkpoint.
