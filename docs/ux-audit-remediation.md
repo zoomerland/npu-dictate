@@ -26,7 +26,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [x] UX-08: full live model progress, refresh installed labels, honest warmup states.
 - [x] UX-09: responsive settings widths and per-monitor workarea placement.
 - [x] UX-10: redact dictated text/logs from default copied diagnostics.
-- [ ] UX-11: localize dynamic status details and correct opacity terminology.
+- [x] UX-11: localize dynamic status details and correct opacity terminology.
 - [ ] UX-12: accumulate wheel delta, expose review-stop command, safe hide fallback.
 - [ ] Final headless suite, review findings, roadmap and handoff.
 
@@ -102,3 +102,7 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   allowlists and a status phase, excluding free-form status suffixes, paths, logs,
   clipboard content and dictated text. A denied text/log read probe passes.
   This does not erase existing local logs or change the debug-recording policy.
+- UX-11: settings suite extended to 18 tests. Russian component names, file counts,
+  remaining bytes, speed and ETA are localized without modifying filenames. Both
+  language dictionaries and placeholders match. Single-instance failure follows
+  the saved UI language; the alpha slider is correctly labeled opacity.

@@ -157,6 +157,7 @@ TRANSLATIONS = {
         "save_settings_before_closing": "Save settings before closing?",
         "load_error": "Load error",
         "error": "Error",
+        "single_instance_error": "Could not initialize the single-instance lock. Windows error: {code}.",
         "Loading models": "Loading models",
         "Downloading ASR": "Downloading ASR",
         "Downloading ASR NPU": "Downloading ASR NPU",
@@ -257,7 +258,7 @@ TRANSLATIONS = {
         "overlay_details_button": "Только кнопка",
         "overlay_details_status": "Кнопка и статус",
         "overlay_details_full": "Полная",
-        "overlay_opacity": "Прозрачность кнопки",
+        "overlay_opacity": "Непрозрачность кнопки",
         "dictation_hotkey": "Горячая клавиша диктовки",
         "overlay_hotkey": "Горячая клавиша кнопки",
         "input_device": "Микрофон",
@@ -274,7 +275,7 @@ TRANSLATIONS = {
         "start_with_windows": "Запускать вместе с Windows",
         "button_dict": "ДИКТ",
         "button_record": "ЗАП",
-        "button_asr": "АСР",
+        "button_asr": "РЕЧЬ",
         "button_punct": "ПУНКТ",
         "button_text": "ТЕКСТ",
         "button_busy": "ЗАНЯТ",
@@ -296,9 +297,10 @@ TRANSLATIONS = {
         "save_settings_before_closing": "Сохранить настройки перед закрытием?",
         "load_error": "Ошибка загрузки",
         "error": "Ошибка",
+        "single_instance_error": "Не удалось настроить защиту от повторного запуска. Код ошибки Windows: {code}.",
         "Loading models": "Загрузка моделей",
-        "Downloading ASR": "Загрузка ASR",
-        "Downloading ASR NPU": "Загрузка ASR NPU",
+        "Downloading ASR": "Загрузка распознавания",
+        "Downloading ASR NPU": "Загрузка распознавания NPU",
         "Downloading model manifest": "Загрузка манифеста моделей",
         "Preparing model download": "Подготовка загрузки моделей",
         "First model setup": "Первичная загрузка моделей",
@@ -306,7 +308,7 @@ TRANSLATIONS = {
         "Verifying models": "Проверка моделей",
         "Retrying models": "Повтор загрузки моделей",
         "Downloading punct failed": "Не удалось скачать пунктуацию",
-        "Loading ASR": "Запуск ASR",
+        "Loading ASR": "Запуск распознавания",
         "Downloading punct": "Загрузка пунктуации",
         "Converting punct": "Конвертация пунктуации",
         "Loading punct dependencies": "Загрузка зависимостей пунктуации",
@@ -908,6 +910,35 @@ def input_devices(backend=_DEFAULT_SOUNDDEVICE):
         except Exception as exc:
             log_debug(f"audio device skipped index={index} error={type(exc).__name__}")
     return devices
+
+
+def localize_progress_metrics(text, language):
+    if normalize_ui_language(language) != "ru":
+        return text
+    units = {"B": "Б", "KB": "КБ", "MB": "МБ", "GB": "ГБ"}
+    text = re.sub(r"(\d+(?:\.\d+)?) (GB|MB|KB|B)(/s)?",
+                  lambda match: f"{match[1]} {units[match[2]]}{'/с' if match[3] else ''}", text)
+    return text.replace(" left", " осталось").replace("ETA ", "время ")
+
+
+def localize_model_detail(prefix, detail, language):
+    if normalize_ui_language(language) != "ru":
+        return detail
+    if prefix == "First model setup":
+        components = {"ASR": "распознавание", "punctuation": "пунктуация"}
+        return ": " + ", ".join(components.get(item, item) for item in detail.removeprefix(": ").split(", "))
+    if prefix == "Preparing model download":
+        return re.sub(r"(\d+) files$", r"\1 файлов", detail)
+    if prefix == "Downloading models" and ("/s" in detail or "ETA " in detail or ", --," in detail):
+        parts = detail.split(", ", 4)
+        count = 4 if len(parts) == 5 and parts[3].startswith("ETA ") else min(2, len(parts) - 1)
+        return ", ".join([localize_progress_metrics(part, language) if index < count else part
+                          for index, part in enumerate(parts)])
+    return detail
+
+
+def startup_lock_error_message(code, language="en"):
+    return TRANSLATIONS[normalize_ui_language(language)]["single_instance_error"].format(code=code)
 
 
 def fit_settings_geometry(bounds, scale=1.0):
@@ -3852,7 +3883,8 @@ class VoiceDictationApp:
             "Downloading punct failed",
         ):
             if status.startswith(prefix) and status != prefix:
-                return f"{self.t(prefix)}{status[len(prefix):]}"
+                detail = localize_model_detail(prefix, status[len(prefix):], self.cfg.get("ui_language", "en"))
+                return f"{self.t(prefix)}{detail}"
         return self.t(status)
 
     def compact_download_status(self, status, localized_status):
@@ -3861,7 +3893,8 @@ class VoiceDictationApp:
             return localized_status
         speed_eta = re.search(r", ([^,]+/s), ETA ([^,]+),", str(status or ""))
         if speed_eta:
-            return f"{self.t('Downloading models')} {percent}% · {speed_eta.group(1)} · {speed_eta.group(2)}"
+            speed = localize_progress_metrics(speed_eta.group(1), self.cfg.get("ui_language", "en"))
+            return f"{self.t('Downloading models')} {percent}% · {speed} · {speed_eta.group(2)}"
         return f"{self.t('Downloading models')} {percent}%"
 
     def choice_label(self, group, value):
@@ -5863,10 +5896,11 @@ def main():
             app = VoiceDictationApp()
             app.run()
     except SingleInstanceInitializationError as exc:
-        show_startup_error(
-            "NPU Dictate could not initialize its single-instance lock. "
-            f"Windows error: {exc.error_code}."
-        )
+        try:
+            language = json.loads(config_path().read_text(encoding="utf-8-sig")).get("ui_language", "en")
+        except (OSError, UnicodeError, ValueError, AttributeError):
+            language = "en"
+        show_startup_error(startup_lock_error_message(exc.error_code, language))
         return 1
     return 0
 

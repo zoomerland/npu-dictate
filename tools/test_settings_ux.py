@@ -211,6 +211,28 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(parsed["status_phase"], "Error")
         self.assertEqual(parsed["config"]["asr_model"], ui.cfg["asr_model"])
 
+    def test_russian_progress_translates_metrics_but_not_filenames(self):
+        ui = self.ui()
+        ui.cfg["ui_language"] = "ru"
+        status = "Downloading models 37% 100.0 MB/270.0 MB, 170.0 MB left, 2.0 MB/s, ETA 01:25, 1/4 left_models.bin"
+        translated = ui.localize_status(status)
+        for token in ("170.0 МБ осталось", "2.0 МБ/с", "время 01:25", "left_models.bin"):
+            self.assertIn(token, translated)
+        self.assertEqual(ui.localize_status("Preparing model download 4 files"), "Подготовка загрузки моделей 4 файлов")
+        self.assertEqual(ui.localize_status("First model setup: ASR, punctuation"), "Первичная загрузка моделей: распознавание, пунктуация")
+        self.assertEqual(ui.localize_status("Verifying models left_models.bin"), "Проверка моделей left_models.bin")
+        self.assertIn("2.0 МБ/с", ui.compact_download_status(status, translated))
+
+    def test_translation_keys_and_startup_error_are_consistent(self):
+        from string import Formatter
+        self.assertEqual(set(app.TRANSLATIONS["en"]), set(app.TRANSLATIONS["ru"]))
+        for key in app.TRANSLATIONS["en"]:
+            fields = lambda value: {field for _literal, field, _spec, _convert in Formatter().parse(value) if field}
+            self.assertEqual(fields(app.TRANSLATIONS["en"][key]), fields(app.TRANSLATIONS["ru"][key]), key)
+        self.assertIn("Код ошибки Windows: 5", app.startup_lock_error_message(5, "ru"))
+        self.assertIn("Windows error: 5", app.startup_lock_error_message(5, "en"))
+        self.assertEqual(app.TRANSLATIONS["ru"]["overlay_opacity"], "Непрозрачность кнопки")
+
 
 if __name__ == "__main__":
     import sys
