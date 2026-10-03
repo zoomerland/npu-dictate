@@ -120,3 +120,11 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   cases, including executing actual settings callbacks with fake widgets/traces.
   Real Tk initialization remains forbidden; relabel/save/close and retained dirty
   edits are verified headlessly. Independent follow-up is still pending.
+- Combined offline runner: `tools/headless_ux_checks.py`, 67 tests PASS. It denies
+  Tk windows, microphone access, hardware probing, real keyboard/clipboard actions,
+  network and model loading, with isolated temporary data. Completion/failure
+  events from punctuation now use the same generation-bound queue as its progress.
+- Independent UX-09..12 review at `194a2ef`: PASS_WITH_LIMITATIONS, including actual
+  source callbacks on fake widgets. Real renderer/OS/screen-reader acceptance is not
+  implied. The previous two UX-02 findings are independently closed at `03cc057`.
+  Three additional UX-04/05/08 findings were fixed; their final recheck is pending.

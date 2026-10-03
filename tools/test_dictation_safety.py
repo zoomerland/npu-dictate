@@ -199,8 +199,9 @@ class SafetyTests(unittest.TestCase):
             ui.model_load_status = status
             ui.refresh_model_progress()
         ui.update_status = render
-        engine.punct_status_callback = ui.queue_punct_status
         done = threading.Event()
+        engine.punct_status_callback = lambda generation, status: (
+            ui.queue_punct_status(generation, status), done.set() if status == "Ready" else None)
         engine.status_callback = lambda status: (ui.queue_status(status), done.set())
         progress = "Downloading models 37% 1 MB/3 MB, 2 MB left, 1 MB/s, ETA 00:02, model.bin"
         def load(_cfg, status):

@@ -2573,13 +2573,13 @@ class DictationEngine:
                 with self.punct_condition:
                     current = self._punct_loaded_generation == generation and self.punct is not None
                 if current and self.loaded and self.is_idle() and not self.closing:
-                    self.set_status(self.readiness_status())
+                    self._set_punct_status(generation, signature, self.readiness_status())
             except Exception as exc:
                 log_debug(f"load punct async error type={type(exc).__name__}")
                 with self.punct_condition:
                     current = generation == self._punct_generation and signature == self._punct_signature
                 if current and self.loaded and self.is_idle() and not self.closing:
-                    self.set_status(self.readiness_status())
+                    self._set_punct_status(generation, signature, self.readiness_status())
 
         worker = threading.Thread(target=run, daemon=True)
         try:
