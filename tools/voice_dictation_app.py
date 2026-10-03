@@ -184,6 +184,9 @@ TRANSLATIONS = {
         "Copied": "Copied",
         "Copied - paste manually": "Copied - paste manually",
         "Text ready - clipboard failed": "Text ready - clipboard unavailable",
+        "Copied - punctuation unavailable": "Copied without punctuation - paste manually",
+        "Text ready - punctuation unavailable": "Text ready without punctuation - clipboard unavailable",
+        "Punctuation unavailable": "Punctuation unavailable - retry in settings",
         "No audio": "No audio",
         "Too short": "Too short",
         "No speech": "No speech",
@@ -313,6 +316,9 @@ TRANSLATIONS = {
         "Copied": "Скопировано",
         "Copied - paste manually": "Скопировано - вставьте вручную",
         "Text ready - clipboard failed": "Текст готов - буфер недоступен",
+        "Copied - punctuation unavailable": "Без пунктуации - скопировано, вставьте вручную",
+        "Text ready - punctuation unavailable": "Текст без пунктуации готов - буфер недоступен",
+        "Punctuation unavailable": "Пунктуация недоступна - повторите загрузку в настройках",
         "No audio": "Нет звука",
         "Too short": "Слишком коротко",
         "No speech": "Речь не найдена",
@@ -2200,6 +2206,9 @@ class DictationEngine:
                 or old_cfg.get("channels") != cfg.get("channels")
             )
             punct_changed = punct_model_signature(old_cfg) != punct_model_signature(cfg)
+            punct_enabled = cfg.get("use_punctuation", True) and not old_cfg.get("use_punctuation", True)
+            if punct_enabled and self.punct_error is not None:
+                punct_changed = True
             self.cfg = cfg
             if restart_audio:
                 self._audio_generation += 1
@@ -2434,9 +2443,13 @@ class DictationEngine:
                 with self.punct_condition:
                     current = self._punct_loaded_generation == generation and self.punct is not None
                 if current and self.loaded and self.is_idle() and not self.closing:
-                    self.set_status("Ready")
+                    self.set_status(self.readiness_status())
             except Exception as exc:
                 log_debug(f"load punct async error type={type(exc).__name__}")
+                with self.punct_condition:
+                    current = generation == self._punct_generation and signature == self._punct_signature
+                if current and self.loaded and self.is_idle() and not self.closing:
+                    self.set_status(self.readiness_status())
 
         worker = threading.Thread(target=run, daemon=True)
         try:
@@ -2450,6 +2463,20 @@ class DictationEngine:
                     self.punct_condition.notify_all()
             raise
         return True
+
+    def readiness_status(self):
+        with self.lock:
+            if not self.loaded:
+                return "Still loading"
+            if self.stream is None:
+                return "Audio unavailable"
+            if self.cfg.get("use_punctuation", True):
+                with self.punct_lock:
+                    if self.punct_error is not None:
+                        return "Punctuation unavailable"
+                    if self.punct is None:
+                        return "Loading punct"
+            return "Ready"
 
     def _queue_current_punct_preload(self):
         with self.lock:
@@ -2692,10 +2719,10 @@ class DictationEngine:
             if not self._asr_generation_is_current(generation, asr):
                 return
             log_debug(f"load ready generation={generation} seconds={time.perf_counter() - load_start:.3f}")
-            if audio_ready:
-                self._set_asr_status(generation, "Ready")
             if current_cfg.get("use_punctuation", True):
                 self.load_punct_async(current_cfg)
+            if audio_ready and self.is_idle():
+                self._set_asr_status(generation, self.readiness_status())
         except Exception as exc:
             with self.lock:
                 current = generation == self._asr_generation and not self.closing
@@ -3242,21 +3269,29 @@ class DictationEngine:
             final_text = raw_text
             context = job.context
             punct_sec = 0.0
+            punct_failed = False
             if raw_text and cfg.get("use_punctuation", True):
-                punct = job.punct or self._get_punct(cfg, self.set_status)
                 start = time.perf_counter()
-                if context is None:
-                    context = self.context_before_cursor(cfg)
-                if context:
-                    if hasattr(punct, "restore_inserted"):
-                        final_text = punct.restore_inserted(context, raw_text)
-                        final_text = adjust_inserted_casing(raw_text, final_text, context)
+                try:
+                    punct = job.punct or self._get_punct(cfg, self.set_status)
+                    if context is None:
+                        context = self.context_before_cursor(cfg)
+                    if context:
+                        if hasattr(punct, "restore_inserted"):
+                            final_text = punct.restore_inserted(context, raw_text)
+                            final_text = adjust_inserted_casing(raw_text, final_text, context)
+                        else:
+                            restored = punct.restore(f"{context} {raw_text}".strip())
+                            final_text = inserted_text_from_context(raw_text, restored, context)
                     else:
-                        restored = punct.restore(f"{context} {raw_text}".strip())
-                        final_text = inserted_text_from_context(raw_text, restored, context)
-                else:
-                    final_text = punct.restore(raw_text)
-                    final_text = adjust_inserted_casing(raw_text, final_text)
+                        final_text = punct.restore(raw_text)
+                        final_text = adjust_inserted_casing(raw_text, final_text)
+                    if not isinstance(final_text, str) or not final_text.strip():
+                        raise ValueError("Punctuation returned no text")
+                except Exception as exc:
+                    punct_failed = True
+                    final_text = raw_text
+                    log_debug(f"punctuation fallback error={type(exc).__name__}")
                 punct_sec = time.perf_counter() - start
 
             final_text = strip_leading_punctuation(final_text, context)
@@ -3278,7 +3313,14 @@ class DictationEngine:
                     f"context_chars={len(context or '') if 'context' in locals() else 0}"
                 )
                 self.text_callback(raw_text, final_text, duration, asr_sec, punct_sec)
-                if cfg.get("auto_paste", True):
+                if punct_failed:
+                    try:
+                        pyperclip.copy(final_text)
+                        self.set_status("Copied - punctuation unavailable")
+                    except Exception as exc:
+                        log_debug(f"raw text clipboard failed error={type(exc).__name__}")
+                        self.set_status("Text ready - punctuation unavailable")
+                elif cfg.get("auto_paste", True):
                     if self.paste_text(final_text, cfg):
                         press_enter = bool(cfg.get("press_enter_after_paste", False))
                         enter_sent = None
@@ -4551,7 +4593,7 @@ class VoiceDictationApp:
             self.set_overlay_button_state("button_paste", "#b85528", "#98441f")
         elif status == "Copied":
             self.set_overlay_button_state("button_copy", "#2b7281", "#245f6c")
-        elif status.startswith("Copied - paste") or status == "Text ready - clipboard failed":
+        elif status.startswith("Copied -") or status.startswith("Text ready -") or status == "Punctuation unavailable":
             self.set_overlay_button_state("button_paste", "#b85528", "#98441f")
         elif status in {"No audio", "Too short", "No speech"}:
             self.set_overlay_button_state("button_empty", "#5f6773", "#505762")
