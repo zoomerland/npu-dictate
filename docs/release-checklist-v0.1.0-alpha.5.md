@@ -1,6 +1,6 @@
 # NPU Dictate 0.1.0-alpha.5 Release Checklist
 
-Date: 2026-10-03. Status: preparing an unsigned public prerelease.
+Date: 2026-10-03. Status: published unsigned public prerelease.
 
 ## Authority And Boundaries
 
@@ -47,13 +47,14 @@ unclassified implementation work. Origin is the public
 - [x] Fresh local EXE build, isolated import smoke, payload/version checks.
 - [x] Local MSI build, numeric metadata and administrative-extraction smoke.
 - [x] Independent local binary evidence and final CI-source delta review.
-- [ ] Release preparation merged into features/next, then main.
-- [ ] Main/features/next pushed without force.
-- [ ] Tag pushed; tagged GitHub Actions build succeeds.
-- [ ] CI ZIP/MSI downloaded, independently checked and hashed.
-- [ ] GitHub prerelease published with all three assets and limitations.
-- [ ] Published asset names, sizes and hashes rechecked.
-- [ ] Clean final refs/worktree, owned test processes stopped, handoff recorded.
+- [x] Release preparation merged into features/next, then main.
+- [x] Main/features/next pushed without force.
+- [x] Tag pushed; tagged GitHub Actions build succeeds.
+- [x] CI ZIP/MSI downloaded, payload checked, smoke-tested and hashed by parent.
+- [x] Independent tagged-CI binary publication review.
+- [x] GitHub prerelease published with all three assets and limitations.
+- [x] Published asset names, sizes and hashes rechecked.
+- [x] Release handoff checked: clean source, owned test processes stopped, evidence recorded.
 
 ## Acceptance Limits
 
@@ -126,3 +127,57 @@ here. If any mandatory gate fails, do not tag/publish on the basis of stale asse
   fetch. Ignored build/dist and owned review reports are generated evidence;
   dependency/model/private-data classifications from the full snapshot remain.
   No new ignored implementation or unresolved tracked work appeared.
+- Integration tree exactly matches reviewed `40ca0e0`: features/next merge
+  `200a6df1632257638022f18187c1b5cd093194ce`; main/release tag commit
+  `0f13dafb31720ea2873c4b105913c4ce72dd06b6`. Atomic, non-forced push published
+  both branches and the new annotated `v0.1.0-alpha.5` tag.
+- Tagged CI run: https://github.com/zoomerland/npu-dictate/actions/runs/37120140199
+  (`push`, exact head/tag source `0f13dafb`), SUCCESS in 6m31s.
+  Headless UX and packaging regressions, EXE import, MSI administrative extraction
+  and import, archive inventory and both uploads passed on the CI runner.
+- Both downloaded CI artifacts are from that exact run: unsigned packages
+  `11273321895`, build evidence `11273321901`. Both required manifest files and
+  both packages are present. Receipt source equals the annotated tag commit.
+  CI inventory, ZIP stream, ZIP extraction and MSI-extracted payload match
+  5,443 files / 905,719,017 bytes. Local e9 build counts/hashes remain distinct.
+- Downloaded CI ZIP and MSI-extracted EXE passed finite ImportOnly on this laptop,
+  using explicit CI inventory for MSI validation. EXE string version: alpha.5;
+  MSI ProductVersion: 0.1.5; stable UpgradeCode unchanged. Both remain NotSigned.
+  No visible UI/model load or installed-product change occurred.
+- CI receipt SHA256:
+  `2A5AF7BB5C876B523B1693DD0232FE740CB2E32F0210E783F65690226355B765`.
+  CI inventory SHA256:
+  `79F3CDDBB887F007F240C104D1A0BF2D63FF1FCAA67F8ABD6B45B608589BC63E`.
+  CI EXE: 61,861,394 bytes; SHA256:
+  `19F7BF82F9AC95EFFFECB118DE608B300BD2EA7C0D44A0AAE9E1B118C5712342`.
+  Release MSI: 247,590,085 bytes; SHA256:
+  `E2834EBFCBFE0AB04DFF7EEFE79FF03092049BAF000E19BCA08BEDE4DE9ED127`.
+  Release ZIP: 331,442,959 bytes; SHA256:
+  `4F6CC4E2136E7F91718DE1DE2F02A39046EA3E4A492262FE0AA67C561E91BA7F`.
+  `SHA256SUMS.txt` is generated from those two exact CI files.
+- Independent tagged-CI binary review: PASS_WITH_LIMITATIONS. Run/tag/receipt,
+  versions, signatures, all CI payload forms and the checksum file independently
+  reconciled. No publication blocker or unclassified payload found.
+- Public prerelease: https://github.com/zoomerland/npu-dictate/releases/tag/v0.1.0-alpha.5
+  Release ID `402494625`, published `2026-10-03T12:10:43Z`, prerelease=true,
+  draft=false. The three reviewed files were uploaded to a draft, digests and
+  release notes checked, then that exact release ID was published.
+  The initial draft lookup by tag returned 404; listing releases resolved its ID.
+  No duplicate creation, upload retry, tag movement or release recreation occurred.
+- Public readback confirms exactly the three allowlisted names/sizes/SHA256
+  digests, unchanged unsigned notes and limitations. Both binary download URLs
+  return HTTP 200 with matching Content-Length. A fresh public checksum-file
+  download matches the reviewed 200 bytes / SHA256:
+  `2F19CB2BFF073C2EF969D721C61F40C3930D7462C422703C1565E78965AC78E5`.
+  The two binaries were not downloaded a second time after publication; their
+  published GitHub digests match the independently reviewed CI bytes.
+- Release source and annotated tag remain immutable at `0f13dafb`. Final
+  documentation is integrated through `codex/alpha5-release-evidence` into
+  features/next and main, without any app/build/dependency source change.
+  Before this documentation handoff: one clean worktree at `e2d3a849`, no
+  stashes/detached HEAD, all historical refs retained. Private classifications
+  unchanged; new CI outputs and review reports are generated evidence, not Git
+  candidates. No unresolved ignored implementation. Final branch/remote snapshot
+  is retained in ignored `build/alpha5-final-git.json` after the docs-only push.
+  No owned smoke/build session remains running; reviewer closed. The user's
+  installed/running application and model data were not restarted or changed.
