@@ -1,6 +1,7 @@
 """Deterministic delivery/lifecycle tests without UI, devices or real input."""
 import os
 import threading
+import queue
 import unittest
 from dataclasses import replace
 from types import SimpleNamespace
@@ -184,6 +185,41 @@ class SafetyTests(unittest.TestCase):
         self.assertTrue(done.wait(3))
         self.assertEqual(engine.readiness_status(), "Ready")
         self.assertIsNone(engine.punct_error)
+
+    def test_punct_loader_progress_reaches_ui_and_stale_progress_is_discarded(self):
+        engine = self.engine()
+        engine.cfg["use_punctuation"] = True
+        engine.loaded, engine.stream = True, object()
+        ui = app.VoiceDictationApp.__new__(app.VoiceDictationApp)
+        ui.engine, ui.cfg, ui.event_queue = engine, dict(engine.cfg), queue.Queue()
+        ui.root = SimpleNamespace(after=lambda *_args: None)
+        displayed = []
+        ui.settings_model_progress_var = SimpleNamespace(set=displayed.append)
+        def render(status):
+            ui.model_load_status = status
+            ui.refresh_model_progress()
+        ui.update_status = render
+        engine.punct_status_callback = ui.queue_punct_status
+        done = threading.Event()
+        engine.status_callback = lambda status: (ui.queue_status(status), done.set())
+        progress = "Downloading models 37% 1 MB/3 MB, 2 MB left, 1 MB/s, ETA 00:02, model.bin"
+        def load(_cfg, status):
+            status(progress)
+            return object()
+        engine._load_punct_profile = load
+        self.assertTrue(engine.load_punct_async(engine.cfg))
+        self.assertTrue(done.wait(3))
+        ui.poll_events()
+        self.assertIn(progress, displayed)
+        self.assertEqual(displayed[-1], "Ready")
+        generation, signature = engine._punct_generation, engine._punct_signature
+        ui.queue_punct_status(generation, "Loading punct")
+        with engine.punct_condition:
+            engine._punct_generation += 1
+        self.assertFalse(engine._set_punct_status(generation, signature, progress))
+        before = list(displayed)
+        ui.poll_events()
+        self.assertEqual(displayed, before)
 
     def test_punct_preload_failure_is_visible_and_explicit_retry_recovers(self):
         engine = self.engine()

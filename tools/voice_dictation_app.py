@@ -936,7 +936,7 @@ def localize_model_detail(prefix, detail, language):
         components = {"ASR": "распознавание", "punctuation": "пунктуация"}
         return ": " + ", ".join(components.get(item, item) for item in detail.removeprefix(": ").split(", "))
     if prefix == "Preparing model download":
-        return re.sub(r"(\d+) files$", r"\1 файлов", detail)
+        return localize_progress_metrics(re.sub(r"(\d+) files(?=,|$)", r"\1 файлов", detail), language)
     if prefix == "Downloading models" and ("/s" in detail or "ETA " in detail or ", --," in detail):
         parts = detail.split(", ", 4)
         count = 4 if len(parts) == 5 and parts[3].startswith("ETA ") else min(2, len(parts) - 1)
@@ -1382,6 +1382,11 @@ def parse_hotkey(value):
         if not raw:
             continue
         token = aliases.get(raw, raw)
+        if token in NAMED_HOTKEY_TOKENS:
+            for name, canonical in (("ctrl", "ctrl"), ("alt", "alt"), ("shift", "shift"), ("cmd", "win")):
+                if token.startswith(name):
+                    token = canonical
+                    break
         valid = (
             token in NAMED_HOTKEY_TOKENS
             or bool(re.fullmatch(r"f(?:[1-9]|1[0-9]|2[0-4])", token))
@@ -2241,6 +2246,7 @@ class DictationEngine:
         context_callback=None,
         target_identity_callback=None,
         asr_status_callback=None,
+        punct_status_callback=None,
     ):
         self.cfg = cfg
         self.status_callback = status_callback
@@ -2249,6 +2255,7 @@ class DictationEngine:
         self.context_callback = context_callback
         self.target_identity_callback = target_identity_callback
         self.asr_status_callback = asr_status_callback
+        self.punct_status_callback = punct_status_callback
         self.asr = None
         self.compare_asr = None
         self.compare_asr_signature = None
@@ -2561,7 +2568,8 @@ class DictationEngine:
 
         def run():
             try:
-                self._load_punct_generation(generation, signature, cfg)
+                self._load_punct_generation(generation, signature, cfg,
+                    lambda status: self._set_punct_status(generation, signature, status))
                 with self.punct_condition:
                     current = self._punct_loaded_generation == generation and self.punct is not None
                 if current and self.loaded and self.is_idle() and not self.closing:
@@ -2584,6 +2592,20 @@ class DictationEngine:
                     self.punct_loading = False
                     self.punct_condition.notify_all()
             raise
+        return True
+
+    def _punct_generation_is_current(self, generation, signature=None):
+        with self.punct_condition:
+            return not self.closing and generation == self._punct_generation and (
+                signature is None or signature == self._punct_signature)
+
+    def _set_punct_status(self, generation, signature, status):
+        if not self._punct_generation_is_current(generation, signature):
+            return False
+        if self.punct_status_callback is not None:
+            self.punct_status_callback(generation, status)
+        else:
+            self.set_status(status)
         return True
 
     def readiness_status(self):
@@ -3859,6 +3881,7 @@ class VoiceDictationApp:
             context_callback=self.context_before_cursor,
             target_identity_callback=self.current_paste_target_identity,
             asr_status_callback=self.queue_asr_status,
+            punct_status_callback=self.queue_punct_status,
         )
         self.hotkeys = HotkeyManager(self.cfg, self.dispatch)
 
@@ -4508,6 +4531,9 @@ class VoiceDictationApp:
     def queue_asr_status(self, generation, status):
         self.event_queue.put(("asr_status", generation, status))
 
+    def queue_punct_status(self, generation, status):
+        self.event_queue.put(("punct_status", generation, status))
+
     def queue_text(self, raw_text, final_text, duration, asr_sec, punct_sec):
         self.event_queue.put(("text", raw_text, final_text, duration, asr_sec, punct_sec))
 
@@ -4525,6 +4551,10 @@ class VoiceDictationApp:
             elif item[0] == "asr_status":
                 _, generation, status = item
                 if self.engine._asr_generation_is_current(generation):
+                    self.update_status(status)
+            elif item[0] == "punct_status":
+                _, generation, status = item
+                if self.engine._punct_generation_is_current(generation):
                     self.update_status(status)
             elif item[0] == "text":
                 _, raw_text, final_text, duration, asr_sec, punct_sec = item

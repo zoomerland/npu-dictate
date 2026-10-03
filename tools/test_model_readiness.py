@@ -127,6 +127,27 @@ class ReadinessTests(unittest.TestCase):
             self.assertEqual(download.call_count, 1)
         self.assertTrue(setup.asr_model_ready())
 
+    def test_malformed_manifest_metadata_is_unavailable_not_an_exception(self):
+        self.model_files()
+        base = dict(profile_id=setup.PUNCT_OPENVINO_FP16_PROFILE, component="punctuation")
+        values = [{}, {"artifacts": "text"}, {"artifacts": [None]}, {"artifacts": [base]},
+                  {"artifacts": [dict(base, install_path="../escape.bin")]},
+                  {"artifacts": [dict(base, install_path="model.bin", size_bytes="bad")]},
+                  {"artifacts": [dict(base, install_path="model.bin", sha256="bad")]}]
+        for manifest in values:
+            with self.subTest(manifest=manifest), patch.object(setup, "load_cached_artifact_manifest", return_value=manifest):
+                self.assertFalse(setup.punct_model_ready())
+                self.assertFalse(setup.asr_openvino_artifact_model_ready())
+        for artifact in (None, {}, {"install_path": "../escape.bin"}):
+            self.assertFalse(setup.artifact_ready(artifact))
+
+    def test_invalid_cached_schema_is_replaced_by_valid_remote_manifest(self):
+        manifest = self.manifest("model.bin", b"weights", "test", "asr")
+        with patch.object(setup, "load_cached_artifact_manifest", return_value={"repo_id": setup.ARTIFACT_MODEL_REPO, "artifacts": [None]}), \
+             patch.object(setup, "read_json_url", return_value=manifest) as download:
+            self.assertEqual(setup.load_remote_artifact_manifest(), manifest)
+            download.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

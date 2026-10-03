@@ -112,3 +112,11 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   A missing tray prevents hiding; overlay-save errors are recoverable too.
   Canvas itself is still not a native accessible Button. Screen-reader acceptance,
   tooltip visibility in button-only mode and real tray recovery remain later checks.
+- Review follow-up (UX-04/05/08): malformed artifact dictionaries/paths/hashes are
+  rejected as unavailable and refreshed from the authoritative manifest. Named
+  modifier aliases now canonicalize to the same tokens as press/release events.
+  Async punctuation forwards generation-bound progress through the UI queue and
+  drops stale progress. Suites now cover 19 safety, 26 settings and 11 readiness
+  cases, including executing actual settings callbacks with fake widgets/traces.
+  Real Tk initialization remains forbidden; relabel/save/close and retained dirty
+  edits are verified headlessly. Independent follow-up is still pending.

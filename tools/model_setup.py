@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import shutil
 import time
 from functools import lru_cache
@@ -141,11 +142,13 @@ def load_cached_artifact_manifest():
 
 def load_remote_artifact_manifest(status_callback=None, force=False):
     cached = None if force else load_cached_artifact_manifest()
-    if cached and cached.get("repo_id") == ARTIFACT_MODEL_REPO:
+    if valid_artifact_manifest(cached) and cached.get("repo_id") == ARTIFACT_MODEL_REPO:
         return cached
 
     emit(status_callback, "Downloading model manifest")
     manifest = read_json_url(manifest_url())
+    if not valid_artifact_manifest(manifest):
+        raise RuntimeError("Invalid model artifact manifest")
     if manifest.get("repo_id") != ARTIFACT_MODEL_REPO:
         raise RuntimeError(f"Unexpected model artifact repo id: {manifest.get('repo_id')}")
     path = artifact_manifest_cache_path()
@@ -197,10 +200,10 @@ def model_file_ready(path):
 
 
 def artifact_ready(artifact, root=None, verify_hash=True):
-    target = safe_install_path(artifact["install_path"], root)
-    if not model_file_ready(target):
-        return False
     try:
+        target = safe_install_path(artifact["install_path"], root)
+        if not model_file_ready(target):
+            return False
         stat = target.stat()
         expected_size = artifact.get("size_bytes")
         if expected_size is not None and stat.st_size != int(expected_size):
@@ -214,13 +217,40 @@ def artifact_ready(artifact, root=None, verify_hash=True):
                 return False
             if digest.lower() != str(expected_hash).lower():
                 return False
-    except (OSError, TypeError, ValueError):
+    except (OSError, TypeError, ValueError, KeyError, AttributeError):
         return False
     return True
 
 
+def valid_artifact_manifest(manifest):
+    if not isinstance(manifest, dict):
+        return False
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        return False
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            return False
+        for key in ("install_path", "profile_id", "component"):
+            if not isinstance(artifact.get(key), str) or not artifact[key].strip():
+                return False
+        try:
+            safe_install_path(artifact["install_path"])
+        except (OSError, ValueError):
+            return False
+        size = artifact.get("size_bytes")
+        if size is not None and (type(size) is not int or size <= 0):
+            return False
+        digest = artifact.get("sha256")
+        if digest is not None and (not isinstance(digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", digest)):
+            return False
+    return True
+
+
 def artifacts_for_profile(manifest, profile_id=None, component=None):
-    artifacts = manifest.get("artifacts") or []
+    if not valid_artifact_manifest(manifest):
+        return []
+    artifacts = manifest["artifacts"]
     result = []
     for artifact in artifacts:
         if profile_id is not None and artifact.get("profile_id") != profile_id:
@@ -408,6 +438,8 @@ def asr_openvino_artifact_model_ready(verify_hash=False):
     ):
         return False
     manifest = load_cached_artifact_manifest()
+    if (manifest is not None and not valid_artifact_manifest(manifest)) or (manifest is None and artifact_manifest_cache_path().exists()):
+        return False
     if manifest and artifacts_for_profile(manifest, ASR_OPENVINO_NNCF_INT8_PROFILE, "asr"):
         return profile_artifacts_ready(manifest, ASR_OPENVINO_NNCF_INT8_PROFILE, "asr", verify_hash=verify_hash)
     return True
@@ -419,6 +451,8 @@ def punct_model_ready(verify_hash=False):
     if not all(model_file_ready(model_dir / name) for name in required):
         return False
     manifest = load_cached_artifact_manifest()
+    if (manifest is not None and not valid_artifact_manifest(manifest)) or (manifest is None and artifact_manifest_cache_path().exists()):
+        return False
     if manifest and artifacts_for_profile(manifest, PUNCT_OPENVINO_FP16_PROFILE, "punctuation"):
         return profile_artifacts_ready(manifest, PUNCT_OPENVINO_FP16_PROFILE, "punctuation", verify_hash=verify_hash)
     return True

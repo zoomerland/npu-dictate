@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import voice_dictation_app as app
+import model_setup
 
 
 class Value:
@@ -17,6 +18,120 @@ class Value:
 
     def get(self):
         return self.value
+
+
+class TracedValue(Value):
+    def __init__(self, value=""):
+        super().__init__(value)
+        self.traces = []
+
+    def trace_add(self, _mode, callback):
+        self.traces.append(callback)
+
+    def set(self, value):
+        super().set(value)
+        for callback in list(self.traces):
+            callback()
+
+
+class FakeWidget:
+    """No Tcl/Tk interpreter: exercise source callbacks and layout bookkeeping only."""
+    widgets = []
+
+    def __init__(self, master=None, **kwargs):
+        self.master, self.options, self.children, self.bindings = master, kwargs, [], {}
+        self.grid_options, self.tabs, self.selected, self.exists = {}, [], "", True
+        if master is not None:
+            master.children.append(self)
+        self.widgets.append(self)
+
+    def __str__(self):
+        return f"fake-{id(self)}"
+
+    def configure(self, **kwargs):
+        self.options.update(kwargs)
+
+    def grid(self, **kwargs):
+        self.grid_options.update(kwargs)
+
+    grid_configure = grid
+
+    def grid_info(self):
+        return self.grid_options.copy()
+
+    def grid_remove(self):
+        self.options["hidden"] = True
+
+    def columnconfigure(self, *_args, **_kwargs):
+        pass
+
+    rowconfigure = columnconfigure
+    pack = columnconfigure
+    option_add = columnconfigure
+    protocol = columnconfigure
+    resizable = columnconfigure
+    attributes = columnconfigure
+    title = columnconfigure
+    minsize = columnconfigure
+    yview = columnconfigure
+    yview_moveto = columnconfigure
+    yview_scroll = columnconfigure
+    set = columnconfigure
+    stop = columnconfigure
+    start = columnconfigure
+    itemconfigure = columnconfigure
+
+    def geometry(self, value):
+        self.options["geometry"] = value
+
+    def bind(self, event, callback, **_kwargs):
+        self.bindings[event] = callback
+
+    def winfo_exists(self):
+        return self.exists
+
+    def winfo_children(self):
+        return self.children
+
+    def create_window(self, *_args, **_kwargs):
+        return 1
+
+    def bbox(self, *_args):
+        return 0, 0, 640, 800
+
+    def add(self, child, text):
+        self.tabs.append((child, text))
+        if not self.selected:
+            self.selected = str(child)
+
+    def select(self, child=None):
+        if child is not None:
+            self.selected = str(child)
+        return self.selected
+
+    def tab(self, child, text):
+        self.tabs = [(entry, text if entry == child else title) for entry, title in self.tabs]
+
+    def current(self):
+        values = self.options.get("values", [])
+        current = self.options["textvariable"].get()
+        return values.index(current) if current in values else -1
+
+    def destroy(self):
+        self.exists = False
+        callback = self.bindings.get("<Destroy>")
+        if callback:
+            callback(SimpleNamespace(widget=self))
+
+
+class FakeStyle:
+    def __init__(self, *_args):
+        pass
+
+    def configure(self, *_args, **_kwargs):
+        pass
+
+    layout = configure
 
 
 class SettingsTests(unittest.TestCase):
@@ -278,6 +393,85 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(ui.overlay_hover_text(), "Finish without sending")
         ui.clear_overlay_hover()
         self.assertIsNone(ui.overlay_hover_text())
+
+    def test_named_modifier_aliases_match_runtime_and_conflict_validation(self):
+        for alias, key, canonical in (("ctrl_l", app.keyboard.Key.ctrl_l, "ctrl"),
+                                       ("cmd", app.keyboard.Key.cmd, "win"),
+                                       ("alt_gr", app.keyboard.Key.alt_gr, "alt")):
+            self.assertEqual(app.parse_hotkey(alias + "+f8"), frozenset((canonical, "f8")))
+            ui = self.ui()
+            with patch.object(app, "save_config", lambda _cfg: None):
+                self.assertTrue(ui.save_settings(None, dict(ui.cfg, dictation_hotkey=alias + "+f8", overlay_hotkey="f9"), close=False))
+            manager = app.HotkeyManager.__new__(app.HotkeyManager)
+            manager.cfg = dict(ui.cfg, mode="toggle")
+            manager.pressed = set()
+            manager.dictation_down = manager.overlay_down = manager.suspended = False
+            actions = []
+            manager.dispatch = actions.append
+            manager.on_press(key)
+            manager.on_press(app.keyboard.Key.f8)
+            manager.on_release(app.keyboard.Key.f8)
+            manager.on_release(key)
+            self.assertEqual(actions, ["toggle_recording"])
+            with patch.object(app, "save_config", side_effect=AssertionError("Alias conflict must not persist")):
+                self.assertFalse(ui.save_settings(None, dict(ui.cfg, overlay_hotkey="f8"), close=False))
+
+    def test_model_labels_survive_malformed_cached_artifact_metadata(self):
+        for manifest in ({}, {"artifacts": [None]}, {"artifacts": "bad"},
+                         {"artifacts": [dict(profile_id=model_setup.PUNCT_OPENVINO_FP16_PROFILE, component="punctuation", install_path="../escape")]}):
+            with patch.object(model_setup, "model_file_ready", return_value=True), \
+                 patch.object(model_setup, "load_cached_artifact_manifest", return_value=manifest):
+                label = app.model_display_label(app.PUNCT_MODEL_PROFILES, app.DEFAULT_PUNCT_MODEL, app.DEFAULT_PUNCT_MODEL)
+            self.assertIn("needs download", label)
+
+    def test_real_settings_callbacks_relabel_save_and_close_without_tk(self):
+        FakeWidget.widgets = []
+        widget_types = {name: type(name, (FakeWidget,), {}) for name in
+                        ("Frame", "Label", "Button", "Checkbutton", "Radiobutton", "Combobox", "Entry", "Scale", "Notebook", "Scrollbar", "Progressbar")}
+        fake_ttk = SimpleNamespace(Style=FakeStyle, **widget_types)
+        fake_tk = SimpleNamespace(Toplevel=FakeWidget, Canvas=FakeWidget, StringVar=TracedValue,
+                                 BooleanVar=TracedValue, DoubleVar=TracedValue, TclError=RuntimeError)
+        ui = self.ui()
+        ui.root, ui.last_text_var = FakeWidget(), Value("Synthetic dictation")
+        ui.cfg["input_device_index"] = None
+        ui.engine.recording = False
+        ui.settings_ui_scale = lambda: 1.5
+        ui.monitor_workarea = lambda: (0, 0, 640, 440)
+        ui.refresh_static_ui_text = ui.refresh_settings_window_text
+        installed = {"value": False}
+        with patch.object(app, "tk", fake_tk), patch.object(app, "ttk", fake_ttk), \
+             patch.object(app, "input_devices", return_value=[]), \
+             patch.object(app, "model_is_installed", side_effect=lambda *_args: installed["value"]), \
+             patch.object(app, "save_config", lambda _cfg: None):
+            ui.open_settings()
+            widgets = list(FakeWidget.widgets)
+            apply_button = next(widget for widget in widgets if widget.options.get("text") == "Apply")
+            apply_settings = apply_button.options["command"].__closure__[0].cell_contents
+            dirty = dict(zip(apply_settings.__code__.co_freevars,
+                             (cell.cell_contents for cell in apply_settings.__closure__)))["dirty"]
+            self.assertFalse(dirty.get())
+            installed["value"] = True
+            ui.model_load_status = "Ready"
+            ui.refresh_model_progress()
+            self.assertFalse(dirty.get(), "Background installed labels must not dirty settings")
+            model_combos = [widget for widget in widgets if any("downloaded]" in str(item) for item in widget.options.get("values", []))]
+            self.assertEqual(len(model_combos), 2)
+            language = next(widget for widget in widgets if widget.options.get("values") == list(app.UI_LANGUAGE_NAMES.values()))
+            language.options["textvariable"].set("Русский")
+            self.assertTrue(dirty.get())
+            ui.refresh_model_progress()
+            self.assertTrue(dirty.get(), "Background refresh must retain user edits")
+            apply_button.options["command"]()
+            self.assertFalse(dirty.get())
+            self.assertEqual(ui.cfg["ui_language"], "ru")
+            self.assertIsNone(ui.cfg["input_device_index"])
+            self.assertEqual(apply_button.options["text"], "Применить")
+            title = app.TRANSLATIONS["ru"]["settings_section_general"]
+            selector = next(widget for widget in widgets if title in widget.options.get("values", []))
+            self.assertEqual(len(selector.options["values"]), 6)
+            ui.settings_window.destroy()
+            ui.refresh_model_progress()
+            self.assertIsNone(ui.settings_refresh_models)
 
 
 if __name__ == "__main__":
