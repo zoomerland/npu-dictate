@@ -421,8 +421,12 @@ Do this last.
 
 ## UI/UX Audit Remediation (2026-10-03)
 
-Source changes are integrated into `features/next`; the unsigned alpha.5 release
-is being prepared. Publication is recorded separately after the tagged CI gate.
+Source changes are integrated into `main` and published in the unsigned
+[0.1.0-alpha.5 prerelease](https://github.com/zoomerland/npu-dictate/releases/tag/v0.1.0-alpha.5).
+The tagged CI build passed 69 headless UX and 18 packaging regressions. Its
+ZIP/MSI payloads, isolated imports, metadata and public asset digests were checked;
+live UI/model and installed-upgrade acceptance remain separate.
+Release evidence: `docs/release-checklist-v0.1.0-alpha.5.md`.
 Detailed scope and validation: `docs/ux-audit-remediation.md`.
 
 - [x] Block automatic paste when target restoration fails or identity drifts.
