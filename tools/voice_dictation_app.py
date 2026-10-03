@@ -199,7 +199,7 @@ TRANSLATIONS = {
         "Bad sample rate": "Bad sample rate",
         "Bad hotkey": "Bad hotkey",
         "Bad overlay key": "Bad overlay key",
-        "Hotkey conflict": "Hotkey conflict",
+        "Hotkey conflict": "Hotkeys must not match or include each other",
         "Startup error": "Startup error",
         "Settings saved": "Settings saved",
         "Finish dictation before applying settings": "Finish dictation before applying settings",
@@ -332,7 +332,7 @@ TRANSLATIONS = {
         "Bad sample rate": "Неверная частота",
         "Bad hotkey": "Неверная клавиша",
         "Bad overlay key": "Неверная клавиша кнопки",
-        "Hotkey conflict": "Конфликт клавиш",
+        "Hotkey conflict": "Сочетания не должны совпадать или включать друг друга",
         "Startup error": "Ошибка автозапуска",
         "Settings saved": "Настройки сохранены",
         "Finish dictation before applying settings": "Завершите диктовку перед применением настроек",
@@ -1221,6 +1221,7 @@ def key_to_token(key):
 
 
 MODIFIER_TOKENS = {"ctrl", "alt", "shift", "win"}
+NAMED_HOTKEY_TOKENS = {key.name for key in keyboard.Key} | MODIFIER_TOKENS
 TOKEN_LABELS = {
     "ctrl": "Ctrl",
     "alt": "Alt",
@@ -1256,6 +1257,9 @@ def tk_key_to_token(event):
         "super_r": "win",
         "escape": "esc",
         "return": "enter",
+        "prior": "page_up",
+        "next": "page_down",
+        "kp_enter": "enter",
     }
     keysym = (event.keysym or "").lower()
     if keysym in aliases:
@@ -1279,11 +1283,23 @@ def parse_hotkey(value):
         "super": "win",
     }
     tokens = []
-    for raw in value.lower().replace(" ", "").split("+"):
+    for raw in str(value or "").lower().replace(" ", "").split("+"):
         if not raw:
             continue
-        tokens.append(aliases.get(raw, raw))
+        token = aliases.get(raw, raw)
+        valid = (
+            token in NAMED_HOTKEY_TOKENS
+            or bool(re.fullmatch(r"f(?:[1-9]|1[0-9]|2[0-4])", token))
+            or (len(token) == 1 and token.isascii() and token.isprintable())
+        )
+        if not valid:
+            return frozenset()
+        tokens.append(token)
     return frozenset(tokens)
+
+
+def hotkeys_conflict(first, second):
+    return bool(first and second and (first <= second or second <= first))
 
 
 def result_to_text(result):
@@ -2036,9 +2052,11 @@ class HotkeyManager:
 
         dictation_hotkey, overlay_hotkey = self.hotkeys()
 
-        if overlay_hotkey and overlay_hotkey <= self.pressed and not self.overlay_down:
-            self.overlay_down = True
-            self.dispatch("toggle_overlay")
+        if overlay_hotkey and overlay_hotkey <= self.pressed:
+            if not self.overlay_down:
+                self.overlay_down = True
+                self.dispatch("toggle_overlay")
+            return
 
         if not dictation_hotkey or not dictation_hotkey <= self.pressed:
             return
@@ -5548,13 +5566,13 @@ class VoiceDictationApp:
         dictation_hotkey = parse_hotkey(values["dictation_hotkey"])
         overlay_hotkey = parse_hotkey(values["overlay_hotkey"])
         if not dictation_hotkey:
-            self.update_status("Bad hotkey")
+            self.settings_error("Bad hotkey")
             return False
         if not overlay_hotkey:
-            self.update_status("Bad overlay key")
+            self.settings_error("Bad overlay key")
             return False
-        if dictation_hotkey == overlay_hotkey:
-            self.update_status("Hotkey conflict")
+        if hotkeys_conflict(dictation_hotkey, overlay_hotkey):
+            self.settings_error("Hotkey conflict")
             return False
         if bool(values.get("start_with_windows", False)) != is_startup_enabled():
             if not set_startup_enabled(bool(values.get("start_with_windows", False))):

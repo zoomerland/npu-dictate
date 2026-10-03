@@ -20,7 +20,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [x] UX-03: reject settings while dictation is active; preserve live recording indicators.
 - [ ] Independent review and critical-path regression gate.
 - [x] UX-04: consistent cached-model readiness and integrity checks.
-- [ ] UX-05: validate hotkey tokens and overlapping shortcuts.
+- [x] UX-05: validate hotkey tokens and overlapping shortcuts.
 - [ ] UX-06: recoverable settings-save failures and exit behavior.
 - [ ] UX-07: preserve the system-default/missing microphone choice.
 - [ ] UX-08: full live model progress, refresh installed labels, honest warmup states.
@@ -74,3 +74,6 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   cached converted weights with SHA256; metadata-keyed hashing avoids repeated reads.
   UI readiness uses lightweight size checks. Legacy/direct upstream files without
   a local SHA manifest cannot have arbitrary same-size corruption proven by this check.
+- UX-05: settings suite, 4 tests PASS. Invalid key names and subset conflicts are
+  rejected with an inline error. Legacy conflicting configs dispatch only the overlay
+  action for a matching chord. Physical digit handling and supported named keys remain.
