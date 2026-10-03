@@ -2,11 +2,13 @@
 import os
 import threading
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 import voice_dictation_app as app
+import model_setup
 
 
 class MemoryClipboard:
@@ -47,6 +49,11 @@ class SafetyTests(unittest.TestCase):
             patch.object(app.keyboard, "Controller", FakeKeyboard),
             patch.object(app.ctypes, "WinDLL", lambda *_a, **_kw: SimpleNamespace(IsClipboardFormatAvailable=lambda _format: 1)),
         ]
+        def forbidden(*_args, **_kwargs):
+            raise AssertionError("Real model/network/device work forbidden")
+        for name in ("_load_asr_profile", "_load_punct_profile", "_get_vad", "ensure_audio_stream", "ensure_audio_stream_async"):
+            self.patches.append(patch.object(app.DictationEngine, name, forbidden))
+        self.patches.append(patch.object(model_setup, "urlopen", forbidden))
         for item in self.patches:
             item.start()
             self.addCleanup(item.stop)
@@ -144,6 +151,39 @@ class SafetyTests(unittest.TestCase):
         engine._transcribe_recording(self.job(engine, SimpleNamespace(restore=lambda _text: "")))
         self.assertEqual(self.texts[0][1], "recognized text")
         self.assertEqual(self.statuses[-1], "Copied - punctuation unavailable")
+
+    def test_unusable_and_nonstring_punctuation_never_send(self):
+        for context in ("", "Earlier words"):
+            for value in (".", "", "  ", None, 123, b"text"):
+                engine = self.engine()
+                engine.cfg.update(use_punctuation=True, press_enter_after_paste=True)
+                punct = SimpleNamespace(restore=lambda _text, value=value: value,
+                                        restore_inserted=lambda *_args, value=value: value)
+                job = replace(self.job(engine, punct), context=context)
+                engine._transcribe_recording(job)
+                self.assertEqual(self.texts[-1][1].strip(), "recognized text")
+                self.assertEqual(self.statuses[-1], "Copied - punctuation unavailable")
+                self.assertEqual(engine.keyboard.events, [])
+
+    def test_ui_retry_reaches_loader_and_recovers_without_settings_change(self):
+        engine = self.engine()
+        engine.cfg["use_punctuation"] = True
+        engine.loaded, engine.stream = True, object()
+        done = threading.Event()
+        engine.status_callback = lambda value: (self.statuses.append(value), done.set())
+        engine._load_punct_profile = lambda *_args: (_ for _ in ()).throw(RuntimeError("punct"))
+        engine.load_punct_async(engine.cfg)
+        self.assertTrue(done.wait(3))
+        self.assertEqual(self.statuses[-1], "Punctuation unavailable")
+        ui = app.VoiceDictationApp.__new__(app.VoiceDictationApp)
+        ui.engine, ui.cfg = engine, dict(engine.cfg)
+        ui.update_status = self.statuses.append
+        done.clear()
+        engine._load_punct_profile = lambda *_args: object()
+        ui.handle_action("retry_models")
+        self.assertTrue(done.wait(3))
+        self.assertEqual(engine.readiness_status(), "Ready")
+        self.assertIsNone(engine.punct_error)
 
     def test_punct_preload_failure_is_visible_and_explicit_retry_recovers(self):
         engine = self.engine()

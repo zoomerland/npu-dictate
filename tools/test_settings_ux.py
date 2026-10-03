@@ -32,7 +32,8 @@ class SettingsTests(unittest.TestCase):
         ui.settings_error_var = Value()
         ui.applied_configs, ui.statuses = [], []
         ui.engine = SimpleNamespace(hardware_info={"available": True, "devices": ["CPU", "NPU"]},
-                                    is_idle=lambda: True, update_config=lambda cfg: ui.applied_configs.append(dict(cfg)))
+                                    is_idle=lambda: True, update_config=lambda cfg: ui.applied_configs.append(dict(cfg)),
+                                    readiness_status=lambda: "Ready")
         ui.hotkeys = SimpleNamespace(update_config=lambda _cfg: None)
         ui.update_status = ui.statuses.append
         for name in ("apply_overlay_layout", "apply_overlay_opacity", "_position_overlay", "refresh_static_ui_text"):
@@ -132,6 +133,33 @@ class SettingsTests(unittest.TestCase):
         with patch.object(app, "save_config", lambda _cfg: None):
             self.assertTrue(ui.save_settings(None, dict(ui.cfg, overlay_size="large"), close=False))
         self.assertIsNone(ui.cfg["input_device_index"])
+
+    def test_full_model_progress_and_readiness_refresh(self):
+        ui = self.ui()
+        ui.settings_model_progress_var = Value()
+        states, refreshes = [], []
+        ui.settings_model_progress_bar = SimpleNamespace(stop=lambda: None,
+            configure=lambda **kwargs: states.append(kwargs), start=lambda _interval: states.append("start"))
+        ui.settings_refresh_models = lambda: refreshes.append(True)
+        status = "Downloading models 37%, 400 MB left, 2 MB/s, ETA 03:20, 1/4 model.bin"
+        ui.model_load_status = status
+        ui.refresh_model_progress()
+        self.assertEqual(ui.settings_model_progress_var.get(), status)
+        self.assertEqual(states[-1], dict(mode="determinate", value=37))
+        ui.model_load_status = "Warming models"
+        ui.refresh_model_progress()
+        self.assertEqual(states[-1], "start")
+        ui.model_load_status = "Ready"
+        ui.refresh_model_progress()
+        self.assertEqual(refreshes, [True])
+        self.assertEqual(states[-1]["value"], 100)
+
+    def test_save_does_not_hide_punctuation_failure(self):
+        ui = self.ui()
+        ui.engine.readiness_status = lambda: "Punctuation unavailable"
+        with patch.object(app, "save_config", lambda _cfg: None):
+            self.assertTrue(ui.save_settings(None, dict(ui.cfg), close=False))
+        self.assertEqual(ui.statuses[-1], "Punctuation unavailable")
 
 
 if __name__ == "__main__":

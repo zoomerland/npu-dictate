@@ -23,7 +23,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [x] UX-05: validate hotkey tokens and overlapping shortcuts.
 - [x] UX-06: recoverable settings-save failures and exit behavior.
 - [x] UX-07: preserve the system-default/missing microphone choice.
-- [ ] UX-08: full live model progress, refresh installed labels, honest warmup states.
+- [x] UX-08: full live model progress, refresh installed labels, honest warmup states.
 - [ ] UX-09: responsive settings widths and per-monitor workarea placement.
 - [ ] UX-10: redact dictated text/logs from default copied diagnostics.
 - [ ] UX-11: localize dynamic status details and correct opacity terminology.
@@ -84,3 +84,11 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
   missing device is explicitly retained, not replaced by the first available index.
   The sample-rate label explains automatic selection. Stable USB identity remains
   a separate future improvement: PortAudio indices can change between restarts.
+- UX-08 / review follow-up: safety suite extended to 18 tests; settings suite to
+  12. Model settings expose full live progress and an explicit idle-only retry.
+  Labels refresh on loading/readiness events without marking edited settings dirty.
+  Warmup uses indeterminate progress; the existing NPU startup guard is unchanged
+  and explained. Saving cannot conceal a current readiness failure.
+  Non-string and punctuation-only results now fall back at the final boundary;
+  synthetic raw fallback never pastes or sends. The safety harness denies real
+  loaders, network and audio opening globally. Independent re-review is pending.

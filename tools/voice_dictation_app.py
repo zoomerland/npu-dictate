@@ -103,6 +103,8 @@ TRANSLATIONS = {
         "model_status_asr": "Speech files",
         "model_status_punct": "Punctuation files",
         "warmup_models": "Warm up models on startup",
+        "warmup_notice": "NPU speech warmup is deferred until first recognition to avoid startup hangs. First recognition may take longer.",
+        "retry_models": "Retry model loading",
         "compare_asr": "Compare ASR CPU/NPU",
         "overlay_size": "Overlay size",
         "overlay_size_small": "Small",
@@ -240,6 +242,8 @@ TRANSLATIONS = {
         "model_status_asr": "Файлы распознавания",
         "model_status_punct": "Файлы пунктуации",
         "warmup_models": "Прогревать модели при запуске",
+        "warmup_notice": "Прогрев распознавания на NPU отложен до первой диктовки для защиты от зависания при запуске. Первая обработка может занять больше времени.",
+        "retry_models": "Повторить загрузку моделей",
         "compare_asr": "Сравнивать ASR CPU/NPU",
         "overlay_size": "Размер кнопки",
         "overlay_size_small": "Маленькая",
@@ -3337,12 +3341,18 @@ class DictationEngine:
                     if context:
                         if hasattr(punct, "restore_inserted"):
                             final_text = punct.restore_inserted(context, raw_text)
+                            if not isinstance(final_text, str) or not final_text.strip():
+                                raise ValueError("Punctuation returned invalid text")
                             final_text = adjust_inserted_casing(raw_text, final_text, context)
                         else:
                             restored = punct.restore(f"{context} {raw_text}".strip())
+                            if not isinstance(restored, str) or not restored.strip():
+                                raise ValueError("Punctuation returned invalid text")
                             final_text = inserted_text_from_context(raw_text, restored, context)
                     else:
                         final_text = punct.restore(raw_text)
+                        if not isinstance(final_text, str) or not final_text.strip():
+                            raise ValueError("Punctuation returned invalid text")
                         final_text = adjust_inserted_casing(raw_text, final_text)
                     if not isinstance(final_text, str) or not final_text.strip():
                         raise ValueError("Punctuation returned no text")
@@ -3358,6 +3368,9 @@ class DictationEngine:
                 context or "",
                 append_trailing_space=bool(cfg.get("append_space", False)),
             )
+            if raw_text and (not final_text.strip() or not any(char.isalnum() for char in final_text)):
+                punct_failed = True
+                final_text = raw_text
 
             if final_text:
                 log_debug(
@@ -3731,6 +3744,7 @@ class VoiceDictationApp:
 
         self.status_var = tk.StringVar(value="Loading models")
         self.current_status = "Loading models"
+        self.model_load_status = "Loading models"
         self.current_display_status = "Loading models"
         self.last_text_var = tk.StringVar(value="")
         self.mode_var = tk.StringVar(value=self.cfg.get("mode", "hold"))
@@ -4528,6 +4542,23 @@ class VoiceDictationApp:
         elif action == "toggle_recording":
             self.engine.toggle_recording()
 
+        elif action == "retry_models":
+            self.retry_model_loading()
+
+    def retry_model_loading(self):
+        if not self.engine.is_idle():
+            self.settings_error("Finish dictation before applying settings")
+            return False
+        if not self.engine.loaded:
+            return self.engine.load_async()
+        if self.cfg.get("use_punctuation", True):
+            self.update_status("Loading punct")
+            self.engine.load_punct_async(self.cfg)
+        if self.engine.stream is None:
+            self.engine.ensure_audio_stream_async()
+        self.update_status(self.engine.readiness_status())
+        return True
+
     def set_display_status(self, status):
         self.current_display_status = status
         self.status_var.set(status)
@@ -4583,7 +4614,32 @@ class VoiceDictationApp:
         self.draw_overlay()
         self.overlay_progress_after_id = self.root.after(80, self.advance_overlay_progress)
 
+    def refresh_model_progress(self):
+        status = getattr(self, "model_load_status", "Loading models")
+        variable = getattr(self, "settings_model_progress_var", None)
+        if variable is not None:
+            variable.set(self.localize_status(status))
+        bar = getattr(self, "settings_model_progress_bar", None)
+        if bar is not None:
+            percent = status_percent(status)
+            bar.stop()
+            if percent is not None:
+                bar.configure(mode="determinate", value=percent)
+            elif status.startswith(("Loading", "Downloading", "Verifying", "Converting", "Preparing", "Retrying", "First model setup")) or status in {"Warming models", "Still loading"}:
+                bar.configure(mode="indeterminate")
+                bar.start(100)
+            else:
+                bar.configure(mode="determinate", value=100 if status == "Ready" else 0)
+        refresh = getattr(self, "settings_refresh_models", None)
+        if refresh is not None and (status.startswith(("Loading", "Verifying", "Load error")) or status in {"Ready", "Punctuation unavailable"}):
+            refresh()
+
     def update_status(self, status):
+        if status.startswith(("First model setup", "Preparing", "Downloading", "Verifying", "Retrying", "Converting", "Loading", "Load error")) or status in {
+            "Warming models", "Ready", "Still loading", "Punctuation unavailable", "Audio unavailable",
+        }:
+            self.model_load_status = status
+            self.refresh_model_progress()
         if self.engine.recording:
             status = "Recording"
         elif self.engine.transcribing and status in {"Settings saved", "Ready", "Hotkey captured", "Press hotkey"}:
@@ -4619,7 +4675,7 @@ class VoiceDictationApp:
             or status.startswith("Retrying")
             or status.startswith("Converting")
             or status.startswith("Loading")
-            or status in {"Starting audio", "Still loading", "Transcribing", "Finishing"}
+            or status in {"Starting audio", "Still loading", "Transcribing", "Finishing", "Warming models"}
         )
         self.overlay_progress_percent = percent if busy else None
         show_progress = busy and self.overlay_details_mode() != "button"
@@ -4799,6 +4855,7 @@ class VoiceDictationApp:
         self.settings_i18n_choices = []
         self.settings_i18n_tabs = []
         self.settings_error_var = tk.StringVar(value="")
+        self.settings_model_progress_var = tk.StringVar(value=self.localize_status(getattr(self, "model_load_status", "Loading models")))
         win.title(f"{APP_NAME} {self.t('settings_title')}")
         win.attributes("-topmost", True)
         win.resizable(True, True)
@@ -4886,6 +4943,7 @@ class VoiceDictationApp:
         asr_model_status = tk.StringVar()
         punct_model_status = tk.StringVar()
         dirty = tk.BooleanVar(value=False)
+        refreshing_labels = False
 
         def remember_i18n(widget, key):
             self.settings_i18n_widgets.append((widget, key))
@@ -4917,6 +4975,9 @@ class VoiceDictationApp:
                 self.settings_i18n_widgets = []
                 self.settings_i18n_choices = []
                 self.settings_i18n_tabs = []
+                self.settings_refresh_models = None
+                self.settings_model_progress_var = None
+                self.settings_model_progress_bar = None
 
         win.bind("<Destroy>", clear_i18n_registry, add="+")
 
@@ -4927,7 +4988,8 @@ class VoiceDictationApp:
         selected_device = tk.StringVar(value=selected_label)
 
         def mark_dirty(*_):
-            dirty.set(True)
+            if not refreshing_labels:
+                dirty.set(True)
 
         for variable in (
             mode,
@@ -4994,6 +5056,8 @@ class VoiceDictationApp:
             )
 
         def refresh_model_option_texts(*_):
+            nonlocal refreshing_labels
+            refreshing_labels = True
             language = settings_ui_language_code()
             asr_id = model_id_from_label(ASR_MODEL_PROFILES, asr_model.get(), DEFAULT_ASR_MODEL)
             punct_id = model_id_from_label(PUNCT_MODEL_PROFILES, punct_model.get(), DEFAULT_PUNCT_MODEL)
@@ -5012,6 +5076,9 @@ class VoiceDictationApp:
             if punct_model.get() != next_punct_label:
                 punct_model.set(next_punct_label)
             refresh_model_status_texts()
+            refreshing_labels = False
+
+        self.settings_refresh_models = refresh_model_option_texts
 
         for variable in (ui_language, asr_model, asr_device, punct_model, punct_device):
             variable.trace_add("write", refresh_model_status_texts)
@@ -5355,6 +5422,11 @@ class VoiceDictationApp:
         )
 
         row += 1
+        i18n_label(models_section, "warmup_notice", style="SettingsHint.TLabel", wraplength=scaled(760), justify="left").grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=(0, 6)
+        )
+
+        row += 1
         i18n_label(models_section, "punct_model").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         punct_model_combo = ttk.Combobox(
             models_section,
@@ -5387,7 +5459,19 @@ class VoiceDictationApp:
         ).grid(row=row, column=1, sticky="w", pady=6)
         refresh_model_option_texts()
 
+        row += 1
+        ttk.Label(models_section, textvariable=self.settings_model_progress_var, wraplength=scaled(760), justify="left").grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=(12, 6)
+        )
+        row += 1
+        self.settings_model_progress_bar = ttk.Progressbar(models_section, maximum=100)
+        self.settings_model_progress_bar.grid(row=row, column=0, columnspan=2, sticky="ew", pady=6)
+        row += 1
+        i18n_button(models_section, "retry_models", command=self.retry_model_loading).grid(row=row, column=0, columnspan=2, sticky="w", pady=6)
+        self.refresh_model_progress()
+
         overlay_section = settings_section("settings_section_overlay")
+
         row = 0
         i18n_label(overlay_section, "overlay_size").grid(row=row, column=0, sticky="w", pady=6, padx=(0, 18))
         overlay_size_combo = ttk.Combobox(
@@ -5617,7 +5701,8 @@ class VoiceDictationApp:
         self.apply_overlay_opacity()
         self._position_overlay()
         self.refresh_static_ui_text()
-        self.update_status("Settings saved")
+        readiness = self.engine.readiness_status()
+        self.update_status("Settings saved" if readiness == "Ready" else readiness)
         if close:
             win.destroy()
         return True
