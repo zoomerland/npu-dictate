@@ -21,7 +21,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 - [ ] Independent review and critical-path regression gate.
 - [x] UX-04: consistent cached-model readiness and integrity checks.
 - [x] UX-05: validate hotkey tokens and overlapping shortcuts.
-- [ ] UX-06: recoverable settings-save failures and exit behavior.
+- [x] UX-06: recoverable settings-save failures and exit behavior.
 - [ ] UX-07: preserve the system-default/missing microphone choice.
 - [ ] UX-08: full live model progress, refresh installed labels, honest warmup states.
 - [ ] UX-09: responsive settings widths and per-monitor workarea placement.
@@ -77,3 +77,6 @@ of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavi
 - UX-05: settings suite, 4 tests PASS. Invalid key names and subset conflicts are
   rejected with an inline error. Legacy conflicting configs dispatch only the overlay
   action for a matching chord. Physical digit handling and supported named keys remain.
+- UX-06: settings suite extended to 8 tests. Failed persistence leaves the applied
+  config unchanged; failed autostart changes restore the prior saved config. Inline
+  errors keep the settings window open, and failed exit persistence cannot trap exit.

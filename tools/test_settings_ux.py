@@ -73,6 +73,49 @@ class SettingsTests(unittest.TestCase):
         manager.on_press(app.keyboard.Key.f8)
         self.assertEqual(actions, ["toggle_overlay"])
 
+    def test_save_failure_does_not_publish_new_config(self):
+        ui = self.ui()
+        old = dict(ui.cfg)
+        with patch.object(app, "save_config", side_effect=PermissionError("synthetic")):
+            self.assertFalse(ui.save_settings(None, dict(ui.cfg, ui_language="ru"), close=False))
+        self.assertEqual(ui.cfg, old)
+        self.assertEqual(ui.applied_configs, [])
+        self.assertEqual(ui.settings_error_var.get(), "Could not save settings: PermissionError")
+
+    def test_startup_failure_restores_previous_saved_config(self):
+        ui = self.ui()
+        old = dict(ui.cfg)
+        writes = []
+        with patch.object(app, "save_config", side_effect=lambda cfg: writes.append(dict(cfg))), \
+             patch.object(app, "set_startup_enabled", return_value=False):
+            self.assertFalse(ui.save_settings(None, dict(ui.cfg, start_with_windows=True), close=False))
+        self.assertEqual(ui.cfg, old)
+        self.assertEqual(writes[-1], old)
+        self.assertEqual(len(writes), 2)
+        self.assertEqual(ui.applied_configs, [])
+
+    def test_save_success_publishes_after_persistence(self):
+        ui = self.ui()
+        old_language = ui.cfg["ui_language"]
+        def persisted(cfg):
+            self.assertEqual(ui.cfg["ui_language"], old_language)
+            self.assertEqual(cfg["ui_language"], "ru")
+        with patch.object(app, "save_config", side_effect=persisted):
+            self.assertTrue(ui.save_settings(None, dict(ui.cfg, ui_language="ru"), close=False))
+        self.assertEqual(ui.cfg["ui_language"], "ru")
+        self.assertEqual(len(ui.applied_configs), 1)
+
+    def test_save_failure_does_not_prevent_exit(self):
+        ui = self.ui()
+        ui.exit_requested = False
+        closed = []
+        ui._finalize_exit = lambda: closed.append(True)
+        ui.hotkeys.stop = lambda: None
+        ui.engine.request_shutdown = lambda: False
+        with patch.object(app, "save_config", side_effect=PermissionError("synthetic")):
+            ui.exit_app()
+        self.assertEqual(closed, [True])
+
 
 if __name__ == "__main__":
     import sys

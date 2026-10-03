@@ -203,6 +203,8 @@ TRANSLATIONS = {
         "Startup error": "Startup error",
         "Settings saved": "Settings saved",
         "Finish dictation before applying settings": "Finish dictation before applying settings",
+        "Settings save failed": "Could not save settings",
+        "Settings rollback failed": "Could not restore previous settings",
     },
     "ru": {
         "settings_title": "Настройки",
@@ -336,6 +338,8 @@ TRANSLATIONS = {
         "Startup error": "Ошибка автозапуска",
         "Settings saved": "Настройки сохранены",
         "Finish dictation before applying settings": "Завершите диктовку перед применением настроек",
+        "Settings save failed": "Не удалось сохранить настройки",
+        "Settings rollback failed": "Не удалось восстановить прежние настройки",
     },
 }
 
@@ -3782,6 +3786,8 @@ class VoiceDictationApp:
         if status.startswith("Error: "):
             return f"{self.t('error')}: {status.split(': ', 1)[1]}"
         for prefix in (
+            "Settings save failed",
+            "Settings rollback failed",
             "First model setup",
             "Preparing model download",
             "Downloading models",
@@ -5100,8 +5106,10 @@ class VoiceDictationApp:
 
             try:
                 sample_rate_value = int(sample_rate.get() or 0)
+                if sample_rate_value < 0 or sample_rate_value > 384000 or 0 < sample_rate_value < 8000:
+                    raise ValueError("Unsupported sample rate range")
             except ValueError:
-                self.update_status("Bad sample rate")
+                self.settings_error("Bad sample rate")
                 return None
 
             return {
@@ -5574,16 +5582,26 @@ class VoiceDictationApp:
         if hotkeys_conflict(dictation_hotkey, overlay_hotkey):
             self.settings_error("Hotkey conflict")
             return False
-        if bool(values.get("start_with_windows", False)) != is_startup_enabled():
-            if not set_startup_enabled(bool(values.get("start_with_windows", False))):
-                self.update_status("Startup error")
-                return False
-        values["start_with_windows"] = is_startup_enabled()
-
+        old_startup = is_startup_enabled()
+        new_startup = bool(values.get("start_with_windows", False))
+        values["start_with_windows"] = new_startup
         next_cfg = dict(self.cfg)
         next_cfg.update(values)
-        self.cfg = normalize_model_config(next_cfg, hardware_info)
-        save_config(self.cfg)
+        next_cfg = normalize_model_config(next_cfg, hardware_info)
+        try:
+            save_config(next_cfg)
+        except OSError as exc:
+            self.settings_error(f"Settings save failed: {type(exc).__name__}")
+            return False
+        if new_startup != old_startup and not set_startup_enabled(new_startup):
+            try:
+                save_config(self.cfg)
+            except OSError as exc:
+                self.settings_error(f"Settings rollback failed: {type(exc).__name__}")
+                return False
+            self.settings_error("Startup error")
+            return False
+        self.cfg = next_cfg
         self.hotkeys.update_config(self.cfg)
         self.engine.update_config(self.cfg)
         self.apply_overlay_layout()
@@ -5602,7 +5620,10 @@ class VoiceDictationApp:
             return
 
         self.exit_requested = True
-        save_config(self.cfg)
+        try:
+            save_config(self.cfg)
+        except OSError as exc:
+            log_debug(f"exit config save failed error={type(exc).__name__}")
         self.hotkeys.stop()
         if self.engine.request_shutdown():
             self.update_status("Finishing")
