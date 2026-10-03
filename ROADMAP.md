@@ -279,6 +279,12 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Do not let the first real dictation silently absorb the long first compile.
   - Add user-facing progress/status for first NPU preparation when cache is new or model/device/bucket settings change.
   - Keep the current observation: after the long first NPU compile/cache pass, repeated dictation becomes fast and stable.
+- [ ] Disable optional OpenVINO Python telemetry for the offline runtime:
+  - [x] Select the vendor's no-telemetry fallback before source runtime imports, without changing global consent/preferences.
+  - [x] Configure the equivalent frozen runtime hook and packaging exclusion.
+  - [x] Verify real fresh-process imports with no opt-out file, background network-attempt checks and independent review: 16 focused tests, included in the 85-test aggregate, PASS.
+  - [ ] Verify a rebuilt EXE in a later packaging gate; current published binaries are unchanged.
+  - Scope and evidence: [Optional OpenVINO telemetry](docs/offline-runtime-telemetry.md).
 - [ ] Benchmark CPU vs NPU:
   - [x] Preliminary warm ASR benchmark on 9 live post-pre-roll debug WAV files:
     - CPU INT8 total: 10.643 seconds.

@@ -19,6 +19,9 @@ def main():
         from test_settings_ux import SettingsTests
         from test_model_readiness import ReadinessTests
         from test_rupunct_windows import PunctuationWindowTests
+        from test_offline_runtime import (
+            BootstrapAstTests, GuardTests, PureTelemetryTests, RealImportTests,
+        )
 
         patches = [patch.object(app, "sd", None), patch.object(app, "log_debug", lambda _message: None),
                    patch.object(model_setup, "urlopen", forbidden), patch.object(app.tk, "Tk", forbidden),
@@ -32,7 +35,8 @@ def main():
             for guard in patches:
                 stack.enter_context(guard)
             suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case)
-                                       for case in (SafetyTests, SettingsTests, ReadinessTests, PunctuationWindowTests))
+                                       for case in (SafetyTests, SettingsTests, ReadinessTests, PunctuationWindowTests,
+                                                    PureTelemetryTests, BootstrapAstTests, GuardTests, RealImportTests))
             result = unittest.TextTestRunner(verbosity=2).run(suite)
         return 0 if result.wasSuccessful() else 1
 

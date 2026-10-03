@@ -1,3 +1,7 @@
+from offline_runtime import disable_optional_telemetry
+
+disable_optional_telemetry()
+
 import ctypes
 import json
 import os
