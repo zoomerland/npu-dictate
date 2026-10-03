@@ -15,7 +15,7 @@ Base: `features/next` at `3af69614c045cbe187f1881bab33d2ba16f76862`.
 
 ## Work Queue
 
-- [ ] UX-01: stop paste on failed target restoration/identity drift; retain manual text.
+- [x] UX-01: stop paste on failed target restoration/identity drift; retain manual text.
 - [ ] UX-02: retain raw ASR on punctuation failure, avoid automatic sending, retry safely.
 - [ ] UX-03: defer recording-incompatible settings; preserve live recording indicators.
 - [ ] Independent review and critical-path regression gate.
@@ -54,3 +54,7 @@ private evidence, not product files. None of this content enters commits.
 
 Record commands and results incrementally below. Synthetic output is not evidence
 of actual recipient acceptance, model quality, mixed-DPI rendering or MSI behavior.
+
+- UX-01: `tools/test_dictation_safety.py`, 6 tests PASS. Failed focus, focus exception,
+  unavailable/changed identity and changed fallback target send no input; stable
+  window fallback still works. Copy failure is no longer described as copied.

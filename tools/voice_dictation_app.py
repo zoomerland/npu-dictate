@@ -183,6 +183,7 @@ TRANSLATIONS = {
         "Pasted - Enter failed": "Pasted - Enter failed",
         "Copied": "Copied",
         "Copied - paste manually": "Copied - paste manually",
+        "Text ready - clipboard failed": "Text ready - clipboard unavailable",
         "No audio": "No audio",
         "Too short": "Too short",
         "No speech": "No speech",
@@ -311,6 +312,7 @@ TRANSLATIONS = {
         "Pasted - Enter failed": "Вставлено - ошибка Enter",
         "Copied": "Скопировано",
         "Copied - paste manually": "Скопировано - вставьте вручную",
+        "Text ready - clipboard failed": "Текст готов - буфер недоступен",
         "No audio": "Нет звука",
         "Too short": "Слишком коротко",
         "No speech": "Речь не найдена",
@@ -2170,6 +2172,7 @@ class DictationEngine:
         self.recording_wall_end = None
         self.recording_context = None
         self.last_paste_target_identity = None
+        self.last_paste_copied = False
         self.last_enter_failure_reason = None
         self.closing = False
         self.transcription_thread = None
@@ -3292,7 +3295,7 @@ class DictationEngine:
                             )
                         )
                     else:
-                        self.set_status("Copied - paste manually")
+                        self.set_status("Copied - paste manually" if self.last_paste_copied else "Text ready - clipboard failed")
                 else:
                     pyperclip.copy(final_text)
                     self.set_status("Copied")
@@ -3329,6 +3332,7 @@ class DictationEngine:
     def paste_text(self, text, cfg=None):
         cfg = cfg or self.cfg
         self.last_paste_target_identity = None
+        self.last_paste_copied = False
         self.last_enter_failure_reason = None
         restore_clipboard = bool(cfg.get("restore_clipboard_after_paste", True))
         previous_clipboard = ""
@@ -3379,13 +3383,23 @@ class DictationEngine:
         if not clipboard_ready:
             log_debug("clipboard verify mismatch")
             return False
+        self.last_paste_copied = True
 
         target_ready = None
         if self.focus_callback:
-            target_ready = bool(self.focus_callback())
+            try:
+                target_ready = bool(self.focus_callback())
+            except Exception as exc:
+                log_debug(f"paste focus failed error={type(exc).__name__}")
+                return False
+            if not target_ready:
+                log_debug("paste skipped reason=focus_failed")
+                return False
+        self.last_paste_target_identity = self.current_target_identity()
         time.sleep(0.12)
-        if target_ready is not False:
-            self.last_paste_target_identity = self.current_target_identity()
+        if not self.paste_target_is_current():
+            log_debug("paste skipped reason=target_changed_or_unavailable")
+            return False
 
         def restore_previous_clipboard():
             if not restore_clipboard or not has_previous_clipboard:
@@ -3403,6 +3417,8 @@ class DictationEngine:
             restore_previous_clipboard()
             return True
 
+        if not self.paste_target_is_current():
+            return False
         try:
             self.keyboard.press(keyboard.Key.ctrl)
             self.keyboard.press("v")
@@ -4535,7 +4551,7 @@ class VoiceDictationApp:
             self.set_overlay_button_state("button_paste", "#b85528", "#98441f")
         elif status == "Copied":
             self.set_overlay_button_state("button_copy", "#2b7281", "#245f6c")
-        elif status.startswith("Copied - paste"):
+        elif status.startswith("Copied - paste") or status == "Text ready - clipboard failed":
             self.set_overlay_button_state("button_paste", "#b85528", "#98441f")
         elif status in {"No audio", "Too short", "No speech"}:
             self.set_overlay_button_state("button_empty", "#5f6773", "#505762")
