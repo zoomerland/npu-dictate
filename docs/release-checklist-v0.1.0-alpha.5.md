@@ -42,10 +42,10 @@ unclassified implementation work. Origin is the public
 - [x] Integrate reviewed UI/UX branch into features/next (`c72e7dec`).
 - [x] Start release preparation from features/next on a separate release branch.
 - [x] Version metadata, release notes and CI headless gate validated.
-- [ ] Independent packaging/release preflight reviewed.
+- [x] Independent packaging/release preflight reviewed; findings closed at `e9fada76`.
 - [x] Integrated source headless regressions pass.
-- [ ] Fresh local EXE build, isolated import smoke, payload/version checks.
-- [ ] Local MSI build, numeric metadata and administrative-extraction smoke.
+- [x] Fresh local EXE build, isolated import smoke, payload/version checks.
+- [x] Local MSI build, numeric metadata and administrative-extraction smoke.
 - [ ] Final independent release evidence review.
 - [ ] Release preparation merged into features/next, then main.
 - [ ] Main/features/next pushed without force.
@@ -93,4 +93,22 @@ here. If any mandatory gate fails, do not tag/publish on the basis of stale asse
   dist/work paths. Contamination rejects both Clean/default modes before deletion;
   sentinel bytes survive. Config backups and standard model-weight filename
   families are denied at every depth while public examples/library binaries remain.
-  Final source and fresh binary gates remain pending at this checkpoint.
+  Independent final source review closed these findings at `e9fada76`.
+- Final local build source: `e9fada76da8644c377438352b4ee837541d797ae`.
+  EXE/ZIP/MSI-extracted payloads match 5,861 files / 920,335,933 bytes.
+  All three isolated import smokes PASS, without visible UI or model initialization.
+  EXE ProductVersion/FileVersion: `0.1.0-alpha.5`, EXE/MSI: NotSigned.
+  MSI ProductVersion: `0.1.5`; stable UpgradeCode:
+  `{EF3E8984-DA8E-4615-BD86-ACE089338FB3}`. This is extraction, not installation.
+- Local inventory SHA256:
+  `8E275D2271DE329A81161820272F3BAFF0120F801E0DAEFCFE91817D60493A73`.
+  Local EXE SHA256:
+  `EB90A42C0BDD12ED56205A2C0EFA966F3C454E188DC56DAFC0AE9978CADC37D3`.
+  Local MSI: 254,808,734 bytes; SHA256:
+  `976A2A7F081389E7568EC416CE997C26DA32A800130573E7C073B26951E6F282`.
+  Local ZIP: 339,560,660 bytes; SHA256:
+  `7F50BCF8113D468199909FD615E9EC711EDE67E590F261E71500C44E38522430`.
+- CI will produce fresh artifacts from the final tagged source. Its separate
+  build-evidence artifact contains the source receipt and full payload inventory;
+  downloaded packages must be checked against THAT inventory, not local hashes.
+  These local hashes are not the public-release checksums.

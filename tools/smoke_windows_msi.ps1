@@ -1,7 +1,8 @@
 param(
     [string]$MsiPath = "",
     [string]$ExpectedProductVersion = "",
-    [string]$ExpectedExeVersion = "0.1.0-alpha.5"
+    [string]$ExpectedExeVersion = "0.1.0-alpha.5",
+    [string]$InventoryPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +12,10 @@ if ([string]::IsNullOrWhiteSpace($MsiPath)) {
     $MsiPath = Join-Path $Root "dist\installer\NPUDictate-0.1.0-alpha.5.msi"
 }
 $MsiPath = (Resolve-Path $MsiPath).Path
+if ([string]::IsNullOrWhiteSpace($InventoryPath)) {
+    $InventoryPath = Join-Path $Root "build\NPUDictate.payload.json"
+}
+$InventoryPath = (Resolve-Path -LiteralPath $InventoryPath).Path
 
 function Get-MsiProperty {
     param(
@@ -102,7 +107,7 @@ $Passed = (
 )
 
 if ($Passed) {
-    & (Join-Path $Root ".venv\Scripts\python.exe") -B (Join-Path $Root "tools\release_payload.py") --app-dir $InstallRoot --compare (Join-Path $Root "build\NPUDictate.payload.json")
+    & (Join-Path $Root ".venv\Scripts\python.exe") -B (Join-Path $Root "tools\release_payload.py") --app-dir $InstallRoot --compare $InventoryPath
     if ($LASTEXITCODE -ne 0) { $Passed = $false }
 }
 if ($Passed) {

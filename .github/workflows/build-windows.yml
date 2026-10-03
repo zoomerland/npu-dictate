@@ -87,3 +87,13 @@ jobs:
           path: |
             dist/installer/NPUDictate-${{ env.APP_VERSION }}-${{ env.APP_CHANNEL }}.msi
             dist/installer/NPUDictate-${{ env.APP_VERSION }}-${{ env.APP_CHANNEL }}-win-x64.zip
+          if-no-files-found: error
+
+      - name: Upload build provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: npudictate-build-evidence
+          path: |
+            build/NPUDictate.build.json
+            build/NPUDictate.payload.json
+          if-no-files-found: error
