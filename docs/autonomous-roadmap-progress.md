@@ -18,15 +18,15 @@ its config/startup entry, capture audio or type/paste into user applications.
 
 ## Ordered Work
 
-1. [ ] Show model-storage usage in Settings: model files, compiled cache and
+1. [x] Show model-storage usage in Settings: model files, compiled cache and
    incomplete downloads. Read metadata in a background worker, avoid links and
    report incomplete/unavailable measurements honestly. Cover stale results,
    close/reopen, localization and errors using fake UI and temporary files.
-2. [ ] Resume interrupted model downloads when the remote representation can be
+2. [x] Resume interrupted model downloads when the remote representation can be
    validated. Retain final size/hash checks, restart safely for changed or
    non-resumable responses, preserve the installed target on failure, and keep
    speed/remaining-byte reporting meaningful. Test HTTP responses in memory.
-3. [ ] Verify and finish installed-build startup-toggle support using fake COM,
+3. [x] Verify and finish installed-build startup-toggle support using fake COM,
    temporary paths and frozen/source-mode tests. Never modify the real Startup
    folder merely to test this feature.
 4. [ ] Reassess model/cache maintenance after storage and download contracts are
@@ -70,5 +70,22 @@ bounded task, with fresh runtime evidence recorded before acceptance.
   and [206 Partial Content](https://www.rfc-editor.org/rfc/rfc9110.html#name-206-partial-content).
   Resume only a consistent representation and validate partial-response bounds.
 
-Next: implement storage and resumable downloads in disjoint worktrees while the
-parent examines installed-startup behavior and owns roadmap/integration records.
+### First Source Batch
+
+- Startup commit: `3697a472b90d450a841e37d750c1f2245a124c7f`.
+- Storage commit: `ad73cd353998fc252b1de883c57018d3dd984308`.
+- Downloads commit: `6e443fb5cc05f2da28ca59d621c413cebab797a7`.
+- Parent cross-family source review accepted all three frozen diffs. Review
+  corrected the startup empty-placeholder issue and simplified an unnecessarily
+  complex read-only storage scanner before acceptance.
+- Separate no-fast-forward merges completed without conflicts. Shared runner
+  now includes all three focused suites. Combined headless gate: 180 PASS,
+  exit 0, 64.744 seconds on 2026-10-04; no skips. Receipt remains local at
+  `build/autonomous-roadmap-20261004/combined-headless.log`.
+- Worker tests: startup 21 focused plus 26 Settings tests; storage 12 focused;
+  download 38 focused plus 13 readiness tests. Do not add overlapping counts.
+- Real HTTP, Tk/DPI rendering and Windows sign-in remain unverified. No app
+  restart, user-state mutation or model download took place.
+
+Next: combined headless validation, then explicit deferred cache maintenance and
+isolated frozen-runtime checks if they can preserve these boundaries.

@@ -210,7 +210,7 @@ Goal: make model setup transparent and legally clean.
 - [ ] Add "Models" settings section:
   - [x] Show selected model language, purpose, supported devices, current-PC devices, and downloaded/missing status.
   - [x] State clearly that v0.1 alpha dictation currently supports Russian only.
-  - [ ] Disk usage.
+  - [x] App-local logical sizes for model files, compiled cache and incomplete downloads; background, bounded metadata scans with partial/unavailable states. See `docs/model-storage-usage.md`; native visual acceptance remains deferred.
   - Download/rebuild action.
   - Clear cache action.
 - [x] Review upstream licenses before the current source-only v0.1 release.
@@ -420,7 +420,8 @@ Do this last.
   - MSI supports standard Windows uninstall for app binaries and shortcuts.
   - README documents uninstall through Windows Settings.
   - Dedicated optional model/cache cleanup remains deferred.
-- [ ] Add startup toggle for installed builds.
+- [x] Add startup toggle for installed builds; frozen/source contracts and failure-safe shortcut publication covered by synthetic tests (`docs/installed-startup-support.md`).
+  - [ ] Verify the real installed shortcut and launch at Windows sign-in; synthetic COM tests do not establish this.
 - [x] Research code signing:
   - Preferred route: SignPath Foundation OSS signing.
   - Free for qualifying OSS projects.
@@ -464,7 +465,8 @@ Detailed scope and validation: `docs/ux-audit-remediation.md`.
 - [ ] Later visual acceptance: Tk wrapping, negative-coordinate monitors, mixed DPI,
   dropdowns, real tray recovery and screen-reader behavior. No product windows were
   opened for this remediation's tests.
-- [ ] Future improvements: resumable downloads, stable USB microphone identity,
+- [x] Resume interrupted downloads only with validated representation identity, retained-prefix integrity and final artifact checks; synthetic HTTP coverage in `docs/resumable-downloads.md`. Live interrupted-network acceptance remains deferred.
+- [ ] Future improvements: stable USB microphone identity,
   native accessibility of Canvas buttons and hover help in button-only mode.
 
 ## Test Matrix

@@ -20,6 +20,9 @@ def main(test_cases=None):
         from test_model_readiness import ReadinessTests
         from test_rupunct_windows import PunctuationWindowTests
         from test_npu_preparation import PreparationTests
+        from test_startup_support import StartupSupportTests
+        from test_model_storage import StorageScanTests, StorageLifecycleTests, StorageUiTests
+        from test_resumable_downloads import ResumableDownloadTests
         import openvino as ov
         from test_offline_runtime import (
             BootstrapAstTests, GuardTests, PureTelemetryTests, RealImportTests,
@@ -41,7 +44,10 @@ def main(test_cases=None):
                                        for case in (test_cases or (SafetyTests, SettingsTests, ReadinessTests,
                                                                   PunctuationWindowTests, PreparationTests,
                                                                   PureTelemetryTests, BootstrapAstTests,
-                                                                  GuardTests, RealImportTests)))
+                                                                  GuardTests, RealImportTests,
+                                                                  StartupSupportTests, StorageScanTests,
+                                                                  StorageLifecycleTests, StorageUiTests,
+                                                                  ResumableDownloadTests)))
             result = unittest.TextTestRunner(verbosity=2).run(suite)
         return 0 if result.wasSuccessful() else 1
 
