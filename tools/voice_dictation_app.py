@@ -36,6 +36,7 @@ else:
 
 from app_paths import app_root, bundled_resource_root, user_data_root
 import cache_maintenance
+from model_availability import ModelAvailabilityRefresh
 from model_storage import StorageRefresh
 from model_setup import (
     artifact_manifest_cache_path,
@@ -699,23 +700,51 @@ def model_is_installed(profiles, value, default):
 
 
 def model_install_state_label(installed, ui_language="en"):
+    if installed is None:
+        return "проверяется..." if normalize_ui_language(ui_language) == "ru" else "checking..."
+    if installed == "unavailable":
+        return "не удалось проверить" if normalize_ui_language(ui_language) == "ru" else "check unavailable"
     if normalize_ui_language(ui_language) == "ru":
         return "скачано" if installed else "нужно скачать"
     return "downloaded" if installed else "needs download"
 
 
-def model_display_label(profiles, value, default, ui_language="en"):
+_CHECK_MODEL_INSTALL_STATE = object()
+
+
+def scan_model_availability(cancel):
+    results = []
+    for profiles, default in ((ASR_MODEL_PROFILES, DEFAULT_ASR_MODEL), (PUNCT_MODEL_PROFILES, DEFAULT_PUNCT_MODEL)):
+        for model_id in profiles:
+            if cancel.is_set():
+                return tuple(results)
+            try:
+                installed = model_is_installed(profiles, model_id, default)
+            except Exception as exc:
+                log_debug(f"settings model check failed error={type(exc).__name__}")
+                installed = "unavailable"
+            results.append((model_id, installed))
+    return tuple(results)
+
+
+def model_display_label(profiles, value, default, ui_language="en", *, installed=_CHECK_MODEL_INSTALL_STATE):
     model_id = normalize_model_id(profiles, value, default)
     profile = model_profile(profiles, model_id, default)
     language = model_profile_local_tag(profile, "language", ui_language)
     role = model_profile_local_tag(profile, "role", ui_language)
     devices = "/".join(profile.get("devices", ()))
-    installed = model_install_state_label(model_is_installed(profiles, model_id, default), ui_language)
-    return f"{profile['label']} [{language}, {role}, {devices}, {installed}]"
+    if installed is _CHECK_MODEL_INSTALL_STATE:
+        installed = model_is_installed(profiles, model_id, default)
+    state = model_install_state_label(installed, ui_language)
+    return f"{profile['label']} [{language}, {role}, {devices}, {state}]"
 
 
-def model_display_labels(profiles, default, ui_language="en"):
-    return [model_display_label(profiles, model_id, default, ui_language) for model_id in profiles]
+def model_display_labels(profiles, default, ui_language="en", *, installed_states=_CHECK_MODEL_INSTALL_STATE):
+    return [model_display_label(
+        profiles, model_id, default, ui_language,
+        installed=_CHECK_MODEL_INSTALL_STATE if installed_states is _CHECK_MODEL_INSTALL_STATE else
+        (installed_states.get(model_id, "unavailable") if installed_states is not None else None),
+    ) for model_id in profiles]
 
 
 def model_id_from_label(profiles, label, default):
@@ -726,13 +755,15 @@ def model_id_from_label(profiles, label, default):
     return default
 
 
-def model_status_line(profiles, value, default, title, hardware_info=None, ui_language="en"):
+def model_status_line(profiles, value, default, title, hardware_info=None, ui_language="en", *, installed=_CHECK_MODEL_INSTALL_STATE):
     model_id = normalize_model_id(profiles, value, default)
     profile = model_profile(profiles, model_id, default)
     language = model_profile_local_tag(profile, "language", ui_language)
     supported = "/".join(profile.get("devices", ())) or "-"
     available = "/".join(model_available_devices(profile, hardware_info)) or "-"
-    installed = model_install_state_label(model_is_installed(profiles, model_id, default), ui_language)
+    if installed is _CHECK_MODEL_INSTALL_STATE:
+        installed = model_is_installed(profiles, model_id, default)
+    installed = model_install_state_label(installed, ui_language)
     if normalize_ui_language(ui_language) == "ru":
         return f"{title}: {profile['label']}, {installed}. Язык: {language}. Модель: {supported}. На этом ПК: {available}."
     return f"{title}: {profile['label']}, {installed}. Language: {language}. Model: {supported}. This PC: {available}."
@@ -4779,7 +4810,18 @@ class VoiceDictationApp:
                 storage = getattr(self, "model_storage", None)
                 if storage is not None and storage.complete(item[1], item[2]):
                     self.refresh_model_storage()
+            elif item[0] == "model_availability":
+                availability = getattr(self, "model_availability", None)
+                if availability is not None and availability.complete(item[1], item[2]):
+                    refresh = getattr(self, "settings_refresh_models", None)
+                    if refresh is not None:
+                        refresh()
 
+        availability = getattr(self, "model_availability", None)
+        if availability is not None and availability.tick():
+            refresh = getattr(self, "settings_refresh_models", None)
+            if refresh is not None:
+                refresh()
         storage = getattr(self, "model_storage", None)
         if storage is not None:
             storage.tick()
@@ -4985,6 +5027,9 @@ class VoiceDictationApp:
                 bar.configure(mode="determinate", value=100 if status == "Ready" else 0)
         refresh = getattr(self, "settings_refresh_models", None)
         if refresh is not None and (status.startswith(("Loading", "Verifying", "Load error", "ASR preparation failed", "Punct preparation failed")) or status in {"Ready", "Ready - warmup deferred", "Punctuation unavailable"}):
+            availability = getattr(self, "model_availability", None)
+            if availability is not None:
+                availability.request()
             refresh()
         storage = getattr(self, "model_storage", None)
         if storage is not None and (is_preparation_status(status) or status.startswith(("Loading", "Downloading", "Verifying", "Converting", "Preparing", "Retrying", "Load error", "ASR preparation failed", "Punct preparation failed")) or status in {"Ready", "Ready - warmup deferred", "Punctuation unavailable"}):
@@ -4996,6 +5041,21 @@ class VoiceDictationApp:
             storage = self.model_storage = StorageRefresh(self.event_queue.put)
         storage.open(user_data_root() / "models")
         self.refresh_model_storage()
+
+    def _open_model_availability(self):
+        availability = getattr(self, "model_availability", None)
+        if availability is None:
+            availability = self.model_availability = ModelAvailabilityRefresh(self.event_queue.put, scan_model_availability)
+        availability.open()
+        self.settings_refresh_models()
+
+    def settings_model_states(self):
+        availability = getattr(self, "model_availability", None)
+        return availability.snapshot if availability is not None else None
+
+    def settings_model_installed(self, model_id):
+        states = self.settings_model_states()
+        return states.get(model_id, "unavailable") if states is not None else None
 
     def refresh_model_storage(self):
         refresh = getattr(self, "settings_refresh_storage", None)
@@ -5275,6 +5335,7 @@ class VoiceDictationApp:
             return
 
         win = tk.Toplevel(self.root)
+        opened_at = time.perf_counter()
         self.settings_window = win
         self.settings_i18n_widgets = []
         self.settings_i18n_choices = []
@@ -5316,7 +5377,7 @@ class VoiceDictationApp:
         mode = tk.StringVar(value=self.choice_label("mode", self.cfg.get("mode", "hold")))
         ui_language = tk.StringVar(value=UI_LANGUAGE_NAMES[ui_lang_code])
         asr_model = tk.StringVar(
-            value=model_display_label(ASR_MODEL_PROFILES, self.cfg.get("asr_model"), DEFAULT_ASR_MODEL, ui_lang_code)
+            value=model_display_label(ASR_MODEL_PROFILES, self.cfg.get("asr_model"), DEFAULT_ASR_MODEL, ui_lang_code, installed=None)
         )
         asr_device = tk.StringVar(
             value=normalize_model_device(
@@ -5332,6 +5393,7 @@ class VoiceDictationApp:
                 self.cfg.get("punct_model"),
                 DEFAULT_PUNCT_MODEL,
                 ui_lang_code,
+                installed=None,
             )
         )
         punct_device = tk.StringVar(
@@ -5404,6 +5466,9 @@ class VoiceDictationApp:
                 storage = getattr(self, "model_storage", None)
                 if storage is not None:
                     storage.close()
+                availability = getattr(self, "model_availability", None)
+                if availability is not None:
+                    availability.close()
                 self.settings_model_progress_var = None
                 self.settings_model_progress_bar = None
                 self.settings_refresh_navigation = None
@@ -5564,6 +5629,7 @@ class VoiceDictationApp:
                     settings_t("model_status_asr", language),
                     hardware_info,
                     language,
+                    installed=self.settings_model_installed(asr_id),
                 )
             )
             punct_model_status.set(
@@ -5574,6 +5640,7 @@ class VoiceDictationApp:
                     settings_t("model_status_punct", language),
                     hardware_info,
                     language,
+                    installed=self.settings_model_installed(punct_id),
                 )
             )
 
@@ -5585,14 +5652,14 @@ class VoiceDictationApp:
             punct_id = model_id_from_label(PUNCT_MODEL_PROFILES, punct_model.get(), DEFAULT_PUNCT_MODEL)
             if "asr" in model_combo_widgets:
                 model_combo_widgets["asr"].configure(
-                    values=model_display_labels(ASR_MODEL_PROFILES, DEFAULT_ASR_MODEL, language)
+                    values=model_display_labels(ASR_MODEL_PROFILES, DEFAULT_ASR_MODEL, language, installed_states=self.settings_model_states())
                 )
             if "punct" in model_combo_widgets:
                 model_combo_widgets["punct"].configure(
-                    values=model_display_labels(PUNCT_MODEL_PROFILES, DEFAULT_PUNCT_MODEL, language)
+                    values=model_display_labels(PUNCT_MODEL_PROFILES, DEFAULT_PUNCT_MODEL, language, installed_states=self.settings_model_states())
                 )
-            next_asr_label = model_display_label(ASR_MODEL_PROFILES, asr_id, DEFAULT_ASR_MODEL, language)
-            next_punct_label = model_display_label(PUNCT_MODEL_PROFILES, punct_id, DEFAULT_PUNCT_MODEL, language)
+            next_asr_label = model_display_label(ASR_MODEL_PROFILES, asr_id, DEFAULT_ASR_MODEL, language, installed=self.settings_model_installed(asr_id))
+            next_punct_label = model_display_label(PUNCT_MODEL_PROFILES, punct_id, DEFAULT_PUNCT_MODEL, language, installed=self.settings_model_installed(punct_id))
             if asr_model.get() != next_asr_label:
                 asr_model.set(next_asr_label)
             if punct_model.get() != next_punct_label:
@@ -5951,7 +6018,7 @@ class VoiceDictationApp:
         asr_model_combo = ttk.Combobox(
             models_section,
             textvariable=asr_model,
-            values=model_display_labels(ASR_MODEL_PROFILES, DEFAULT_ASR_MODEL, settings_ui_language_code()),
+            values=model_display_labels(ASR_MODEL_PROFILES, DEFAULT_ASR_MODEL, settings_ui_language_code(), installed_states=self.settings_model_states()),
             state="readonly",
             width=20,
             font=settings_font,
@@ -5998,7 +6065,7 @@ class VoiceDictationApp:
         punct_model_combo = ttk.Combobox(
             models_section,
             textvariable=punct_model,
-            values=model_display_labels(PUNCT_MODEL_PROFILES, DEFAULT_PUNCT_MODEL, settings_ui_language_code()),
+            values=model_display_labels(PUNCT_MODEL_PROFILES, DEFAULT_PUNCT_MODEL, settings_ui_language_code(), installed_states=self.settings_model_states()),
             state="readonly",
             width=20,
             font=settings_font,
@@ -6227,6 +6294,8 @@ class VoiceDictationApp:
         refresh_navigation()
         dirty.set(False)
         self._open_model_storage()
+        self._open_model_availability()
+        log_debug(f"settings built seconds={time.perf_counter() - opened_at:.3f}")
 
     def settings_error(self, status):
         if hasattr(self, "settings_error_var"):
@@ -6337,6 +6406,9 @@ class VoiceDictationApp:
         self._finalize_exit()
 
     def _finalize_exit(self):
+        availability = getattr(self, "model_availability", None)
+        if availability is not None:
+            availability.close()
         storage = getattr(self, "model_storage", None)
         if storage is not None:
             storage.close()

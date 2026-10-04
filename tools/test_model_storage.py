@@ -270,6 +270,7 @@ class StorageUiTests(unittest.TestCase):
              patch.object(app, "input_devices", return_value=[]), \
              patch.object(app, "is_startup_enabled", return_value=False), \
              patch.object(app, "model_is_installed", return_value=True), \
+             patch.object(app.VoiceDictationApp, "_open_model_availability", lambda _self: None), \
              patch.object(app, "user_data_root", return_value=Path(temporary)), \
              patch.object(app, "save_config", lambda _cfg: None):
             ui.model_storage = storage.StorageRefresh(ui.event_queue.put, scanner=scanner)

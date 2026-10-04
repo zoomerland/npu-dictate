@@ -452,10 +452,14 @@ class SettingsTests(unittest.TestCase):
         ui.monitor_workarea = lambda: (0, 0, 640, 440)
         ui.refresh_static_ui_text = ui.refresh_settings_window_text
         installed = {"value": False}
+        ui.model_availability = SimpleNamespace(snapshot={
+            model_id: False for profiles in (app.ASR_MODEL_PROFILES, app.PUNCT_MODEL_PROFILES) for model_id in profiles
+        }, request=lambda: None, close=lambda: None)
         with patch.object(app, "tk", fake_tk), patch.object(app, "ttk", fake_ttk), \
              patch.object(app, "input_devices", return_value=[]), \
              patch.object(app, "model_is_installed", side_effect=lambda *_args: installed["value"]), \
              patch.object(app.VoiceDictationApp, "_open_model_storage", lambda _self: None), \
+             patch.object(app.VoiceDictationApp, "_open_model_availability", lambda _self: None), \
              patch.object(app, "save_config", lambda _cfg: None):
             ui.open_settings()
             widgets = list(FakeWidget.widgets)
@@ -465,6 +469,7 @@ class SettingsTests(unittest.TestCase):
                              (cell.cell_contents for cell in apply_settings.__closure__)))["dirty"]
             self.assertFalse(dirty.get())
             installed["value"] = True
+            ui.model_availability.snapshot = {model_id: True for model_id in ui.model_availability.snapshot}
             ui.model_load_status = "Ready"
             ui.refresh_model_progress()
             self.assertFalse(dirty.get(), "Background installed labels must not dirty settings")
