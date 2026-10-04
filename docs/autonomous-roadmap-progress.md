@@ -87,5 +87,39 @@ bounded task, with fresh runtime evidence recorded before acceptance.
 - Real HTTP, Tk/DPI rendering and Windows sign-in remain unverified. No app
   restart, user-state mutation or model download took place.
 
-Next: combined headless validation, then explicit deferred cache maintenance and
-isolated frozen-runtime checks if they can preserve these boundaries.
+### Isolated Package Check
+
+- Four diagnostic regressions added; combined headless suite 184 PASS, and
+  separate packaging safety suite 18 PASS.
+- Independent source review PASS; isolated PyInstaller build and actual EXE
+  fresh-home import smoke PASS. Archive lacks optional OpenVINO telemetry;
+  genuine vendor fallback is active. No model or user config was created.
+- Full evidence and scope: `docs/packaged-offline-verification.md`. This EXE
+  precedes deferred cache maintenance and is not a release artifact.
+
+Next: finish/review deferred cache maintenance, integrate its source, and run the
+combined suite again. Keep the installed app and published binaries unchanged.
+
+### Remaining Acceptance Boundaries
+
+Autonomy does not waive the owner's deferred live-acceptance gates. After this
+source batch, the following work must not be silently marked complete:
+
+- Real overlay focus/drag, hold/toggle recording, microphone onset, first live
+  NPU dictation and Enter-send regression; source fakes cannot establish these.
+- Installed shortcut launch at Windows sign-in, MSI upgrade/uninstall, mixed-DPI
+  rendering, native tray menus and screen-reader interaction.
+- Live interrupted-download acceptance against the model host. The synthetic
+  protocol tests cover errors, not that host's current Range/ETag behavior.
+- Broader ASR/bucket/GPU/language changes require separate model selection,
+  measured quality evidence and acceptance; current Russian quality is preserved.
+- Full-field repunctuation requires a safe editor-specific replacement path;
+  no selection fallback is authorized. Stable USB input identity requires real
+  device reconnection evidence before changing microphone-selection guarantees.
+- Signing, publication, `main` promotion and updating the installed app remain
+  separate owner gates. Optional later language/cosmetic work does not supersede
+  the outstanding Russian packaged-flow acceptance.
+
+Cache recompilation is distinct from regenerating converted/quantized weights.
+The former can be requested via the bounded cache action; the latter must not
+be advertised as implemented without a separate reproducible conversion design.
