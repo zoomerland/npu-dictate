@@ -275,10 +275,19 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Test fast speech and long dictation from saved WAV files.
   - Compare against the CPU dynamic-shape baseline.
 - [ ] Make NPU warmup states explicit:
-  - Distinguish cold OpenVINO/NPU compile/cache creation from quick startup load and already-warm in-memory inference.
-  - Do not let the first real dictation silently absorb the long first compile.
-  - Add user-facing progress/status for first NPU preparation when cache is new or model/device/bucket settings change.
+  - [x] Distinguish preparation, actual cache-hit/miss/unknown results, in-memory reuse, and inference warm-up.
+  - [x] Prepare active ASR buckets and punctuation in background workers before recording when startup warm-up is enabled; do not silently defer compilation to the first dictation.
+  - [x] Localize preparation and failure states in RU/EN, with an activity indicator rather than invented compilation percentages or ETA.
+  - [x] Warn explicitly about deferred first-use work when startup warm-up is disabled.
+  - [x] Add hermetic regressions for cache results, pending/failed preparation, settings changes, stale generations, active transcription and shutdown.
+  - [x] Validate native cold-cache/warm-cache preparation and first saved-audio inference on the test laptop, without GUI or microphone: 73.625 s cold readiness, 8.922 s cached readiness; both models report NPU execution and actual cache miss/hit respectively.
+  - [x] Validate disabled warm-up as a deferred-first-use control; identical saved-audio output across all three runs, with no deferred compilation in the prepared cases.
+  - [ ] Validate first live dictation, real UI responsiveness, settings/exit, microphone and both recording modes before release; headless native results do not close this gate.
+  - Implementation and acceptance boundaries: [NPU preparation states](docs/npu-preparation-states.md). Source-only feature; no new package or live restart yet.
   - Keep the current observation: after the long first NPU compile/cache pass, repeated dictation becomes fast and stable.
+- [ ] Verify and explicitly disable optional dependency telemetry for offline runtime on a clean installation:
+  - Isolated native-check imports exposed an OpenVINO GA4 telemetry attempt when no consent file existed; the test guard blocked the request before sending.
+  - A test-root-only opt-out prevented the attempt. Product/global preferences were not changed; inspect packaged dependencies and add a no-telemetry regression before treating this as fixed.
 - [ ] Benchmark CPU vs NPU:
   - [x] Preliminary warm ASR benchmark on 9 live post-pre-roll debug WAV files:
     - CPU INT8 total: 10.643 seconds.

@@ -68,7 +68,9 @@ def text_has_trailing_punctuation(text):
 
 
 class RUPunctRestorer:
-    def __init__(self, model_dir, device="NPU", max_len=128, cache_dir=None):
+    def __init__(self, model_dir, device="NPU", max_len=128, cache_dir=None, status_callback=None):
+        self.status_callback = status_callback
+        self._report("Reading punct model")
         self.model_dir = Path(model_dir)
         self.max_len = max_len
 
@@ -87,7 +89,22 @@ class RUPunctRestorer:
             self.core.set_property({"CACHE_DIR": str(cache_dir)})
 
         model = self.core.read_model(str(self.model_dir / "openvino_model.xml"))
+        self._report("Compiling punct")
         self.compiled = self.core.compile_model(model, device)
+        try:
+            cached = self.compiled.get_property("LOADED_FROM_CACHE")
+        except Exception:
+            cached = None
+        self._report("Punct cache loaded" if cached is True else (
+            "Punct compiled without cache" if cached is False else "Punct cache unknown"))
+
+    def _report(self, phase):
+        if self.status_callback is not None:
+            self.status_callback(phase)
+
+    def warmup(self):
+        self._report("Warming punct")
+        self.restore("проверка прогрева модели")
 
     def _predict_groups(self, text):
         token_budget = self.max_len - self.tokenizer.num_special_tokens_to_add(pair=False)

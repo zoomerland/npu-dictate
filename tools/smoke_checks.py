@@ -256,7 +256,7 @@ class FakeWarmupAsr:
 
     def warmup(self, _buckets):
         self.called = True
-        raise AssertionError("NPU ASR warmup should be skipped")
+        return list(_buckets)
 
 
 class FakePunct:
@@ -268,14 +268,14 @@ class FakePunct:
         return _text
 
 
-def check_npu_asr_warmup_is_skipped():
+def check_npu_asr_warmup_is_required():
     engine = app.DictationEngine(app.default_config(), lambda _status: None, lambda *_args: None)
     asr = FakeWarmupAsr()
     punct = FakePunct()
     cfg = app.default_config()
     cfg.update({"warmup_models": True, "asr_device": "NPU", "punct_device": "NPU"})
     engine._warmup_models(asr, punct, cfg)
-    assert not asr.called
+    assert asr.called
     assert punct.called
 
 
@@ -603,6 +603,8 @@ def check_stale_asr_status_is_discarded():
     assert statuses == []
 
     current_generation = engine._asr_generation
+    engine.loaded, engine.asr, engine.stream = True, object(), object()
+    engine.cfg["use_punctuation"] = False
     assert engine._set_asr_status(current_generation, "Ready") is True
     ui.poll_events()
     assert statuses == ["Ready"]
@@ -1291,6 +1293,10 @@ def main():
 
     parser = argparse.ArgumentParser(description="Run local smoke checks for NPU Dictate.")
     parser.add_argument(
+        "--suite", choices=["all", "preparation"], default="all",
+        help="Run only hermetic preparation regressions, or the existing full smoke suite.",
+    )
+    parser.add_argument(
         "--skip-rupunct",
         action="store_true",
         help="Skip the optional RUPunct CPU smoke test.",
@@ -1303,6 +1309,11 @@ def main():
     )
     args = parser.parse_args()
 
+    if args.suite == "preparation":
+        from headless_ux_checks import main as headless_main
+        from test_npu_preparation import PreparationTests
+        return headless_main(test_cases=(PreparationTests,))
+
     runner = CheckRunner()
     runner.check("config and model profiles normalize", check_config_profiles)
     runner.check("config persistence is atomic and recoverable", check_config_persistence_is_recoverable)
@@ -1311,7 +1322,7 @@ def main():
     runner.check("hardware device filtering falls back to CPU", check_hardware_device_filtering)
     runner.check("model display labels map back to profile ids", check_model_display_labels)
     runner.check("download progress status includes size, speed, and ETA", check_download_status_format)
-    runner.check("NPU ASR warmup is skipped to avoid startup hangs", check_npu_asr_warmup_is_skipped)
+    runner.check("NPU ASR warmup is required before recording", check_npu_asr_warmup_is_required)
     runner.check("OpenVINO hardware probe runs", check_openvino_probe)
     runner.check("model artifact downloader helpers pass", check_model_artifact_helpers)
     runner.check("direct downloads validate Content-Length", check_direct_download_size_validation)
