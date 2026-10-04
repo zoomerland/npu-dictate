@@ -462,6 +462,7 @@ class CacheUiTests(unittest.TestCase):
              patch.object(app, "model_is_installed", return_value=True), \
              patch.object(app, "user_data_root", return_value=Path(temporary)), \
              patch.object(app.VoiceDictationApp, "_open_model_storage", lambda _self: None), \
+             patch.object(app.VoiceDictationApp, "_open_model_availability", lambda _self: None), \
              patch.object(app, "save_config", lambda _cfg: None), \
              patch.object(app.messagebox, "askyesno", return_value=False) as dialog:
             root = Path(temporary)

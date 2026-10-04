@@ -126,6 +126,13 @@ Goal: make the app feel like a real desktop utility instead of a prototype.
   - Support dictation hotkey.
   - Support overlay show/hide hotkey.
   - Validate conflicts and empty hotkeys.
+- [ ] Cancel an active recording with Escape:
+  - Discard the captured audio without recognition, clipboard changes, paste or Enter.
+  - Keep normal Escape behavior when no recording is active; check hotkey conflicts.
+- [ ] Discuss Enter as a recording-finish key before implementation:
+  - Consider users who need Enter in the target application while dictation continues.
+  - Decide whether this should be optional and whether the key is consumed or passed through.
+  - No change to Enter behavior is authorized by this roadmap item.
 - [x] Add tray icon:
   - Restore overlay on click.
   - Hide overlay.
@@ -456,6 +463,11 @@ Detailed scope and validation: `docs/ux-audit-remediation.md`.
 - [x] Preserve system-default and missing microphone choices.
 - [x] Show full model progress and provide explicit retry; discard stale progress.
 - [x] Fit settings to per-monitor workareas and use width-bound single-column layouts.
+- [x] Open settings without synchronous model file/tokenizer checks; show localized
+  checking/unknown states while one background pass updates model availability.
+  Lifecycle/dirty-state regressions and timing evidence: `docs/settings-open-responsiveness.md`.
+- [x] Confirm fast repeated settings opening in the updated live application:
+  owner reported near-instant opening; constructor logs were 0.149-0.155 seconds.
 - [x] Exclude dictated text, log tails and local paths from copied diagnostics.
 - [x] Localize dynamic progress details and correct the opacity label.
 - [x] Accumulate small wheel events and expose native review-stop commands.

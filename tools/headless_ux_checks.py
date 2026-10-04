@@ -25,6 +25,7 @@ def main(test_cases=None):
         from test_resumable_downloads import ResumableDownloadTests
         from test_frozen_smoke import FrozenSmokeTests
         from test_cache_maintenance import CacheMaintenanceTests, CacheStartupTests, CacheUiTests
+        from test_settings_responsiveness import AvailabilityLifecycleTests, SettingsResponsivenessTests
         import openvino as ov
         from test_offline_runtime import (
             BootstrapAstTests, GuardTests, PureTelemetryTests, RealImportTests,
@@ -51,7 +52,8 @@ def main(test_cases=None):
                                                                   StorageLifecycleTests, StorageUiTests,
                                                                   ResumableDownloadTests, FrozenSmokeTests,
                                                                   CacheMaintenanceTests, CacheStartupTests,
-                                                                  CacheUiTests)))
+                                                                  CacheUiTests, AvailabilityLifecycleTests,
+                                                                  SettingsResponsivenessTests)))
             result = unittest.TextTestRunner(verbosity=2).run(suite)
         return 0 if result.wasSuccessful() else 1
 
