@@ -1204,18 +1204,30 @@ def set_startup_enabled(enabled):
     if os.name != "nt":
         return False
 
-    shortcut_path = startup_shortcut_path()
+    temporary_path = None
     try:
+        shortcut_path = startup_shortcut_path()
         if not enabled:
             shortcut_path.unlink(missing_ok=True)
             return True
+        if shortcut_path.exists():
+            return True
 
         import comtypes.client
+        import tempfile
 
         shortcut_path.parent.mkdir(parents=True, exist_ok=True)
+        # Keep partial .lnk output outside Startup, even if cleanup fails.
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{APP_NAME}-", suffix=".lnk", dir=shortcut_path.parent.parent
+        )
+        temporary_path = Path(temporary_name)
+        os.close(fd)
+        # WSH loads existing links; the reserved empty file is not a valid link.
+        temporary_path.unlink()
         target = startup_target_python()
         shell = comtypes.client.CreateObject("WScript.Shell", dynamic=True)
-        shortcut = shell.CreateShortcut(str(shortcut_path))
+        shortcut = shell.CreateShortcut(str(temporary_path))
         shortcut.TargetPath = str(target)
         if getattr(sys, "frozen", False):
             shortcut.Arguments = ""
@@ -1226,10 +1238,20 @@ def set_startup_enabled(enabled):
         shortcut.IconLocation = str(target)
         shortcut.Description = APP_NAME
         shortcut.Save()
+        if temporary_path.stat().st_size == 0:
+            raise OSError("Startup shortcut was not saved")
+        # Windows rename refuses to overwrite a shortcut created concurrently.
+        temporary_path.rename(shortcut_path)
         return True
     except Exception as exc:
         log_debug(f"startup shortcut error={type(exc).__name__}")
         return False
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError as exc:
+                log_debug(f"startup shortcut cleanup error={type(exc).__name__}")
 
 
 def clamp_overlay_opacity(value):
