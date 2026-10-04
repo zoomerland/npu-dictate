@@ -6249,6 +6249,13 @@ class VoiceDictationApp:
 
 def main():
     if os.environ.get("LOCAL_VOICE_DICTATION_SMOKE_IMPORT") == "1":
+        try:
+            from frozen_smoke import offline_policy_receipt
+            receipt = offline_policy_receipt()
+            log_debug("package offline policy " + json.dumps(receipt, sort_keys=True))
+        except Exception as exc:
+            log_debug(f"package smoke import failed error={type(exc).__name__}")
+            return 1
         log_debug("package smoke import ok")
         return 0
 

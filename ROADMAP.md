@@ -286,12 +286,12 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - Implementation and acceptance boundaries: [NPU preparation states](docs/npu-preparation-states.md). Source-only feature; no new package or live restart yet.
   - [x] Integrate reviewed source into `features/next` alongside the telemetry fix; combined 109-test headless suite PASS. [Integration evidence](docs/next-batch-integration.md).
   - Keep the current observation: after the long first NPU compile/cache pass, repeated dictation becomes fast and stable.
-- [ ] Disable optional OpenVINO Python telemetry for the offline runtime:
+- [x] Disable optional OpenVINO Python telemetry for the offline runtime:
   - Initial isolated native-check imports exposed a GA4 telemetry attempt without a consent file; it was blocked, and the test-root-only opt-out did not constitute a product fix.
   - [x] Select the vendor's no-telemetry fallback before source runtime imports, without changing global consent/preferences.
   - [x] Configure the equivalent frozen runtime hook and packaging exclusion.
   - [x] Verify real fresh-process imports with no opt-out file, background network-attempt checks and independent review: 16 focused tests, included in the 85-test aggregate, PASS.
-  - [ ] Verify a rebuilt EXE in a later packaging gate; current published binaries are unchanged.
+  - [x] Verify an isolated rebuilt EXE with empty temporary home/data and no vendor/CI opt-out: genuine fallback confirmed, optional telemetry absent from archive, import-only exit 0 in 4.797 s. This is not model readiness or an installed update; current published binaries are unchanged. See `docs/packaged-offline-verification.md`.
   - Scope and evidence: [Optional OpenVINO telemetry](docs/offline-runtime-telemetry.md).
   - [x] Integrate with NPU preparation on `features/next`; both regression groups and the guarded preparation subset pass together. [Integration evidence](docs/next-batch-integration.md).
 - [ ] Benchmark CPU vs NPU:
