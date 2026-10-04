@@ -1227,14 +1227,16 @@ def check_direct_download_size_validation():
                 assert target.read_bytes() == b"existing"
 
             model_setup.urlopen = lambda *_args, **_kwargs: FakeDownloadResponse(b"data", 99)
-            tmp = model_setup.download_url_to_file(
-                "https://example.invalid/model",
-                target,
-                expected_size=4,
-                label="test",
-            )
-            assert tmp.read_bytes() == b"data"
-            tmp.unlink()
+            try:
+                model_setup.download_url_to_file(
+                    "https://example.invalid/model", target, expected_size=4, label="test",
+                )
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("Conflicting manifest/Content-Length accepted")
+            assert not target.with_name(target.name + ".download").exists()
+            assert target.read_bytes() == b"existing"
     finally:
         model_setup.urlopen = original_urlopen
 

@@ -1,9 +1,11 @@
 import hashlib
 import json
+import os
 import re
-import shutil
+import stat
+import threading
 import time
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path, PurePosixPath
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -22,6 +24,8 @@ DOWNLOAD_RETRIES = 3
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 ASR_OPENVINO_NNCF_INT8_PROFILE = "gigaam-v3-ctc-openvino-nncf-int8-b400"
 PUNCT_OPENVINO_FP16_PROFILE = "rupunct-big-openvino-fp16-static128"
+_DOWNLOAD_LOCKS = {}
+_DOWNLOAD_LOCKS_GUARD = threading.Lock()
 
 
 def repo_root():
@@ -80,10 +84,12 @@ def format_download_status(
     item_count=None,
     overall_done=0,
     overall_total=None,
+    transferred=None,
 ):
     now = time.monotonic() if now is None else now
-    elapsed = max(0.001, now - (started_at or now))
-    speed = downloaded / elapsed if downloaded > 0 else 0
+    elapsed = max(0.001, now - (started_at if started_at is not None else now))
+    transferred = downloaded if transferred is None else transferred
+    speed = transferred / elapsed if transferred > 0 else 0
     speed_text = f"{format_bytes(speed)}/s" if speed > 0 else "--"
     item_text = f"{item_index}/{item_count} " if item_index and item_count else ""
 
@@ -272,6 +278,124 @@ def profile_artifacts_ready(manifest, profile_id, component=None, root=None, ver
     )
 
 
+class _DownloadProtocolError(RuntimeError):
+    pass
+
+
+def _download_lock(target):
+    _check_download_path(target)
+    key = os.path.normcase(str(Path(target).resolve()))
+    with _DOWNLOAD_LOCKS_GUARD:
+        return _DOWNLOAD_LOCKS.setdefault(key, threading.RLock())
+
+
+def _serialize_download(function):
+    @wraps(function)
+    def serialized(url, target, *args, **kwargs):
+        with _download_lock(target):
+            return function(url, target, *args, **kwargs)
+    return serialized
+
+
+def _check_download_path(path):
+    # Reject links/junctions before reads, writes, replacement or narrow cleanup.
+    path = Path(path).absolute()
+    for entry in (path, *path.parents):
+        try:
+            info = entry.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise OSError("Unsafe download link/reparse path")
+        if entry == path:
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError("Download path is not a regular file")
+        elif not stat.S_ISDIR(info.st_mode):
+            raise OSError("Download parent is not a directory")
+
+
+def _download_paths(target):
+    partial = Path(target).with_name(Path(target).name + ".download")
+    return partial, partial.with_name(partial.name + ".json")
+
+
+def _clear_download_state(target):
+    partial, metadata = _download_paths(target)
+    paths = (partial, metadata, metadata.with_name(metadata.name + ".tmp"))
+    for path in paths:
+        _check_download_path(path)
+    for path in paths:
+        path.unlink(missing_ok=True)
+
+
+def _strong_etag(value):
+    return (isinstance(value, str) and len(value) <= 1024
+            and re.fullmatch(r'"[\x21\x23-\x7e\x80-\xff]*"', value) is not None)
+
+
+def _save_download_state(target, state):
+    partial, metadata = _download_paths(target)
+    temporary = metadata.with_name(metadata.name + ".tmp")
+    for path in (partial, metadata, temporary):
+        _check_download_path(path)
+    size = partial.stat().st_size
+    if not 0 < size < state["total"]:
+        _clear_download_state(target)
+        return
+    state = dict(state, bytes=size, prefix_sha256=sha256_file(partial))
+    with temporary.open("w", encoding="utf-8", newline="\n") as file:
+        json.dump(state, file, sort_keys=True)
+        file.flush()
+        os.fsync(file.fileno())
+    os.replace(temporary, metadata)
+
+
+def _load_download_state(target, identity):
+    partial, metadata = _download_paths(target)
+    for path in (partial, metadata, metadata.with_name(metadata.name + ".tmp")):
+        _check_download_path(path)
+    try:
+        if metadata.stat().st_size > 8192:
+            return None
+        with metadata.open("r", encoding="utf-8") as file:
+            state = json.load(file)
+        if (not isinstance(state, dict)
+                or any(k not in state or type(state[k]) is not type(v) or state[k] != v
+                       for k, v in identity.items())
+                or not _strong_etag(state.get("etag"))
+                or type(state.get("total")) is not int
+                or type(state.get("bytes")) is not int
+                or not 0 < state["bytes"] < state["total"]
+                or (identity["expected_size"] is not None
+                    and state["total"] != identity["expected_size"])
+                or partial.stat().st_size != state["bytes"]
+                or sha256_file(partial) != state.get("prefix_sha256")):
+            return None
+        return state
+    except (FileNotFoundError, UnicodeError, ValueError):
+        return None
+
+
+def _header_length(headers):
+    value = headers.get("Content-Length")
+    if value is None:
+        return None
+    if not re.fullmatch(r"[0-9]+", value):
+        raise _DownloadProtocolError("Invalid download Content-Length")
+    return int(value)
+
+
+def _install_download(tmp, target):
+    _, metadata = _download_paths(target)
+    temporary = metadata.with_name(metadata.name + ".tmp")
+    for path in (tmp, target, metadata, temporary):
+        _check_download_path(path)
+    metadata.unlink(missing_ok=True)
+    temporary.unlink(missing_ok=True)
+    os.replace(tmp, target)
+
+
+@_serialize_download
 def download_url_to_file(
     url,
     target,
@@ -282,63 +406,110 @@ def download_url_to_file(
     item_count=None,
     overall_done=0,
     overall_total=None,
+    expected_sha256=None,
 ):
     target = Path(target)
-    tmp = target.with_name(target.name + ".download")
+    _check_download_path(target)
+    tmp, metadata = _download_paths(target)
+    expected_size = int(expected_size) if expected_size is not None else None
+    if expected_size is not None and expected_size < 0:
+        raise ValueError(f"Invalid expected size for {label}: {expected_size}")
+    identity = {"version": 1, "source_sha256": hashlib.sha256(url.encode("utf-8")).hexdigest(),
+                "expected_size": expected_size,
+                "expected_sha256": str(expected_sha256).lower() if expected_sha256 else None}
+    state = _load_download_state(target, identity)
     tmp.parent.mkdir(parents=True, exist_ok=True)
-    if tmp.exists():
-        tmp.unlink()
-
-    request = Request(url, headers={"User-Agent": "NPUDictate/0.1"})
+    if state is None:
+        _clear_download_state(target)
+    offset = state["bytes"] if state else 0
+    headers = {"User-Agent": "NPUDictate/0.1", "Accept-Encoding": "identity"}
+    if state:
+        headers.update({"Range": f"bytes={offset}-", "If-Range": state["etag"]})
+    request = Request(url, headers=headers)
+    resumable = None
     try:
-        with urlopen(request, timeout=60) as response, tmp.open("wb") as file:
-            header_size = response.headers.get("Content-Length")
-            try:
-                header_size = int(header_size) if header_size is not None else None
-            except (TypeError, ValueError):
-                header_size = None
-            if header_size is not None and header_size < 0:
-                header_size = None
-            validation_size = int(expected_size) if expected_size is not None else header_size
-            if validation_size is not None and validation_size < 0:
-                raise ValueError(f"Invalid expected size for {label}: {validation_size}")
-            total = validation_size
-            downloaded = 0
+        try:
+            response = urlopen(request, timeout=60)
+        except HTTPError as exc:
+            if exc.code != 416 or not state:
+                raise
+            exc.close()
+            # Exactly one full-request fallback; a 416 never proves local completeness.
+            _clear_download_state(target)
+            state, offset = None, 0
+            response = urlopen(Request(url, headers={"User-Agent": "NPUDictate/0.1",
+                                                   "Accept-Encoding": "identity"}), timeout=60)
+        with response:
+            status = getattr(response, "status", 200)
+            encoding = response.headers.get("Content-Encoding", "identity").lower()
+            if encoding != "identity":
+                raise _DownloadProtocolError("Encoded download response is not supported")
+            header_size = _header_length(response.headers)
+            etag = response.headers.get("ETag")
+            if status == 206:
+                content_range = response.headers.get("Content-Range", "")
+                match = re.fullmatch(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)", content_range)
+                if not state or not match:
+                    raise _DownloadProtocolError("Unexpected or invalid download Content-Range")
+                start, end, total = map(int, match.groups())
+                if (start != offset or end != total - 1 or start > end or total != state["total"]
+                        or etag != state["etag"] or not _strong_etag(etag)
+                        or (header_size is not None and header_size != end - start + 1)
+                        or response.headers.get("Content-Type", "").lower().startswith("multipart/")):
+                    raise _DownloadProtocolError("Inconsistent download range representation")
+                response_size = end - start + 1
+            elif status == 200:
+                if response.headers.get("Content-Range") is not None:
+                    raise _DownloadProtocolError("Content-Range on full download response")
+                if expected_size is not None and header_size is not None and header_size != expected_size:
+                    raise _DownloadProtocolError("Downloaded size mismatch in response headers")
+                total = expected_size if expected_size is not None else header_size
+                response_size = total
+                _clear_download_state(target)
+                state = None
+                offset = 0
+            else:
+                raise _DownloadProtocolError(f"Unexpected download HTTP status: {status}")
+            if total is not None and _strong_etag(etag):
+                resumable = dict(identity, etag=etag, total=total)
+            downloaded = offset
+            transferred = 0
             started_at = time.monotonic()
             last_emit = 0.0
-            while True:
-                chunk = response.read(DOWNLOAD_CHUNK_SIZE)
-                if not chunk:
-                    break
-                file.write(chunk)
-                downloaded += len(chunk)
-                now = time.monotonic()
-                if status_callback and (now - last_emit >= 0.5 or (total and downloaded >= total)):
-                    last_emit = now
-                    emit(
-                        status_callback,
-                        format_download_status(
-                            downloaded,
-                            total,
-                            started_at=started_at,
-                            now=now,
-                            label=label,
-                            item_index=item_index,
-                            item_count=item_count,
-                            overall_done=overall_done,
-                            overall_total=overall_total,
-                        ),
-                    )
-    except Exception:
-        tmp.unlink(missing_ok=True)
+            _check_download_path(tmp)
+            with tmp.open("ab" if offset else "wb") as file:
+                while True:
+                    chunk = response.read(DOWNLOAD_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    if response_size is not None and transferred + len(chunk) > response_size:
+                        raise _DownloadProtocolError("Download response exceeds declared size")
+                    file.write(chunk)
+                    downloaded += len(chunk)
+                    transferred += len(chunk)
+                    now = time.monotonic()
+                    if status_callback and (now - last_emit >= 0.5 or (total and downloaded >= total)):
+                        last_emit = now
+                        emit(status_callback, format_download_status(
+                            downloaded, total, started_at=started_at, now=now,
+                            label=label, item_index=item_index, item_count=item_count,
+                            overall_done=overall_done, overall_total=overall_total,
+                            transferred=transferred))
+                file.flush()
+                os.fsync(file.fileno())
+            if response_size is not None and transferred != response_size:
+                raise RuntimeError(f"Downloaded size mismatch for {label}: {downloaded} != {total}")
+    except _DownloadProtocolError:
+        _clear_download_state(target)
         raise
-
-    if validation_size is not None and tmp.stat().st_size != validation_size:
-        actual_size = tmp.stat().st_size
-        tmp.unlink(missing_ok=True)
-        raise RuntimeError(
-            f"Downloaded size mismatch for {label}: {actual_size} != {validation_size}"
-        )
+    except Exception:
+        if resumable is not None:
+            _save_download_state(target, resumable)
+        elif state is None:
+            _clear_download_state(target)
+        raise
+    _check_download_path(metadata)
+    metadata.unlink(missing_ok=True)
     return tmp
 
 
@@ -351,14 +522,37 @@ def install_artifact(
     overall_done=0,
     overall_total=None,
 ):
+    _check_download_path(Path(root or repo_root()) / artifact["install_path"])
     target = safe_install_path(artifact["install_path"], root)
+    with _download_lock(target):
+        return _install_artifact_to_target(
+            artifact, target, status_callback, root, item_index, item_count,
+            overall_done, overall_total)
+
+
+def _install_artifact_to_target(
+    artifact, target, status_callback, root, item_index, item_count, overall_done, overall_total,
+):
     if artifact_ready(artifact, root):
         return target
+
+    callback_failed = False
+    original_callback = status_callback
+    def guarded_callback(message):
+        nonlocal callback_failed
+        try:
+            original_callback(message)
+        except Exception:
+            callback_failed = True
+            raise
+    if original_callback is not None:
+        status_callback = guarded_callback
 
     url = artifact_url(artifact["repo_path"])
     label = Path(artifact["repo_path"]).name
     last_error = None
     for attempt in range(1, DOWNLOAD_RETRIES + 1):
+        candidate_complete = False
         try:
             emit(status_callback, f"Downloading models {label}")
             tmp = download_url_to_file(
@@ -371,26 +565,40 @@ def install_artifact(
                 item_count=item_count,
                 overall_done=overall_done,
                 overall_total=overall_total,
+                expected_sha256=artifact.get("sha256"),
             )
+            candidate_complete = True
             emit(status_callback, f"Verifying models {label}")
             actual_hash = sha256_file(tmp)
             expected_hash = str(artifact.get("sha256") or "").lower()
             if expected_hash and actual_hash.lower() != expected_hash:
-                tmp.unlink(missing_ok=True)
+                _clear_download_state(target)
                 raise RuntimeError(
                     f"SHA256 mismatch for {label}: {actual_hash.lower()} != {expected_hash}"
                 )
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.unlink(missing_ok=True)
-            shutil.move(str(tmp), str(target))
+            _install_download(tmp, target)
             return target
         except (HTTPError, URLError, TimeoutError, RuntimeError, OSError) as exc:
+            if callback_failed:
+                if candidate_complete:
+                    _clear_download_state(target)
+                raise
             last_error = exc
             if attempt >= DOWNLOAD_RETRIES:
                 break
             emit(status_callback, f"Retrying models {label} ({attempt + 1}/{DOWNLOAD_RETRIES})")
             time.sleep(min(1.0 * attempt, 3.0))
     raise RuntimeError(f"Failed to download model artifact {label}: {last_error}")
+
+
+def _download_asr_file(url, target, **kwargs):
+    with _download_lock(target):
+        _check_download_path(target)
+        if model_file_ready(target):
+            return
+        tmp = download_url_to_file(url, target, **kwargs)
+        _install_download(tmp, target)
 
 
 def ensure_profile_artifacts(profile_id, component=None, status_callback=None):
@@ -477,7 +685,7 @@ def ensure_asr_model(status_callback=None):
         if model_file_ready(target):
             downloaded_size += target.stat().st_size
             continue
-        tmp = download_url_to_file(
+        _download_asr_file(
             artifact_url(filename, repo_id=ASR_MODEL_REPO),
             target,
             status_callback=status_callback,
@@ -487,8 +695,6 @@ def ensure_asr_model(status_callback=None):
             overall_done=downloaded_size,
             overall_total=total_size,
         )
-        target.unlink(missing_ok=True)
-        shutil.move(str(tmp), str(target))
         downloaded_size += target.stat().st_size
 
     if not asr_model_ready():
@@ -518,7 +724,7 @@ def ensure_asr_openvino_model(status_callback=None, profile_id=None):
         if model_file_ready(target):
             downloaded_size += target.stat().st_size
             continue
-        tmp = download_url_to_file(
+        _download_asr_file(
             artifact_url(filename, repo_id=ASR_MODEL_REPO),
             target,
             status_callback=status_callback,
@@ -527,8 +733,6 @@ def ensure_asr_openvino_model(status_callback=None, profile_id=None):
             item_count=len(filenames),
             overall_done=downloaded_size,
         )
-        target.unlink(missing_ok=True)
-        shutil.move(str(tmp), str(target))
     return model_dir
 
 
