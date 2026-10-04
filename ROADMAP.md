@@ -206,13 +206,15 @@ Goal: make model setup transparent and legally clean.
 - [x] Add retry and failure messages for model setup.
   - [x] Hugging Face converted-artifact downloader retries failed file downloads and surfaces load errors.
   - [x] Add an idle-only retry action in the Models settings section.
-  - [ ] Explicit force-rebuild and cache-management controls remain separate work.
+  - [x] Explicit compiled-cache cleanup scheduled for the next normal launch, with confirmation, cancellation, bounded deletion before model loading and visible failure diagnostics. No real user-cache cleanup was performed during development; see `docs/cache-maintenance.md`.
+  - [ ] Force regeneration of converted model weights remains separate from compiled-cache cleanup; it needs a reproducible conversion/calibration design.
 - [ ] Add "Models" settings section:
   - [x] Show selected model language, purpose, supported devices, current-PC devices, and downloaded/missing status.
   - [x] State clearly that v0.1 alpha dictation currently supports Russian only.
   - [x] App-local logical sizes for model files, compiled cache and incomplete downloads; background, bounded metadata scans with partial/unavailable states. See `docs/model-storage-usage.md`; native visual acceptance remains deferred.
-  - Download/rebuild action.
-  - Clear cache action.
+  - [x] Retry missing selected model downloads with visible progress.
+  - [ ] Rebuild converted model weights (not the same as regenerating compilation cache).
+  - [x] Clear compiled cache on next launch; model weights remain untouched. Source/headless acceptance only, installed/live confirmation remains separate.
 - [x] Review upstream licenses before the current source-only v0.1 release.
   - Completed on 2026-06-18; current ASR, punctuation, VAD, and model-loading upstreams are observed as MIT-licensed.
   - Recorded source links and checked revisions in `docs/model-sources-and-licenses.md`.
@@ -470,6 +472,13 @@ Detailed scope and validation: `docs/ux-audit-remediation.md`.
   native accessibility of Canvas buttons and hover help in button-only mode.
 
 ## Test Matrix
+
+Autonomous source checkpoint (2026-10-04): model-size UI, validated resumable
+downloads, startup shortcut safeguards, deferred compiled-cache cleanup and
+frozen telemetry diagnostics are integrated locally into `features/next`.
+Final automated gates: 212 headless application tests and 21 packaging safety
+tests PASS. No installed app update or publication; live acceptance remains
+deferred. See `docs/autonomous-roadmap-progress.md` for exact scope and evidence.
 
 Keep this list short and practical while the app is young.
 

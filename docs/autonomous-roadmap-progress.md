@@ -29,10 +29,10 @@ its config/startup entry, capture audio or type/paste into user applications.
 3. [x] Verify and finish installed-build startup-toggle support using fake COM,
    temporary paths and frozen/source-mode tests. Never modify the real Startup
    folder merely to test this feature.
-4. [ ] Reassess model/cache maintenance after storage and download contracts are
+4. [x] Reassess model/cache maintenance after storage and download contracts are
    settled. Implement only scoped, explicit user-triggered operations whose
    idle/lifecycle and filesystem boundaries can be checked automatically.
-5. [ ] Reassess remaining roadmap tasks after each accepted block. Safe isolated
+5. [x] Reassess remaining roadmap tasks after each accepted block. Safe isolated
    source/runtime/build checks may proceed; broad model quality, real desktop
    rendering, signing and externally visible publication have separate limits.
 
@@ -97,8 +97,50 @@ bounded task, with fresh runtime evidence recorded before acceptance.
 - Full evidence and scope: `docs/packaged-offline-verification.md`. This EXE
   precedes deferred cache maintenance and is not a release artifact.
 
-Next: finish/review deferred cache maintenance, integrate its source, and run the
-combined suite again. Keep the installed app and published binaries unchanged.
+### Deferred Cache Maintenance
+
+- Source commit `accb2b4246c3b8c0807b571c55e8e7b595eb7bc7`, independently
+  reviewed by parent and integrated without conflicts.
+- Explicit request/cancel controls; cleanup runs after the instance lock and
+  before model construction, never in smoke mode or a secondary instance.
+- Preflight and deletion are bounded to the fixed app cache subtree. Failures
+  consume a started request and remain visible; no silent repeated purge.
+- Review added final empty-root/identity validation and prevented runtime
+  deletion requests/temporary state from entering Git or distributable payloads.
+- Worker final gates: 38 focused cache/UI/payload tests and inherited 109-test
+  aggregate PASS. Their overlapping counts are not a total. Windows metadata
+  and Git-stdin first-red evidence is retained in `docs/cache-maintenance.md`.
+- Parent shared-runner registration includes all 28 cache regressions.
+
+### Final Combined Acceptance
+
+- `tools/headless_ux_checks.py`: 212 PASS, no skips, exit 0, 60.362 seconds.
+- `tools/test_release_payload.py`: 21 PASS, no skips, exit 0, 13.806 seconds.
+- The combined tests include the actual merged startup/smoke control flow:
+  smoke and secondary instances bypass cache maintenance; normal acquired startup
+  checks maintenance before any app/model construction.
+- Source integration before this report: `526e89c78da50c7b2557c0a13e67b5db16551af5`.
+  Separate frozen-verification merge: `2b9f3dee4416bc9fcef28138c7798a25378523f1`.
+- Full Git revision covered all three worktrees, branch/remote refs, stashes,
+  unresolved index state and private metadata. Historical outreach/research
+  refs remain preserved, not silently integrated; no new unresolved ownership.
+- All feature workers/reviewer are closed and required test/build sessions exited.
+  The managed source worktrees are retained clean on their accepted commits.
+- Existing `.hf`, models, recordings, user config/log, dependency environments,
+  `dist` and earlier build evidence remain private/local. New isolated build and
+  synthetic test receipts are retained evidence, not release payload candidates.
+- No normal app launch, microphone capture, real input, production-cache cleanup,
+  installed update, main promotion, remote push, tag or publication occurred.
+
+The final local checkpoint is ready for owner-led live/installed acceptance.
+No background work is left running. This closes the selected autonomous source
+batch, not every optional/future item in the roadmap. Any new release must be
+built from the final integrated source; the isolated telemetry EXE above predates
+the cache feature and must not be mistaken for that release.
+
+Keep the installed app and published binaries unchanged. The next owner gate
+is live/installed acceptance and a decision about stable-branch promotion;
+the remaining deferred research/features below are not silently taken into scope.
 
 ### Remaining Acceptance Boundaries
 
