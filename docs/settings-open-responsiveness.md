@@ -45,8 +45,8 @@ from the preceding integration source until a separately coordinated restart.
 Current parent profile: gpt-6.1-sol / xhigh, runtime verified. Owner explicitly
 selected the increased effort; keep it for this bounded debugging/fix phase.
 
-Status: source implementation, automated tests and independent review PASS.
-Live improvement not yet measured.
+Status: source implementation, automated tests, independent review and owner
+live responsiveness acceptance PASS.
 
 ## Intermediate Validation
 
@@ -94,10 +94,9 @@ after-ready reproduction. Microphone, filesystem/Startup metadata and native
 rendering can also have machine-specific latency; these timings do not establish
 a universal bound on all settings-opening scenarios.
 
-Next exact action after review/commit: coordinate an idle application restart,
-wait for both models, then measure repeated settings openings and ensure model
-labels progress from checking to downloaded without losing edits. No installed
-build, publication, cache cleanup or main promotion is included.
+The owner-authorized source restart and subsequent responsiveness check are
+complete; exact live evidence is recorded below. No installed build, publication,
+cache cleanup or main promotion is included.
 
 ## Final Review and Gate
 
@@ -113,7 +112,7 @@ probe, and closed P3 with final PASS. Retained private review:
 Final aggregate after the review fix: 222 tests PASS, no skips, exit 0,
 73.819 seconds. Receipt: `build/settings-open-responsiveness/headless-after-review.log`.
 Product revision hashes match the reviewed candidate. No test/build process
-remains required for this source gate; native live timing is still pending.
+remains required for this source gate. Subsequent live timing is recorded below.
 
 Full pre-commit Git revision rechecked all three worktrees, heads/remotes,
 stashes, detached/index state and ignored metadata. Only the announced nine
@@ -124,5 +123,27 @@ models/audio/config/log, generated artifacts and retained evidence stay local.
 
 Owner's additional roadmap request records future Escape cancellation and an
 Enter-finish design discussion as unchecked items. This commit changes no
-recording key behavior. Main, features/next and remote refs remain unchanged;
-the accepted source fix is saved on its own feature branch pending live check.
+recording key behavior. At the source-commit checkpoint, main, features/next and
+remote refs were unchanged, with the source fix on its own feature branch pending
+live acceptance.
+
+## Live Acceptance and Integration
+
+After explicit owner authorization, the app was restarted from source commit
+`9c40c4e6f83ea907d14d4f1bd316355bca4bf2ad`. Existing settings, model weights and
+compiled cache were retained; the configuration SHA256 remained unchanged.
+Both speech and punctuation loaded on NPU before the owner check.
+
+Owner feedback on 2026-10-04: settings now open practically instantly. Two
+constructor timings in the updated process were 0.155 and 0.149 seconds.
+These log values measure settings construction, not a Windows first-paint
+instrumentation; perceived responsiveness is separately confirmed by the owner.
+The repeated after-ready delay is accepted as fixed. Broader cold-start/device,
+mixed-DPI and accessibility scenarios are not newly claimed as tested.
+
+The documentation-only acceptance commit follows the tested source commit.
+All reviewed product hashes and the 222-test receipt remain applicable; no code
+changed after those gates. Integrate this accepted branch into features/next
+with a no-fast-forward merge. Main/remote/publication remain separate owner
+gates. The running app already contains the accepted fix and needs no restart
+for the documentation update or identical-source local merge.

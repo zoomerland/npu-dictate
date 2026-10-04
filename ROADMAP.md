@@ -466,7 +466,8 @@ Detailed scope and validation: `docs/ux-audit-remediation.md`.
 - [x] Open settings without synchronous model file/tokenizer checks; show localized
   checking/unknown states while one background pass updates model availability.
   Lifecycle/dirty-state regressions and timing evidence: `docs/settings-open-responsiveness.md`.
-- [ ] Confirm fast repeated settings opening in the updated live application.
+- [x] Confirm fast repeated settings opening in the updated live application:
+  owner reported near-instant opening; constructor logs were 0.149-0.155 seconds.
 - [x] Exclude dictated text, log tails and local paths from copied diagnostics.
 - [x] Localize dynamic progress details and correct the opacity label.
 - [x] Accumulate small wheel events and expose native review-stop commands.
