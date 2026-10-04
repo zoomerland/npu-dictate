@@ -218,7 +218,7 @@ Goal: make model setup transparent and legally clean.
 - [ ] Add "Models" settings section:
   - [x] Show selected model language, purpose, supported devices, current-PC devices, and downloaded/missing status.
   - [x] State clearly that v0.1 alpha dictation currently supports Russian only.
-  - [x] App-local logical sizes for model files, compiled cache and incomplete downloads; background, bounded metadata scans with partial/unavailable states. See `docs/model-storage-usage.md`; native visual acceptance remains deferred.
+  - [x] App-local logical sizes for model files, compiled cache and incomplete downloads; background, bounded metadata scans with partial/unavailable states. See `docs/model-storage-usage.md`; ordinary source UI acceptance confirmed by the owner in T18 (`docs/manual-acceptance-20261004.md`), additional DPI/accessibility coverage remains separate.
   - [x] Retry missing selected model downloads with visible progress.
   - [ ] Rebuild converted model weights (not the same as regenerating compilation cache).
   - [x] Clear compiled cache on next launch; model weights remain untouched. Source/headless acceptance only, installed/live confirmation remains separate.
@@ -291,8 +291,8 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - [x] Add hermetic regressions for cache results, pending/failed preparation, settings changes, stale generations, active transcription and shutdown.
   - [x] Validate native cold-cache/warm-cache preparation and first saved-audio inference on the test laptop, without GUI or microphone: 73.625 s cold readiness, 8.922 s cached readiness; both models report NPU execution and actual cache miss/hit respectively.
   - [x] Validate disabled warm-up as a deferred-first-use control; identical saved-audio output across all three runs, with no deferred compilation in the prepared cases.
-  - [ ] Validate first live dictation, real UI responsiveness, settings/exit, microphone and both recording modes before release; headless native results do not close this gate.
-  - Implementation and acceptance boundaries: [NPU preparation states](docs/npu-preparation-states.md). Source-only feature; no new package or live restart yet.
+  - [x] Validate first live dictation, real UI responsiveness, settings, microphone and both recording modes in the current source app; owner-confirmed T1-T5 and T19 on 2026-10-04. Cold/repeated-cache comparison and preparation shutdown/failure scenarios are not newly closed by this feedback.
+  - Implementation and acceptance boundaries: [NPU preparation states](docs/npu-preparation-states.md). Source app restarted with owner authorization; current daily-use acceptance is recorded in [the manual results](docs/manual-acceptance-20261004.md). No new installed package is covered.
   - [x] Integrate reviewed source into `features/next` alongside the telemetry fix; combined 109-test headless suite PASS. [Integration evidence](docs/next-batch-integration.md).
   - Keep the current observation: after the long first NPU compile/cache pass, repeated dictation becomes fast and stable.
 - [x] Disable optional OpenVINO Python telemetry for the offline runtime:
@@ -476,9 +476,10 @@ Detailed scope and validation: `docs/ux-audit-remediation.md`.
 - [x] Close independent audit findings: invalid source-manifest recovery, modifier
   aliases and stale punctuation completion events. Final offline gate: 69 tests and
   25 smoke groups PASS; reviewed source checkpoint `c4d3080`.
-- [ ] Later visual acceptance: Tk wrapping, negative-coordinate monitors, mixed DPI,
-  dropdowns, real tray recovery and screen-reader behavior. No product windows were
-  opened for this remediation's tests.
+- [ ] Additional visual acceptance: negative-coordinate monitors, mixed DPI and
+  screen-reader behavior. Ordinary settings, dropdown/model UI and real tray
+  recovery subsequently passed owner checks T1, T16 and T18; this does not establish
+  coverage across other display or accessibility setups.
 - [x] Resume interrupted downloads only with validated representation identity, retained-prefix integrity and final artifact checks; synthetic HTTP coverage in `docs/resumable-downloads.md`. Live interrupted-network acceptance remains deferred.
 - [ ] Future improvements: stable USB microphone identity,
   native accessibility of Canvas buttons and hover help in button-only mode.
@@ -488,9 +489,13 @@ Detailed scope and validation: `docs/ux-audit-remediation.md`.
 Autonomous source checkpoint (2026-10-04): model-size UI, validated resumable
 downloads, startup shortcut safeguards, deferred compiled-cache cleanup and
 frozen telemetry diagnostics are integrated locally into `features/next`.
-Final automated gates: 212 headless application tests and 21 packaging safety
-tests PASS. No installed app update or publication; live acceptance remains
-deferred. See `docs/autonomous-roadmap-progress.md` for exact scope and evidence.
+Initial combined automated gates: 212 headless application tests and 21 packaging
+safety tests PASS; the subsequent settings fix passed 222 headless tests.
+Owner confirms ordinary live checks T1-T20 PASS on the updated source app.
+Separate-stage checks T21-T25 (download/resume, cache maintenance, cold/repeated
+startup and installed-package behavior) remain untested by the owner. No installed
+app update or publication is implied. See [manual acceptance](docs/manual-acceptance-20261004.md)
+and `docs/autonomous-roadmap-progress.md` for exact scope and evidence.
 
 Keep this list short and practical while the app is young.
 

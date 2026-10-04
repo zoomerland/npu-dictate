@@ -142,13 +142,30 @@ Keep the installed app and published binaries unchanged. The next owner gate
 is live/installed acceptance and a decision about stable-branch promotion;
 the remaining deferred research/features below are not silently taken into scope.
 
+### Owner Daily-use Acceptance
+
+After the owner-authorized source restart and settings responsiveness fix, the
+owner reports continuous use and confirms all ordinary checks T1-T20 PASS.
+This includes both recording modes, onset, hotkeys, paste/focus, Enter-send,
+review-stop, clipboard behavior, longer dictation, interface localization,
+settings, overlay/tray, single instance, model UI and source startup behavior.
+The stable test IDs, evidence scope and limitations are recorded in
+[manual acceptance](manual-acceptance-20261004.md).
+
+The owner explicitly did not perform separate-stage checks T21-T25. No installed
+update, production-cache cleanup, download interruption or broad cold/warm-cache
+acceptance is implied. The accepted source is `features/next` at `8bc76a6`; the
+settings fix has a 222-test headless receipt. This documentation update changes
+no product code, running process, main/remote ref or published artifact.
+
 ### Remaining Acceptance Boundaries
 
-Autonomy does not waive the owner's deferred live-acceptance gates. After this
-source batch, the following work must not be silently marked complete:
+Autonomy does not waive the owner's remaining acceptance gates. Following the
+ordinary owner-confirmed checks above, these remain separate:
 
-- Real overlay focus/drag, hold/toggle recording, microphone onset, first live
-  NPU dictation and Enter-send regression; source fakes cannot establish these.
+- Coordinated cache-maintenance and cold/repeated-cache checks T23-T24, including
+  disabled warm-up. Current daily-use success does not close every preparation
+  failure/shutdown or settings-during-preparation transition.
 - Installed shortcut launch at Windows sign-in, MSI upgrade/uninstall, mixed-DPI
   rendering, native tray menus and screen-reader interaction.
 - Live interrupted-download acceptance against the model host. The synthetic
