@@ -21,6 +21,9 @@ def main(test_cases=None):
         from test_rupunct_windows import PunctuationWindowTests
         from test_npu_preparation import PreparationTests
         import openvino as ov
+        from test_offline_runtime import (
+            BootstrapAstTests, GuardTests, PureTelemetryTests, RealImportTests,
+        )
 
         patches = [patch.object(app, "sd", None), patch.object(app, "log_debug", lambda _message: None),
                    patch.object(model_setup, "urlopen", forbidden), patch.object(app.tk, "Tk", forbidden),
@@ -36,7 +39,9 @@ def main(test_cases=None):
                 stack.enter_context(guard)
             suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case)
                                        for case in (test_cases or (SafetyTests, SettingsTests, ReadinessTests,
-                                                                  PunctuationWindowTests, PreparationTests)))
+                                                                  PunctuationWindowTests, PreparationTests,
+                                                                  PureTelemetryTests, BootstrapAstTests,
+                                                                  GuardTests, RealImportTests)))
             result = unittest.TextTestRunner(verbosity=2).run(suite)
         return 0 if result.wasSuccessful() else 1
 

@@ -67,6 +67,7 @@ a = Analysis(
     + openvino_datas,
     hiddenimports=[
         "app_paths",
+        "offline_runtime",
         "comtypes.client",
         "gigaam_openvino_asr",
         "model_setup",
@@ -79,10 +80,11 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[str(project_root / "packaging" / "hooks" / "rthook_offline_runtime.py")],
     excludes=[
         "matplotlib",
         "notebook",
+        "openvino_telemetry",
         "pytest",
     ],
     noarchive=False,

@@ -284,10 +284,16 @@ Goal: move more of the useful pipeline to NPU without sacrificing reliability.
   - [x] Validate disabled warm-up as a deferred-first-use control; identical saved-audio output across all three runs, with no deferred compilation in the prepared cases.
   - [ ] Validate first live dictation, real UI responsiveness, settings/exit, microphone and both recording modes before release; headless native results do not close this gate.
   - Implementation and acceptance boundaries: [NPU preparation states](docs/npu-preparation-states.md). Source-only feature; no new package or live restart yet.
+  - [x] Integrate reviewed source into `features/next` alongside the telemetry fix; combined 109-test headless suite PASS. [Integration evidence](docs/next-batch-integration.md).
   - Keep the current observation: after the long first NPU compile/cache pass, repeated dictation becomes fast and stable.
-- [ ] Verify and explicitly disable optional dependency telemetry for offline runtime on a clean installation:
-  - Isolated native-check imports exposed an OpenVINO GA4 telemetry attempt when no consent file existed; the test guard blocked the request before sending.
-  - A test-root-only opt-out prevented the attempt. Product/global preferences were not changed; inspect packaged dependencies and add a no-telemetry regression before treating this as fixed.
+- [ ] Disable optional OpenVINO Python telemetry for the offline runtime:
+  - Initial isolated native-check imports exposed a GA4 telemetry attempt without a consent file; it was blocked, and the test-root-only opt-out did not constitute a product fix.
+  - [x] Select the vendor's no-telemetry fallback before source runtime imports, without changing global consent/preferences.
+  - [x] Configure the equivalent frozen runtime hook and packaging exclusion.
+  - [x] Verify real fresh-process imports with no opt-out file, background network-attempt checks and independent review: 16 focused tests, included in the 85-test aggregate, PASS.
+  - [ ] Verify a rebuilt EXE in a later packaging gate; current published binaries are unchanged.
+  - Scope and evidence: [Optional OpenVINO telemetry](docs/offline-runtime-telemetry.md).
+  - [x] Integrate with NPU preparation on `features/next`; both regression groups and the guarded preparation subset pass together. [Integration evidence](docs/next-batch-integration.md).
 - [ ] Benchmark CPU vs NPU:
   - [x] Preliminary warm ASR benchmark on 9 live post-pre-roll debug WAV files:
     - CPU INT8 total: 10.643 seconds.

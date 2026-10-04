@@ -1,3 +1,7 @@
+from offline_runtime import disable_optional_telemetry
+
+disable_optional_telemetry()
+
 import argparse
 from bisect import bisect_left, bisect_right
 import json

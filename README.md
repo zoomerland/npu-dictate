@@ -199,6 +199,11 @@ The intended runtime flow is local:
 
 Network access is needed for first-time model download/preparation unless the models are already present locally. After that, normal dictation should not require internet access.
 
+The source preview disables optional OpenVINO Python telemetry inside its own
+process, using OpenVINO's built-in fallback. It does not change system-wide
+consent settings or disable the model downloader. This feature is not yet in
+the published alpha.5 binaries; see [scope and verification](docs/offline-runtime-telemetry.md).
+
 Local files that may contain private data:
 
 - `voice_dictation_config.json`
