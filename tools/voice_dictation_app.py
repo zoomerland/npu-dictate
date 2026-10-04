@@ -35,6 +35,7 @@ else:
     SOUNDDEVICE_IMPORT_ERROR = None
 
 from app_paths import app_root, bundled_resource_root, user_data_root
+import cache_maintenance
 from model_storage import StorageRefresh
 from model_setup import (
     artifact_manifest_cache_path,
@@ -115,6 +116,26 @@ TRANSLATIONS = {
         "storage_unavailable": "Sizes unavailable: models folder is missing, inaccessible, or redirected.",
         "storage_bytes": "bytes",
         "storage_units": "KiB MiB GiB TiB",
+        "cache_clear": "Schedule cache cleanup...",
+        "cache_cancel": "Cancel scheduled cleanup",
+        "cache_notice": "Compiled-cache cleanup runs on the next normal launch, not now. Model weights and Hugging Face caches remain; compilation and warmup will run again. No automatic restart.",
+        "cache_confirm_title": "Compiled cache cleanup",
+        "cache_confirm": "Schedule removal of only this app's compiled cache on the next normal launch? Model weights and Hugging Face caches remain. Compilation and warmup will repeat; the app will not restart now.",
+        "cache_state_none": "No cache cleanup scheduled.",
+        "cache_state_pending": "Compiled cache cleanup scheduled for the next normal launch.",
+        "cache_state_cancelled": "Scheduled cache cleanup cancelled.",
+        "cache_state_cleared": "Compiled cache cleared: {files} files, {dirs} folders removed.",
+        "cache_state_missing": "Cache cleanup finished: no compiled-cache folder found; nothing removed.",
+        "cache_state_running": "Previous cache cleanup was interrupted. No automatic retry.",
+        "cache_state_failed": "Cache cleanup failed: {reason}. Removed: {files} files, {dirs} folders. No automatic purge retry after a consumed request.",
+        "cache_reason_unsafe_path": "unsafe or redirected path",
+        "cache_reason_readonly": "read-only entry",
+        "cache_reason_limit": "scan or time limit reached",
+        "cache_reason_changed": "files or state changed during the operation",
+        "cache_reason_cache_io": "cache access or removal error",
+        "cache_reason_state_io": "could not read or save the request/result",
+        "cache_reason_invalid_state": "invalid request/result file",
+        "cache_startup_confirm": "{status}\n\nContinue this launch using the remaining compiled cache? Choose No to stop before model loading. Cleanup will not be retried during this launch.",
         "model_status_installed": "downloaded",
         "model_status_missing": "needs download",
         "model_status_asr": "Speech files",
@@ -287,6 +308,26 @@ TRANSLATIONS = {
         "storage_unavailable": "Размеры недоступны: папка моделей отсутствует, недоступна или перенаправлена.",
         "storage_bytes": "байт",
         "storage_units": "КиБ МиБ ГиБ ТиБ",
+        "cache_clear": "Запланировать очистку...",
+        "cache_cancel": "Отменить очистку кеша",
+        "cache_notice": "Очистка кеша компиляции выполняется при следующем обычном запуске, не сейчас. Веса моделей и кеши Hugging Face сохраняются; компиляция и прогрев повторятся. Автоматического перезапуска нет.",
+        "cache_confirm_title": "Очистка кеша компиляции",
+        "cache_confirm": "Запланировать удаление только кеша компиляции этого приложения при следующем обычном запуске? Веса моделей и кеши Hugging Face сохраняются. Компиляция и прогрев повторятся; сейчас приложение не перезапустится.",
+        "cache_state_none": "Очистка кеша не запланирована.",
+        "cache_state_pending": "Очистка кеша компиляции запланирована на следующий обычный запуск.",
+        "cache_state_cancelled": "Запланированная очистка кеша отменена.",
+        "cache_state_cleared": "Кеш компиляции очищен: удалено файлов: {files}, папок: {dirs}.",
+        "cache_state_missing": "Очистка завершена: папка кеша компиляции отсутствует; ничего не удалено.",
+        "cache_state_running": "Предыдущая очистка кеша была прервана. Автоматического повтора нет.",
+        "cache_state_failed": "Ошибка очистки кеша: {reason}. Удалено файлов: {files}, папок: {dirs}. После принятия задания автоматического повтора удаления нет.",
+        "cache_reason_unsafe_path": "небезопасный или перенаправленный путь",
+        "cache_reason_readonly": "запись доступна только для чтения",
+        "cache_reason_limit": "достигнут предел сканирования или времени",
+        "cache_reason_changed": "файлы или состояние изменились во время операции",
+        "cache_reason_cache_io": "ошибка доступа к кешу или удаления",
+        "cache_reason_state_io": "не удалось прочитать или сохранить задание/результат",
+        "cache_reason_invalid_state": "некорректный файл задания/результата",
+        "cache_startup_confirm": "{status}\n\nПродолжить этот запуск с оставшимся кешем компиляции? Нажмите «Нет», чтобы остановиться до загрузки моделей. В этом запуске очистка не будет повторяться.",
         "model_status_installed": "скачано",
         "model_status_missing": "нужно скачать",
         "model_status_asr": "Файлы распознавания",
@@ -1376,6 +1417,29 @@ def show_startup_error(message):
         except Exception as exc:
             log_debug(f"startup error dialog failed error={type(exc).__name__}")
     print(f"{APP_NAME}: {message}", file=sys.stderr)
+
+
+def cache_state_text(result, language="en"):
+    texts = TRANSLATIONS[normalize_ui_language(language)]
+    return texts[f"cache_state_{result.state}"].format(
+        files=result.deleted_files, dirs=result.deleted_dirs,
+        reason=texts.get(f"cache_reason_{result.reason}", texts["cache_reason_cache_io"]),
+    )
+
+
+def confirm_cache_startup(result):
+    try:
+        language = json.loads(config_path().read_text(encoding="utf-8-sig")).get("ui_language", "en")
+    except (OSError, UnicodeError, ValueError, AttributeError):
+        language = "en"
+    language = normalize_ui_language(language)
+    texts = TRANSLATIONS[language]
+    message = texts["cache_startup_confirm"].format(status=cache_state_text(result, language))
+    try:
+        return bool(messagebox.askyesno(texts["cache_confirm_title"], message, icon="warning", default="no"))
+    except (tk.TclError, OSError):
+        show_startup_error(message)
+        return False
 
 
 def token_from_virtual_key(vk):
@@ -3959,7 +4023,8 @@ class DictationEngine:
 
 
 class VoiceDictationApp:
-    def __init__(self):
+    def __init__(self, cache_maintenance_result=None):
+        self.cache_maintenance_result = cache_maintenance_result or cache_maintenance.CacheState()
         self.cfg = load_config()
         self.cfg["ui_language"] = normalize_ui_language(self.cfg.get("ui_language", "en"))
         self.cfg["start_with_windows"] = is_startup_enabled()
@@ -4659,6 +4724,9 @@ class VoiceDictationApp:
         if refresh is not None:
             refresh()
         self.refresh_model_progress()
+        refresh = getattr(self, "settings_refresh_cache", None)
+        if refresh is not None:
+            refresh()
 
     def dispatch(self, action):
         self.event_queue.put(("action", action))
@@ -5332,6 +5400,7 @@ class VoiceDictationApp:
                 self.settings_i18n_tabs = []
                 self.settings_refresh_models = None
                 self.settings_refresh_storage = None
+                self.settings_refresh_cache = None
                 storage = getattr(self, "model_storage", None)
                 if storage is not None:
                     storage.close()
@@ -5441,6 +5510,47 @@ class VoiceDictationApp:
                 storage.request()
                 storage.tick()
             refresh_storage_text()
+
+        cache_text = tk.StringVar(value="")
+        cache_widgets = []
+        cache_buttons = {}
+        if not hasattr(self, "cache_maintenance_result"):
+            self.cache_maintenance_result = cache_maintenance.read_state(user_data_root())
+        self.cache_maintenance_pending = cache_maintenance.read_state(user_data_root()).state == "pending"
+
+        def refresh_cache_text(*_):
+            language = settings_ui_language_code()
+            for widget, key in cache_widgets:
+                widget.configure(text=settings_t(key))
+            result = self.cache_maintenance_result
+            cache_text.set(cache_state_text(result, language))
+            if cache_buttons:
+                pending = self.cache_maintenance_pending
+                cache_buttons["clear"].configure(state="disabled" if pending else "normal")
+                cache_buttons["cancel"].configure(state="normal" if pending else "disabled")
+
+        def schedule_cache_clear():
+            try:
+                confirmed = messagebox.askyesno(settings_t("cache_confirm_title"), settings_t("cache_confirm"),
+                                              parent=win, icon="warning", default="no")
+            except (tk.TclError, OSError):
+                self.cache_maintenance_result = cache_maintenance.CacheState("failed", "state_io")
+                refresh_cache_text()
+                return
+            if confirmed:
+                root = user_data_root()
+                self.cache_maintenance_result = cache_maintenance.schedule_clear(root)
+                self.cache_maintenance_pending = cache_maintenance.read_state(root).state == "pending"
+                refresh_cache_text()
+
+        def cancel_cache_clear():
+            root = user_data_root()
+            self.cache_maintenance_result = cache_maintenance.cancel_clear(root)
+            self.cache_maintenance_pending = cache_maintenance.read_state(root).state == "pending"
+            refresh_cache_text()
+
+        self.settings_refresh_cache = refresh_cache_text
+        ui_language.trace_add("write", refresh_cache_text)
 
         def refresh_model_status_texts(*_):
             language = settings_ui_language_code()
@@ -5941,6 +6051,22 @@ class VoiceDictationApp:
         storage_button.grid(row=row, column=0, columnspan=2, sticky="w", pady=6)
         storage_widgets.append((storage_button, "storage_refresh"))
 
+        row += 1
+        cache_notice = i18n_label(models_section, "cache_notice", style="SettingsHint.TLabel", wraplength=scaled(760), justify="left")
+        cache_notice.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(12, 6))
+        cache_widgets.append((cache_notice, "cache_notice"))
+        row += 1
+        ttk.Label(models_section, textvariable=cache_text, wraplength=scaled(760), justify="left").grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=6
+        )
+        for name, key, command in (("clear", "cache_clear", schedule_cache_clear), ("cancel", "cache_cancel", cancel_cache_clear)):
+            row += 1
+            button = i18n_button(models_section, key, command=command)
+            button.grid(row=row, column=0, columnspan=2, sticky="ew", pady=6)
+            cache_widgets.append((button, key))
+            cache_buttons[name] = button
+        refresh_cache_text()
+
         overlay_section = settings_section("settings_section_overlay")
 
         row = 0
@@ -6263,7 +6389,10 @@ def main():
         with SingleInstanceLock(SINGLE_INSTANCE_MUTEX_NAME) as single_instance:
             if not single_instance.acquired:
                 return 0
-            app = VoiceDictationApp()
+            maintenance = cache_maintenance.run_pending(user_data_root())
+            if maintenance.needs_ack and not confirm_cache_startup(maintenance):
+                return 1
+            app = VoiceDictationApp(cache_maintenance_result=maintenance)
             app.run()
     except SingleInstanceInitializationError as exc:
         try:

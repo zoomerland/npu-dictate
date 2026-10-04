@@ -14,6 +14,10 @@ def checked_path(name):
         raise ValueError(f"Unsafe payload path: {name}")
     if any(part in {".hf", ".git", ".venv", "recordings", ".manifests", "hf_export"} for part in parts):
         raise ValueError(f"Private payload path: {name}")
+    if any(part.startswith("compiled-cache-maintenance.json")
+           or re.fullmatch(r"\.compiled-cache-maintenance-.*\.tmp(?:[.~].*)?", part)
+           for part in parts):
+        raise ValueError(f"Runtime maintenance payload path: {name}")
     for index, part in enumerate(parts):
         if part == "models" and parts[:index + 1] not in {
             ("_internal", "transformers", "models"), ("_internal", "onnx_asr", "models")

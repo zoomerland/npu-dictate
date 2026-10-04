@@ -17,8 +17,52 @@ class PayloadTests(unittest.TestCase):
     def test_public_resources_and_runtime_libraries_are_allowed(self):
         for name in ("NPUDictate.exe", "_internal/voice_dictation_config.example.json",
                      "_internal/openvino/libs/cache.json", "_internal/torch/lib/cpu.bin",
+                     "tools/cache_maintenance.py", "_internal/cache_maintenance.pyc",
                      "_internal/transformers/models/auto/config.json", "_internal/onnx_asr/models/vocab.txt"):
             self.assertEqual(checked_path(name), name)
+
+    def test_runtime_maintenance_names_are_rejected_case_insensitively_at_any_depth(self):
+        names = ("compiled-cache-maintenance.json", "COMPILED-CACHE-MAINTENANCE.JSON",
+                 "compiled-cache-maintenance.json.bak", "compiled-cache-maintenance.json~",
+                 ".compiled-cache-maintenance-abc123.tmp", ".COMPILED-CACHE-MAINTENANCE-AbC.TMP",
+                 ".compiled-cache-maintenance-abc.tmp.bak", ".compiled-cache-maintenance-abc.tmp~")
+        for name in names:
+            for prefix in ("", "_internal/state/", "_internal/transformers/models/custom/"):
+                for path in (prefix + name, prefix + name + "/child.bin", (prefix + name).replace("/", "\\")):
+                    with self.subTest(path=path), self.assertRaises(ValueError):
+                        checked_path(path)
+
+    def test_maintenance_contaminated_folder_and_zip_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "app"
+            root.mkdir()
+            (root / "NPUDictate.exe").write_bytes(b"synthetic exe")
+            names = ("compiled-cache-maintenance.json", "deep/COMPILED-CACHE-MAINTENANCE.JSON.bak",
+                     "deep/.COMPILED-CACHE-MAINTENANCE-AbC.TMP", "deep/.compiled-cache-maintenance-abc.tmp.bak")
+            for name in names:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"synthetic runtime state")
+                with self.subTest(folder=name), self.assertRaises(ValueError):
+                    inventory(app_dir=root)
+                zipped = Path(temp) / "contaminated.zip"
+                with zipfile.ZipFile(zipped, "w") as archive:
+                    archive.writestr("NPUDictate.exe", b"exe")
+                    archive.writestr(name, b"synthetic runtime state")
+                with self.subTest(archive=name), self.assertRaises(ValueError):
+                    inventory(archive=zipped)
+                path.unlink()
+
+    def test_app_root_maintenance_ignore_patterns_without_creating_state(self):
+        root = Path(__file__).resolve().parents[1]
+        names = ("compiled-cache-maintenance.json", ".compiled-cache-maintenance-abc.tmp",
+                 "nested/compiled-cache-maintenance.json", "nested/.compiled-cache-maintenance-abc.tmp",
+                 "tools/cache_maintenance.py")
+        result = subprocess.run(["git", "check-ignore", "--no-index", "--stdin", "-z"],
+                                input=b"\0".join(name.encode("ascii") for name in names) + b"\0", cwd=root,
+                                capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.decode("ascii").split("\0")[:-1], list(names[:2]))
 
     def test_private_data_and_app_weights_are_rejected_at_any_depth(self):
         for suffix in ("voice_dictation_config.json", "voice_dictation_config.json.bak",

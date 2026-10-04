@@ -12,6 +12,8 @@ __pycache__/
 *.pyo
 
 voice_dictation_config.json
+/compiled-cache-maintenance.json
+/.compiled-cache-maintenance-*.tmp
 *.log
 
 .idea/
