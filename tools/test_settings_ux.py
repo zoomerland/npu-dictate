@@ -455,6 +455,7 @@ class SettingsTests(unittest.TestCase):
         with patch.object(app, "tk", fake_tk), patch.object(app, "ttk", fake_ttk), \
              patch.object(app, "input_devices", return_value=[]), \
              patch.object(app, "model_is_installed", side_effect=lambda *_args: installed["value"]), \
+             patch.object(app.VoiceDictationApp, "_open_model_storage", lambda _self: None), \
              patch.object(app, "save_config", lambda _cfg: None):
             ui.open_settings()
             widgets = list(FakeWidget.widgets)

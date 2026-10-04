@@ -35,6 +35,7 @@ else:
     SOUNDDEVICE_IMPORT_ERROR = None
 
 from app_paths import app_root, bundled_resource_root, user_data_root
+from model_storage import StorageRefresh
 from model_setup import (
     artifact_manifest_cache_path,
     asr_model_ready,
@@ -102,6 +103,18 @@ TRANSLATIONS = {
         "models_language_notice": "Dictation language: Russian only in this alpha. English, German, and French are planned next.",
         "models_download_notice": "Missing selected models are downloaded from Hugging Face on first use. Progress shows percent, speed, remaining size, and ETA.",
         "models_device_notice": "Disabled device choices are unsupported by the model or unavailable on this computer.",
+        "storage_title": "App-local model storage (logical file size)",
+        "storage_scope": "Only app-local models; excludes Hugging Face caches and other apps. Not physical disk allocation.",
+        "storage_models": "Model files",
+        "storage_cache": "Compiled cache",
+        "storage_incomplete": "Incomplete downloads",
+        "storage_refresh": "Refresh sizes",
+        "storage_measuring": "Measuring sizes...",
+        "storage_refreshing": "Refreshing sizes...",
+        "storage_partial": "Partial snapshot: some entries were skipped, changed, or the scan limit was reached ({issues}).",
+        "storage_unavailable": "Sizes unavailable: models folder is missing, inaccessible, or redirected.",
+        "storage_bytes": "bytes",
+        "storage_units": "KiB MiB GiB TiB",
         "model_status_installed": "downloaded",
         "model_status_missing": "needs download",
         "model_status_asr": "Speech files",
@@ -262,6 +275,18 @@ TRANSLATIONS = {
         "models_language_notice": "Язык диктовки: сейчас только русский. Английский, немецкий и французский запланированы следующими.",
         "models_download_notice": "Если выбранные модели не скачаны, приложение загрузит их с Hugging Face при первом использовании. В прогрессе будет процент, скорость, остаток и ETA.",
         "models_device_notice": "Неактивные устройства не поддерживаются моделью или недоступны на этом компьютере.",
+        "storage_title": "Модели приложения (логический размер файлов)",
+        "storage_scope": "Только локальные модели приложения; без кешей Hugging Face и других приложений. Не физически занятое место на диске.",
+        "storage_models": "Файлы моделей",
+        "storage_cache": "Кеш компиляции",
+        "storage_incomplete": "Незавершённые загрузки",
+        "storage_refresh": "Обновить размеры",
+        "storage_measuring": "Измерение размеров...",
+        "storage_refreshing": "Обновление размеров...",
+        "storage_partial": "Неполный снимок: часть записей пропущена, изменилась или достигнут предел сканирования ({issues}).",
+        "storage_unavailable": "Размеры недоступны: папка моделей отсутствует, недоступна или перенаправлена.",
+        "storage_bytes": "байт",
+        "storage_units": "КиБ МиБ ГиБ ТиБ",
         "model_status_installed": "скачано",
         "model_status_missing": "нужно скачать",
         "model_status_asr": "Файлы распознавания",
@@ -4660,7 +4685,15 @@ class VoiceDictationApp:
                     f"audio={duration:.2f}s asr={asr_sec:.3f}s punct={punct_sec:.3f}s raw={raw_text} final={final_text}",
                     flush=True,
                 )
+            elif item[0] == "model_storage":
+                storage = getattr(self, "model_storage", None)
+                if storage is not None and storage.complete(item[1], item[2]):
+                    self.refresh_model_storage()
 
+        storage = getattr(self, "model_storage", None)
+        if storage is not None:
+            storage.tick()
+            self.refresh_model_storage()
         self.root.after(50, self.poll_events)
 
     def track_foreground(self):
@@ -4862,6 +4895,21 @@ class VoiceDictationApp:
                 bar.configure(mode="determinate", value=100 if status == "Ready" else 0)
         refresh = getattr(self, "settings_refresh_models", None)
         if refresh is not None and (status.startswith(("Loading", "Verifying", "Load error", "ASR preparation failed", "Punct preparation failed")) or status in {"Ready", "Ready - warmup deferred", "Punctuation unavailable"}):
+            refresh()
+        storage = getattr(self, "model_storage", None)
+        if storage is not None and (is_preparation_status(status) or status.startswith(("Loading", "Downloading", "Verifying", "Converting", "Preparing", "Retrying", "Load error", "ASR preparation failed", "Punct preparation failed")) or status in {"Ready", "Ready - warmup deferred", "Punctuation unavailable"}):
+            storage.request()
+
+    def _open_model_storage(self):
+        storage = getattr(self, "model_storage", None)
+        if storage is None:
+            storage = self.model_storage = StorageRefresh(self.event_queue.put)
+        storage.open(user_data_root() / "models")
+        self.refresh_model_storage()
+
+    def refresh_model_storage(self):
+        refresh = getattr(self, "settings_refresh_storage", None)
+        if refresh is not None:
             refresh()
 
     def update_status(self, status):
@@ -5143,6 +5191,7 @@ class VoiceDictationApp:
         self.settings_i18n_tabs = []
         self.settings_error_var = tk.StringVar(value="")
         self.settings_model_progress_var = tk.StringVar(value=self.localize_status(getattr(self, "model_load_status", "Loading models")))
+        storage_text = tk.StringVar(value="")
         win.title(f"{APP_NAME} {self.t('settings_title')}")
         win.attributes("-topmost", True)
         win.resizable(True, True)
@@ -5260,6 +5309,10 @@ class VoiceDictationApp:
                 self.settings_i18n_choices = []
                 self.settings_i18n_tabs = []
                 self.settings_refresh_models = None
+                self.settings_refresh_storage = None
+                storage = getattr(self, "model_storage", None)
+                if storage is not None:
+                    storage.close()
                 self.settings_model_progress_var = None
                 self.settings_model_progress_bar = None
                 self.settings_refresh_navigation = None
@@ -5314,6 +5367,58 @@ class VoiceDictationApp:
 
         def settings_ui_language_code():
             return normalize_ui_language(UI_LANGUAGE_BY_NAME.get(ui_language.get(), ui_lang_code))
+
+        storage_widgets = []
+        storage_label_language = None
+
+        def refresh_storage_text(*_):
+            nonlocal storage_label_language
+            storage = getattr(self, "model_storage", None)
+            snapshot = storage.snapshot if storage is not None else None
+            language = settings_ui_language_code()
+            if storage_label_language != language:
+                for widget, key in storage_widgets:
+                    widget.configure(text=settings_t(key))
+                storage_label_language = language
+            if snapshot is None:
+                text = settings_t("storage_measuring")
+            elif snapshot.state == "unavailable":
+                text = settings_t("storage_unavailable")
+            else:
+                lines = []
+                for key, size in (("storage_models", snapshot.model_bytes),
+                                  ("storage_cache", snapshot.cache_bytes),
+                                  ("storage_incomplete", snapshot.incomplete_bytes)):
+                    number = f"{size:,}".replace(",", " ")
+                    value = f"{number} {settings_t('storage_bytes')}"
+                    if size >= 1024:
+                        amount = size / 1024
+                        for unit in settings_t("storage_units").split():
+                            if amount < 1024 or unit == settings_t("storage_units").split()[-1]:
+                                decimal = f"{amount:.1f}"
+                                if language == "ru":
+                                    decimal = decimal.replace(".", ",")
+                                value += f" ({decimal} {unit})"
+                                break
+                            amount /= 1024
+                    lines.append(f"{settings_t(key)}: {value}")
+                if snapshot.state == "partial":
+                    lines.append(settings_t("storage_partial").format(issues=snapshot.issues))
+                text = "\n".join(lines)
+            if snapshot is not None and storage is not None and (storage.running or storage.pending):
+                text += "\n" + settings_t("storage_refreshing")
+            if storage_text.get() != text:
+                storage_text.set(text)
+
+        self.settings_refresh_storage = refresh_storage_text
+        ui_language.trace_add("write", refresh_storage_text)
+
+        def request_storage_refresh():
+            storage = getattr(self, "model_storage", None)
+            if storage is not None:
+                storage.request()
+                storage.tick()
+            refresh_storage_text()
 
         def refresh_model_status_texts(*_):
             language = settings_ui_language_code()
@@ -5800,6 +5905,20 @@ class VoiceDictationApp:
         i18n_button(models_section, "retry_models", command=self.retry_model_loading).grid(row=row, column=0, columnspan=2, sticky="w", pady=6)
         self.refresh_model_progress()
 
+        for key, style in (("storage_title", "TLabel"), ("storage_scope", "SettingsHint.TLabel")):
+            row += 1
+            label = i18n_label(models_section, key, style=style, wraplength=scaled(760), justify="left")
+            label.grid(row=row, column=0, columnspan=2, sticky="ew", pady=6)
+            storage_widgets.append((label, key))
+        row += 1
+        ttk.Label(models_section, textvariable=storage_text, wraplength=scaled(760), justify="left").grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=6
+        )
+        row += 1
+        storage_button = i18n_button(models_section, "storage_refresh", command=request_storage_refresh)
+        storage_button.grid(row=row, column=0, columnspan=2, sticky="w", pady=6)
+        storage_widgets.append((storage_button, "storage_refresh"))
+
         overlay_section = settings_section("settings_section_overlay")
 
         row = 0
@@ -5959,6 +6078,7 @@ class VoiceDictationApp:
         refresh_stop_without_enter_checkbox()
         refresh_navigation()
         dirty.set(False)
+        self._open_model_storage()
 
     def settings_error(self, status):
         if hasattr(self, "settings_error_var"):
@@ -6069,6 +6189,9 @@ class VoiceDictationApp:
         self._finalize_exit()
 
     def _finalize_exit(self):
+        storage = getattr(self, "model_storage", None)
+        if storage is not None:
+            storage.close()
         if self.exit_poll_after_id is not None:
             try:
                 self.root.after_cancel(self.exit_poll_after_id)
